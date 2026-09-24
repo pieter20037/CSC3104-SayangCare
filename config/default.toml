@@ -1,0 +1,24 @@
+[server]
+host = "0.0.0.0"
+port = 8080
+workers = 4
+
+[redis]
+sentinel_endpoints = ["redis-sentinel-0:26379", "redis-sentinel-1:26379", "redis-sentinel-2:26379"]
+master_name = "sayangcare-master"
+pool_size = 16
+
+[postgres]
+url = "postgres://sayangcare:changeme@postgres:5432/sayangcare"
+max_connections = 20
+
+[circuit_breaker]
+base_error_rate = 0.25
+base_latency_ms = 2000
+min_requests = 20
+half_open_after_secs = 10
+
+[telephony]
+twilio_account_sid = ""
+twilio_auth_token = ""
+public_base_url = "https://sayangcare.example.com"

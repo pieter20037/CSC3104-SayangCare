@@ -1,0 +1,127 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sayangcare-api
+  namespace: sayangcare
+  labels: { app: sayangcare-api }
+spec:
+  type: ClusterIP
+  selector: { app: sayangcare-api }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sayangcare-api
+  namespace: sayangcare
+  labels: { app: sayangcare-api }
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0        # Never drop below desired during rollout
+  selector:
+    matchLabels: { app: sayangcare-api }
+  template:
+    metadata:
+      labels: { app: sayangcare-api }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Graceful shutdown: give in-flight calls time to drain before SIGKILL.
+      terminationGracePeriodSeconds: 30
+      # Spread replicas across nodes so a single node failure doesn't kill HA.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: sayangcare-api }
+      containers:
+        - name: api
+          image: ghcr.io/your-org/sayangcare-api:latest   # <-- change me
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: sayangcare-config
+            - secretRef:
+                name: sayangcare-secrets
+          # Health endpoint is trivial (no DB call) — safe to probe frequently.
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          # Pre-stop: unregister from Service before shutdown so no new
+          # sessions land on a pod that's about to die.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+          resources:
+            requests: { cpu: "250m", memory: "256Mi" }
+            limits:   { cpu: "1",    memory: "512Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop: ["ALL"]
+---
+# Never let voluntary disruptions (node drains, rollouts) drop below 2 pods.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sayangcare-api-pdb
+  namespace: sayangcare
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: sayangcare-api }
+---
+# Optional: Ingress. Uncomment once you have an ingress controller + TLS.
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: sayangcare-api
+#   namespace: sayangcare
+#   annotations:
+#     nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+#     cert-manager.io/cluster-issuer: letsencrypt-prod
+# spec:
+#   ingressClassName: nginx
+#   tls:
+#     - hosts: [sayangcare.example.com]
+#       secretName: sayangcare-tls
+#   rules:
+#     - host: sayangcare.example.com
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: sayangcare-api
+#                 port: { number: 80 }

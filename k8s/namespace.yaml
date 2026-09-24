@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sayangcare
+  labels:
+    # Enforce "restricted" pod security — good practice for a telehealth system.
+    # Drop to "baseline" if your images need privileged features.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    app.kubernetes.io/part-of: sayangcare
+---
+# Shared ConfigMap for non-secret config.
+# Mirrors config/default.toml so the same image works locally and in-cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sayangcare-config
+  namespace: sayangcare
+data:
+  SAYANGCARE__SERVER__HOST: "0.0.0.0"
+  SAYANGCARE__SERVER__PORT: "8080"
+  SAYANGCARE__SERVER__WORKERS: "4"
+
+  # Redis Sentinel (in-cluster DNS names)
+  SAYANGCARE__REDIS__SENTINEL_ENDPOINTS: '["redis-sentinel-0.redis-sentinel.sayangcare.svc.cluster.local:26379","redis-sentinel-1.redis-sentinel.sayangcare.svc.cluster.local:26379","redis-sentinel-2.redis-sentinel.sayangcare.svc.cluster.local:26379"]'
+  SAYANGCARE__REDIS__MASTER_NAME: "sayangcare-master"
+
+  # Postgres
+  SAYANGCARE__POSTGRES__URL: "postgres://sayangcare:changeme@postgres.sayangcare.svc.cluster.local:5432/sayangcare"
+  SAYANGCARE__POSTGRES__MAX_CONNECTIONS: "20"
+
+  # Circuit breaker defaults
+  SAYANGCARE__CIRCUIT_BREAKER__BASE_ERROR_RATE: "0.25"
+  SAYANGCARE__CIRCUIT_BREAKER__BASE_LATENCY_MS: "2000"
+  SAYANGCARE__CIRCUIT_BREAKER__MIN_REQUESTS: "20"
+  SAYANGCARE__CIRCUIT_BREAKER__HALF_OPEN_AFTER_SECS: "10"
+
+  # Telephony (non-secret bits)
+  SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL: "https://sayangcare.example.com"
+
+  RUST_LOG: "info,sayangcare=debug,actix_web=info"
+---
+# Placeholder for secrets. DO NOT commit real values.
+# In practice you create this imperatively:
+#   kubectl create secret generic sayangcare-secrets -n sayangcare \
+#     --from-literal=SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID=ACxxx \
+#     --from-literal=SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN=xxx \
+#     --from-literal=SAYANGCARE__LLM__API_KEY=sk-xxx
+#
+# This file just documents the required keys.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sayangcare-secrets
+  namespace: sayangcare
+type: Opaque
+stringData:
+  SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID: "REPLACE_ME"
+  SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN: "REPLACE_ME"
+  SAYANGCARE__LLM__API_KEY: "REPLACE_ME"

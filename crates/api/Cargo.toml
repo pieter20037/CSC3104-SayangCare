@@ -1,0 +1,32 @@
+[package]
+name = "sayangcare-api"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "sayangcare"
+path = "src/main.rs"
+
+[dependencies]
+sayangcare-core.workspace = true
+sayangcare-session-store.workspace = true
+sayangcare-circuit-breaker.workspace = true
+sayangcare-priority-queue.workspace = true
+sayangcare-telephony.workspace = true
+
+actix-web.workspace = true
+futures.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-actix-web.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+config.workspace = true
+dotenvy.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+sqlx.workspace = true
+redis.workspace = true
+tokio-util.workspace = true

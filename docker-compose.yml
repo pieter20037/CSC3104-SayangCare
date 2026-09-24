@@ -1,0 +1,50 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sayangcare
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: sayangcare
+    ports: ["5433:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sayangcare"]
+      interval: 5s
+      retries: 10
+
+  redis-master:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+
+  redis-replica:
+    image: redis:7-alpine
+    command: ["redis-server", "--replicaof", "redis-master", "6379"]
+    depends_on: [redis-master]
+
+  redis-sentinel:
+    image: redis:7-alpine
+    command: >
+      sh -c "echo 'port 26379
+      sentinel monitor sayangcare-master redis-master 6379 2
+      sentinel down-after-milliseconds sayangcare-master 5000
+      sentinel failover-timeout sayangcare-master 10000' > /etc/sentinel.conf &&
+      redis-sentinel /etc/sentinel.conf"
+    depends_on: [redis-master]
+    ports: ["26379:26379"]
+
+  api:
+    build: .
+    environment:
+      SAYANGCARE__POSTGRES__URL: postgres://sayangcare:changeme@postgres:5432/sayangcare
+      SAYANGCARE__REDIS__SENTINEL_ENDPOINTS: '["redis-sentinel:26379"]'
+      SAYANGCARE__REDIS__MASTER_NAME: sayangcare-master
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis-sentinel: { condition: service_started }
+
+volumes:
+  pgdata:

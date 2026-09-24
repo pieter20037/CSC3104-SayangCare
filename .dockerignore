@@ -1,0 +1,102 @@
+# =====================================================================
+# .dockerignore — SayangCare
+# =====================================================================
+# Controls what Docker sends to the build daemon.
+# NOT the same as .gitignore — Docker doesn't read .gitignore.
+# Any file here is excluded from `docker build` context.
+# =====================================================================
+
+# =====================================================================
+# 1. Rust build artifacts — THE BIG ONE (~1.5 GB)
+# =====================================================================
+target/
+**/target/
+**/*.rs.bk
+
+# =====================================================================
+# 2. Git metadata
+# =====================================================================
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# =====================================================================
+# 3. Secrets — never leak into an image
+# =====================================================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+k8s/secrets.yaml
+k8s/*-secret.yaml
+
+# =====================================================================
+# 4. IDE / editor state
+# =====================================================================
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# =====================================================================
+# 5. OS junk
+# =====================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =====================================================================
+# 6. Not needed at build time — kept out for speed
+# =====================================================================
+k8s/
+scripts/
+docs/
+*.md
+LICENSE
+
+# =====================================================================
+# 7. Coverage / benchmark artifacts
+# =====================================================================
+coverage/
+criterion/
+**/mutants.out*/
+tarpaulin-report.html
+
+# =====================================================================
+# 8. Local data / logs
+# =====================================================================
+*.log
+logs/
+tmp/
+pgdata/
+redis-data/
+docker/volumes/
+
+# =====================================================================
+# 9. Docker / compose files themselves
+# =====================================================================
+# The Dockerfile IS needed by build — do NOT ignore it.
+# docker-compose.yml isn't needed inside the image.
+docker-compose.yml
+docker-compose.*.yml
+
+# =====================================================================
+# 10. Rust tooling caches
+# =====================================================================
+.cargo/
+.rustup/
+
+# =====================================================================
+# IMPORTANT — do NOT ignore these (they must reach the build context):
+#   Cargo.toml
+#   Cargo.lock
+#   Dockerfile
+#   .sqlx/           (SQLx offline query cache)
+#   config/          (default.toml)
+#   migrations/      (SQL schema)
+#   crates/          (all workspace source)
+# =====================================================================
