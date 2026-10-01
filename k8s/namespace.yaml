@@ -40,22 +40,3 @@ data:
   SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL: "https://sayangcare.example.com"
 
   RUST_LOG: "info,sayangcare=debug,actix_web=info"
----
-# Placeholder for secrets. DO NOT commit real values.
-# In practice you create this imperatively:
-#   kubectl create secret generic sayangcare-secrets -n sayangcare \
-#     --from-literal=SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID=ACxxx \
-#     --from-literal=SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN=xxx \
-#     --from-literal=SAYANGCARE__LLM__API_KEY=sk-xxx
-#
-# This file just documents the required keys.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: sayangcare-secrets
-  namespace: sayangcare
-type: Opaque
-stringData:
-  SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID: "REPLACE_ME"
-  SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN: "REPLACE_ME"
-  SAYANGCARE__LLM__API_KEY: "REPLACE_ME"

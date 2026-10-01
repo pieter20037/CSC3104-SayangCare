@@ -5,7 +5,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: sayangcare
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: sayangcare
     ports: ["${POSTGRES_PORT:-5434}:5432"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
@@ -44,10 +44,12 @@ services:
   api:
     build: .
     environment:
-      SAYANGCARE__POSTGRES__URL: postgres://sayangcare:${POSTGRES_PASSWORD:-changeme}@postgres:5432/sayangcare
+      SAYANGCARE__POSTGRES__URL: postgres://sayangcare:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/sayangcare
       SAYANGCARE__REDIS__SENTINEL_ENDPOINTS: '["redis-sentinel:26379"]'
       SAYANGCARE__REDIS__MASTER_NAME: sayangcare-master
       SAYANGCARE__REDIS__QUEUE_URL: redis://redis-master:6379/
+      SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID: ${SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID:?Set SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID in .env}
+      SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN: ${SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN:?Set SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN in .env}
     ports: ["8080:8080"]
     depends_on:
       postgres: { condition: service_healthy }

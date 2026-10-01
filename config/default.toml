@@ -9,7 +9,6 @@ master_name = "sayangcare-master"
 pool_size = 16
 
 [postgres]
-url = "postgres://sayangcare:changeme@127.0.0.1:5434/sayangcare"
 max_connections = 20
 
 [circuit_breaker]
@@ -19,6 +18,4 @@ min_requests = 20
 half_open_after_secs = 10
 
 [telephony]
-twilio_account_sid = ""
-twilio_auth_token = ""
 public_base_url = "https://sayangcare.example.com"

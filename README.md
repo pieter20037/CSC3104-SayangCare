@@ -111,6 +111,8 @@ The repository ignores `.env` because it may contain credentials. Create it from
 cp .env.example .env
 ```
 
+Set your PostgreSQL password and Twilio credentials in `.env` before starting the API or Compose. The sample values are placeholders for local development; do not use them for a deployed service. The API requires the database URL and Twilio credentials from environment variables rather than `config/default.toml`.
+
 The checked-in local defaults use:
 
 - PostgreSQL: `127.0.0.1:5434`
@@ -270,7 +272,7 @@ Configuration is loaded in this order:
 2. Environment variables with the `SAYANGCARE__` prefix
 3. `.env` is loaded by the API binary for local development
 
-For local development, keep the PostgreSQL credentials and URL together in `.env`; the API environment override takes precedence over the non-secret fallback in `config/default.toml`. Docker Compose builds its internal URL from `POSTGRES_PASSWORD`. Kubernetes reads the password from `sayangcare-secrets` and constructs the API URL from that same secret.
+For local development, keep the PostgreSQL credentials and URL together in `.env`; the API requires the database URL and Twilio credentials from environment variables. Docker Compose builds its internal URL from `POSTGRES_PASSWORD`. Create the Kubernetes Secret from `.env`; workloads map only the required credential keys from that Secret.
 
 The double underscore maps environment variables to nested TOML sections. For example:
 
@@ -287,26 +289,26 @@ max_connections = 20
 
 Important settings:
 
-| Setting                                             | Local example                          | Purpose                           |
-| --------------------------------------------------- | -------------------------------------- | --------------------------------- |
-| `SAYANGCARE__SERVER__HOST`                          | `0.0.0.0`                              | HTTP bind address                 |
-| `SAYANGCARE__SERVER__PORT`                          | `8081`                                 | HTTP port                         |
-| `SAYANGCARE__SERVER__WORKERS`                       | `4`                                    | Actix worker count                |
-| `SAYANGCARE__POSTGRES__URL`                         | `...@127.0.0.1:5434/...`               | PostgreSQL connection URL         |
-| `SAYANGCARE__POSTGRES__MAX_CONNECTIONS`             | `20`                                   | PostgreSQL pool limit             |
-| `SAYANGCARE__REDIS__SENTINEL_ENDPOINTS`             | `["127.0.0.1:26379"]`                  | Sentinel endpoint list            |
-| `SAYANGCARE__REDIS__MASTER_NAME`                    | `sayangcare-master`                    | Sentinel master name              |
-| `SAYANGCARE__REDIS__MASTER_URL`                      | `redis://127.0.0.1:6379/`               | Optional direct session-store URL; set for native local development |
-| `SAYANGCARE__REDIS__QUEUE_URL`                       | `redis://127.0.0.1:6379/`               | Redis endpoint used by the priority queue |
-| `SAYANGCARE__REDIS__PASSWORD`                       | unset locally                          | Redis password, if enabled        |
-| `SAYANGCARE__CIRCUIT_BREAKER__BASE_ERROR_RATE`      | `0.25`                                 | Base error threshold              |
-| `SAYANGCARE__CIRCUIT_BREAKER__BASE_LATENCY_MS`      | `2000`                                 | Base latency threshold            |
-| `SAYANGCARE__CIRCUIT_BREAKER__MIN_REQUESTS`         | `20`                                   | Minimum samples before evaluation |
-| `SAYANGCARE__CIRCUIT_BREAKER__HALF_OPEN_AFTER_SECS` | `10`                                   | Open-to-half-open delay           |
-| `SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID`         | test value locally                     | Twilio account identifier         |
-| `SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN`          | test value locally                     | Twilio credential                 |
-| `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8081`                | Public URL used in TwiML actions  |
-| `RUST_LOG`                                          | `info,sayangcare=debug,actix_web=info` | Log filter                        |
+| Setting                                             | Local example                          | Purpose                                                             |
+| --------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------- |
+| `SAYANGCARE__SERVER__HOST`                          | `0.0.0.0`                              | HTTP bind address                                                   |
+| `SAYANGCARE__SERVER__PORT`                          | `8081`                                 | HTTP port                                                           |
+| `SAYANGCARE__SERVER__WORKERS`                       | `4`                                    | Actix worker count                                                  |
+| `SAYANGCARE__POSTGRES__URL`                         | `...@127.0.0.1:5434/...`               | PostgreSQL connection URL                                           |
+| `SAYANGCARE__POSTGRES__MAX_CONNECTIONS`             | `20`                                   | PostgreSQL pool limit                                               |
+| `SAYANGCARE__REDIS__SENTINEL_ENDPOINTS`             | `["127.0.0.1:26379"]`                  | Sentinel endpoint list                                              |
+| `SAYANGCARE__REDIS__MASTER_NAME`                    | `sayangcare-master`                    | Sentinel master name                                                |
+| `SAYANGCARE__REDIS__MASTER_URL`                     | `redis://127.0.0.1:6379/`              | Optional direct session-store URL; set for native local development |
+| `SAYANGCARE__REDIS__QUEUE_URL`                      | `redis://127.0.0.1:6379/`              | Redis endpoint used by the priority queue                           |
+| `SAYANGCARE__REDIS__PASSWORD`                       | unset locally                          | Redis password, if enabled                                          |
+| `SAYANGCARE__CIRCUIT_BREAKER__BASE_ERROR_RATE`      | `0.25`                                 | Base error threshold                                                |
+| `SAYANGCARE__CIRCUIT_BREAKER__BASE_LATENCY_MS`      | `2000`                                 | Base latency threshold                                              |
+| `SAYANGCARE__CIRCUIT_BREAKER__MIN_REQUESTS`         | `20`                                   | Minimum samples before evaluation                                   |
+| `SAYANGCARE__CIRCUIT_BREAKER__HALF_OPEN_AFTER_SECS` | `10`                                   | Open-to-half-open delay                                             |
+| `SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID`         | test value locally                     | Twilio account identifier                                           |
+| `SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN`          | test value locally                     | Twilio credential                                                   |
+| `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8081`                | Public URL used in TwiML actions                                    |
+| `RUST_LOG`                                          | `info,sayangcare=debug,actix_web=info` | Log filter                                                          |
 
 Never commit real Twilio, LLM, database, or Redis credentials. Use Kubernetes Secrets or an external secret manager for deployed environments.
 
@@ -504,21 +506,18 @@ The Compose API uses PostgreSQL, Sentinel, and Redis service hostnames on the Co
 
 The manifests target a namespace called `sayangcare` and include:
 
-- A namespace and shared ConfigMap/Secret definitions in `k8s/namespace.yaml`
+- A namespace and shared ConfigMap in `k8s/namespace.yaml`
 - A three-replica API Deployment and ClusterIP Service in `k8s/app-deployment.yaml`
 - A PostgreSQL StatefulSet with a 5 GiB PVC in `k8s/postgres.yaml`
 - Three Redis pods plus three Sentinel pods in `k8s/redis-sentinel.yaml`
 - An HPA targeting CPU and `active_voice_sessions` in `k8s/hpa.yaml`
 
-Create the namespace/configuration and secret:
+Create the namespace/configuration, then create the Secret from your ignored `.env` file:
 
 ```bash
 kubectl apply -f k8s/namespace.yaml
 kubectl create secret generic sayangcare-secrets -n sayangcare \
-	--from-literal=SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID='ACxxx' \
-	--from-literal=SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN='replace-me' \
-	--from-literal=SAYANGCARE__POSTGRES__PASSWORD='replace-me' \
-	--from-literal=SAYANGCARE__LLM__API_KEY='replace-me'
+	--from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 Before deploying, replace the placeholder image in `k8s/app-deployment.yaml`:

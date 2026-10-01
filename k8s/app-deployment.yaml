@@ -24,7 +24,7 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
-      maxUnavailable: 0        # Never drop below desired during rollout
+      maxUnavailable: 0 # Never drop below desired during rollout
   selector:
     matchLabels: { app: sayangcare-api }
   template:
@@ -46,7 +46,7 @@ spec:
             matchLabels: { app: sayangcare-api }
       containers:
         - name: api
-          image: ghcr.io/your-org/sayangcare-api:latest   # <-- change me
+          image: ghcr.io/your-org/sayangcare-api:latest # <-- change me
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -56,14 +56,22 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: sayangcare-secrets
-                  key: SAYANGCARE__POSTGRES__PASSWORD
+                  key: POSTGRES_PASSWORD
             - name: SAYANGCARE__POSTGRES__URL
               value: "postgres://sayangcare:$(SAYANGCARE__POSTGRES__PASSWORD)@postgres.sayangcare.svc.cluster.local:5432/sayangcare"
+            - name: SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID
+              valueFrom:
+                secretKeyRef:
+                  name: sayangcare-secrets
+                  key: SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID
+            - name: SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sayangcare-secrets
+                  key: SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN
           envFrom:
             - configMapRef:
                 name: sayangcare-config
-            - secretRef:
-                name: sayangcare-secrets
           # Health endpoint is trivial (no DB call) — safe to probe frequently.
           livenessProbe:
             httpGet:
@@ -89,7 +97,7 @@ spec:
                 command: ["/bin/sh", "-c", "sleep 5"]
           resources:
             requests: { cpu: "250m", memory: "256Mi" }
-            limits:   { cpu: "1",    memory: "512Mi" }
+            limits: { cpu: "1", memory: "512Mi" }
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

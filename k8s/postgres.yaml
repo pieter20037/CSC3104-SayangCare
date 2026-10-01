@@ -28,7 +28,7 @@ spec:
       labels: { app: postgres }
     spec:
       securityContext:
-        fsGroup: 999        # postgres user in the official image
+        fsGroup: 999 # postgres user in the official image
       containers:
         - name: postgres
           image: postgres:16-alpine
@@ -44,7 +44,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: sayangcare-secrets
-                  key: SAYANGCARE__POSTGRES__PASSWORD
+                  key: POSTGRES_PASSWORD
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           volumeMounts:
@@ -68,7 +68,7 @@ spec:
             periodSeconds: 5
           resources:
             requests: { cpu: "250m", memory: "256Mi" }
-            limits:   { cpu: "1",    memory: "1Gi" }
+            limits: { cpu: "1", memory: "1Gi" }
   volumeClaimTemplates:
     - metadata:
         name: data
