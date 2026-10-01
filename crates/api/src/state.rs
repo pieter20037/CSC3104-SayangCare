@@ -27,6 +27,7 @@ impl AppState {
     pub async fn bootstrap(config: AppConfig) -> CoreResult<Self> {
         // --- Hot store (Redis Sentinel) ---
         let hot = RedisSessionStore::new(
+            config.redis.master_url.as_deref(),
             &config.redis.sentinel_endpoints,
             &config.redis.master_name,
             config.redis.password.as_deref(),
@@ -69,7 +70,13 @@ impl AppState {
         ));
 
         // --- Priority queue (reuses Redis) ---
-        let redis_client = redis::Client::open("redis://127.0.0.1/")
+        let queue_url = config
+            .redis
+            .queue_url
+            .as_deref()
+            .or(config.redis.master_url.as_deref())
+            .unwrap_or("redis://127.0.0.1:6379/");
+        let redis_client = redis::Client::open(queue_url)
             .map_err(|e| sayangcare_core::CoreError::Storage(format!("redis: {e}")))?;
         let redis_mgr = redis::aio::ConnectionManager::new(redis_client)
             .await

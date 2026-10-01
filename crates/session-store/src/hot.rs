@@ -15,30 +15,35 @@ pub struct RedisSessionStore {
 
 impl RedisSessionStore {
     pub async fn new(
+        master_url: Option<&str>,
         sentinel_endpoints: &[String],
         master_name: &str,
         password: Option<&str>,
     ) -> CoreResult<Self> {
-        // Build sentinel connection string
-        let sentinel_urls: Vec<String> = sentinel_endpoints
-            .iter()
-            .map(|e| format!("redis://{}/", e))
-            .collect();
+        let client = if let Some(master_url) = master_url {
+            redis::Client::open(master_url)
+                .map_err(|e| CoreError::Storage(format!("redis direct client: {e}")))?
+        } else {
+            let sentinel_urls: Vec<String> = sentinel_endpoints
+                .iter()
+                .map(|endpoint| format!("redis://{endpoint}/"))
+                .collect();
 
-        let node_info = SentinelNodeConnectionInfo {
-            redis_connection_info: password.map(|password| RedisConnectionInfo {
-                password: Some(password.to_string()),
+            let node_info = SentinelNodeConnectionInfo {
+                redis_connection_info: password.map(|password| RedisConnectionInfo {
+                    password: Some(password.to_string()),
+                    ..Default::default()
+                }),
                 ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let mut sentinel = Sentinel::build(sentinel_urls)
-        .map_err(|e| CoreError::Storage(format!("sentinel init: {e}")))?;
+            };
+            let mut sentinel = Sentinel::build(sentinel_urls)
+                .map_err(|e| CoreError::Storage(format!("sentinel init: {e}")))?;
 
-        let client = sentinel
-            .async_master_for(master_name, Some(&node_info))
-            .await
-            .map_err(|e| CoreError::Storage(format!("sentinel master: {e}")))?;
+            sentinel
+                .async_master_for(master_name, Some(&node_info))
+                .await
+                .map_err(|e| CoreError::Storage(format!("sentinel master: {e}")))?
+        };
 
         let mgr = ConnectionManager::new_with_config(
             client,

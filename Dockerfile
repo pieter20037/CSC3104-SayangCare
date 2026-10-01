@@ -52,6 +52,13 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
+        cargo clean --release \
+            -p sayangcare-api \
+            -p sayangcare-core \
+            -p sayangcare-session-store \
+            -p sayangcare-circuit-breaker \
+            -p sayangcare-priority-queue \
+            -p sayangcare-telephony && \
     cargo build --release --bin sayangcare && \
     cp target/release/sayangcare /app/sayangcare
 

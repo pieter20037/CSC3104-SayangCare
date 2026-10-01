@@ -9,7 +9,7 @@ master_name = "sayangcare-master"
 pool_size = 16
 
 [postgres]
-url = "postgres://sayangcare:changeme@postgres:5432/sayangcare"
+url = "postgres://sayangcare:changeme@127.0.0.1:5434/sayangcare"
 max_connections = 20
 
 [circuit_breaker]

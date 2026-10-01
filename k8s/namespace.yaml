@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/part-of: sayangcare
 ---
 # Shared ConfigMap for non-secret config.
-# Mirrors config/default.toml so the same image works locally and in-cluster.
+# Shared non-secret settings; the API database URL is assembled from a Secret.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -25,9 +25,9 @@ data:
   # Redis Sentinel (in-cluster DNS names)
   SAYANGCARE__REDIS__SENTINEL_ENDPOINTS: '["redis-sentinel-0.redis-sentinel.sayangcare.svc.cluster.local:26379","redis-sentinel-1.redis-sentinel.sayangcare.svc.cluster.local:26379","redis-sentinel-2.redis-sentinel.sayangcare.svc.cluster.local:26379"]'
   SAYANGCARE__REDIS__MASTER_NAME: "sayangcare-master"
+  SAYANGCARE__REDIS__QUEUE_URL: "redis://redis-0.redis.sayangcare.svc.cluster.local:6379/"
 
-  # Postgres
-  SAYANGCARE__POSTGRES__URL: "postgres://sayangcare:changeme@postgres.sayangcare.svc.cluster.local:5432/sayangcare"
+  # Postgres URL is assembled in app-deployment.yaml from sayangcare-secrets.
   SAYANGCARE__POSTGRES__MAX_CONNECTIONS: "20"
 
   # Circuit breaker defaults

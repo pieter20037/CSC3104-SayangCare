@@ -113,11 +113,11 @@ cp .env.example .env
 
 The checked-in local defaults use:
 
-- PostgreSQL: `localhost:5433`
+- PostgreSQL: `127.0.0.1:5434`
 - Redis Sentinel: `127.0.0.1:26379`
-- API: `http://localhost:8080`
+- API: `http://localhost:8081`
 
-Port `5433` is intentional. It allows the Docker PostgreSQL instance to coexist with a PostgreSQL server already running on macOS at port `5432`.
+Port `5434` is intentional. It avoids conflicts with host PostgreSQL services that may already use ports `5432` or `5433`.
 
 ### 2. Start local infrastructure
 
@@ -160,13 +160,15 @@ Expected output includes:
 cargo run -p sayangcare-api
 ```
 
-The API listens on `http://localhost:8080` by default. It loads `.env`, `config/default.toml`, and `SAYANGCARE__...` environment overrides during startup.
+The local `.env` listens on `http://localhost:8081`, overriding the `8080` port in `config/default.toml`. The API loads `.env`, `config/default.toml`, and `SAYANGCARE__...` environment overrides during startup.
+
+For native Windows/macOS/Linux development, `.env.example` configures `SAYANGCARE__REDIS__MASTER_URL` to use the host-published Redis port directly. Docker Sentinel advertises a container-private master address that a process running on the host cannot reach. Leave `MASTER_URL` unset for Compose or Kubernetes so the session store discovers the master through Sentinel.
 
 In a second terminal, check the service:
 
 ```bash
-curl http://localhost:8080/api/v1/health
-curl http://localhost:8080/api/v1/ready
+curl http://localhost:8081/api/v1/health
+curl http://localhost:8081/api/v1/ready
 ```
 
 Stop local infrastructure when finished:
@@ -243,7 +245,10 @@ docker compose down
 
 ```bash
 # Connect to the Docker PostgreSQL instance on the host
-psql 'postgres://sayangcare:changeme@127.0.0.1:5433/sayangcare'
+set -a
+. ./.env
+set +a
+psql "$DATABASE_URL"
 
 # List tables from inside the container
 docker compose exec postgres psql -U sayangcare -d sayangcare -c '\dt'
@@ -265,6 +270,8 @@ Configuration is loaded in this order:
 2. Environment variables with the `SAYANGCARE__` prefix
 3. `.env` is loaded by the API binary for local development
 
+For local development, keep the PostgreSQL credentials and URL together in `.env`; the API environment override takes precedence over the non-secret fallback in `config/default.toml`. Docker Compose builds its internal URL from `POSTGRES_PASSWORD`. Kubernetes reads the password from `sayangcare-secrets` and constructs the API URL from that same secret.
+
 The double underscore maps environment variables to nested TOML sections. For example:
 
 ```text
@@ -283,12 +290,14 @@ Important settings:
 | Setting                                             | Local example                          | Purpose                           |
 | --------------------------------------------------- | -------------------------------------- | --------------------------------- |
 | `SAYANGCARE__SERVER__HOST`                          | `0.0.0.0`                              | HTTP bind address                 |
-| `SAYANGCARE__SERVER__PORT`                          | `8080`                                 | HTTP port                         |
+| `SAYANGCARE__SERVER__PORT`                          | `8081`                                 | HTTP port                         |
 | `SAYANGCARE__SERVER__WORKERS`                       | `4`                                    | Actix worker count                |
-| `SAYANGCARE__POSTGRES__URL`                         | `...@localhost:5433/...`               | PostgreSQL connection URL         |
+| `SAYANGCARE__POSTGRES__URL`                         | `...@127.0.0.1:5434/...`               | PostgreSQL connection URL         |
 | `SAYANGCARE__POSTGRES__MAX_CONNECTIONS`             | `20`                                   | PostgreSQL pool limit             |
 | `SAYANGCARE__REDIS__SENTINEL_ENDPOINTS`             | `["127.0.0.1:26379"]`                  | Sentinel endpoint list            |
 | `SAYANGCARE__REDIS__MASTER_NAME`                    | `sayangcare-master`                    | Sentinel master name              |
+| `SAYANGCARE__REDIS__MASTER_URL`                      | `redis://127.0.0.1:6379/`               | Optional direct session-store URL; set for native local development |
+| `SAYANGCARE__REDIS__QUEUE_URL`                       | `redis://127.0.0.1:6379/`               | Redis endpoint used by the priority queue |
 | `SAYANGCARE__REDIS__PASSWORD`                       | unset locally                          | Redis password, if enabled        |
 | `SAYANGCARE__CIRCUIT_BREAKER__BASE_ERROR_RATE`      | `0.25`                                 | Base error threshold              |
 | `SAYANGCARE__CIRCUIT_BREAKER__BASE_LATENCY_MS`      | `2000`                                 | Base latency threshold            |
@@ -296,7 +305,7 @@ Important settings:
 | `SAYANGCARE__CIRCUIT_BREAKER__HALF_OPEN_AFTER_SECS` | `10`                                   | Open-to-half-open delay           |
 | `SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID`         | test value locally                     | Twilio account identifier         |
 | `SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN`          | test value locally                     | Twilio credential                 |
-| `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8080`                | Public URL used in TwiML actions  |
+| `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8081`                | Public URL used in TwiML actions  |
 | `RUST_LOG`                                          | `info,sayangcare=debug,actix_web=info` | Log filter                        |
 
 Never commit real Twilio, LLM, database, or Redis credentials. Use Kubernetes Secrets or an external secret manager for deployed environments.
@@ -316,7 +325,7 @@ The API also runs embedded migrations during startup with `sqlx::migrate!`, so a
 
 | Context                                     | PostgreSQL address                           |
 | ------------------------------------------- | -------------------------------------------- |
-| Host shell, `sqlx`, `psql`, local Cargo API | `localhost:5433`                             |
+| Host shell, `sqlx`, `psql`, local Cargo API | `127.0.0.1:5434`                             |
 | API container in Compose                    | `postgres:5432`                              |
 | Kubernetes API pod                          | `postgres.sayangcare.svc.cluster.local:5432` |
 
@@ -337,8 +346,10 @@ sqlx migrate run --source migrations
 Or select the Docker database explicitly:
 
 ```bash
-DATABASE_URL='postgres://sayangcare:changeme@127.0.0.1:5433/sayangcare' \
-	sqlx migrate run --source migrations
+set -a
+. ./.env
+set +a
+sqlx migrate run --source migrations
 ```
 
 ## HTTP API
@@ -356,7 +367,7 @@ GET /api/v1/metrics
 Example:
 
 ```bash
-curl -i http://localhost:8080/api/v1/health
+curl -i http://localhost:8081/api/v1/health
 ```
 
 `/health` returns service status and package version. `/ready` currently returns `{ "ready": true }` without checking dependencies. `/metrics` is a placeholder Prometheus-compatible text response.
@@ -372,7 +383,7 @@ POST /api/v1/calls/{session_id}/hangup
 Create a session:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/calls/incoming \
+curl -X POST http://localhost:8081/api/v1/calls/incoming \
 	-H 'content-type: application/json' \
 	-d '{"call_sid":"CA-demo-001","from":"+6590000000","to":"+6560000000"}'
 ```
@@ -380,7 +391,7 @@ curl -X POST http://localhost:8080/api/v1/calls/incoming \
 Record a caller turn:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/calls/CA-demo-001/turn \
+curl -X POST http://localhost:8081/api/v1/calls/CA-demo-001/turn \
 	-H 'content-type: application/json' \
 	-d '{"transcript":"I have been feeling overwhelmed."}'
 ```
@@ -388,7 +399,7 @@ curl -X POST http://localhost:8080/api/v1/calls/CA-demo-001/turn \
 Complete a call:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/calls/CA-demo-001/hangup
+curl -X POST http://localhost:8081/api/v1/calls/CA-demo-001/hangup
 ```
 
 The session store writes active state to Redis. On completion, the tiered store archives the session in PostgreSQL and deletes the Redis copy only after the archive succeeds.
@@ -402,7 +413,7 @@ POST /api/v1/volunteers/claim
 Claim the highest-priority queued session:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/volunteers/claim \
+curl -X POST http://localhost:8081/api/v1/volunteers/claim \
 	-H 'content-type: application/json' \
 	-d '{"volunteer_id":"volunteer-001"}'
 ```
@@ -433,7 +444,7 @@ The flow is:
 4. If the circuit breaker is open, the handler returns holding audio and can enqueue high-risk sessions.
 5. `/twilio/status` marks completed or failed calls as completed and archives them.
 
-For local webhook testing, expose port `8080` through a tunnel such as ngrok, then set `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL` to the public HTTPS URL. Do not expose test credentials in source control.
+For local webhook testing with Cargo, expose port `8081` through a tunnel such as ngrok, then set `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL` to the public HTTPS URL. Do not expose test credentials in source control.
 
 ## Storage and Reliability Design
 
@@ -471,7 +482,7 @@ The default background ticker checks breakers every five seconds. Thresholds are
 
 | Service          |     Host port | Container port | Purpose                                    |
 | ---------------- | ------------: | -------------: | ------------------------------------------ |
-| `postgres`       |        `5433` |         `5432` | PostgreSQL database                        |
+| `postgres`       |        `5434` |         `5432` | PostgreSQL database                        |
 | `redis-master`   |        `6379` |         `6379` | Redis master                               |
 | `redis-replica`  | not published |         `6379` | Redis replica                              |
 | `redis-sentinel` |       `26379` |        `26379` | Sentinel discovery and failover monitoring |
@@ -487,7 +498,7 @@ The API image uses a multi-stage Rust build. It compiles with Rust `1.88`, copie
 
 ### Docker networking note
 
-The Compose API receives PostgreSQL and Sentinel hostnames that work inside the Compose network. However, `AppState::bootstrap` currently creates the priority-queue Redis client with `redis://127.0.0.1/` instead of using the configured Redis service. Therefore, use the local Cargo workflow for reliable development, or update that bootstrap code before relying on queue operations inside the API container.
+The Compose API uses PostgreSQL, Sentinel, and Redis service hostnames on the Compose network. Its queue endpoint is configured separately as `redis://redis-master:6379/`; the session store continues to discover the master through Sentinel.
 
 ## Kubernetes
 
@@ -564,7 +575,7 @@ The metrics endpoint is not yet exporting real counters. The Kubernetes Promethe
 
 ### `role "sayangcare" does not exist`
 
-Your command is probably connecting to PostgreSQL on port `5432` instead of the Docker database on `5433`.
+Your command may be connecting to host PostgreSQL on port `5432` or `5433` instead of the Docker database on `5434`.
 
 ```bash
 unset DATABASE_URL SQLX_DATABASE_URL
@@ -575,7 +586,10 @@ sqlx migrate run --source migrations
 Check the endpoint directly:
 
 ```bash
-psql 'postgres://sayangcare:changeme@127.0.0.1:5433/sayangcare' \
+set -a
+. ./.env
+set +a
+psql "$DATABASE_URL" \
 	-c 'select current_user, current_database();'
 ```
 
@@ -593,7 +607,7 @@ docker compose logs redis-master redis-replica redis-sentinel
 redis-cli -p 26379 SENTINEL get-master-addr-by-name sayangcare-master
 ```
 
-For local Cargo execution, Sentinel is expected at `127.0.0.1:26379`. For Docker execution, it is expected at `redis-sentinel:26379`.
+For native local Cargo execution, set `SAYANGCARE__REDIS__MASTER_URL` to the host-published Redis URL; use Sentinel discovery for Docker and Kubernetes deployments.
 
 ### SQLx compile-time query errors
 
@@ -603,11 +617,13 @@ The repository uses committed offline query metadata. Run:
 cargo check --workspace --all-targets
 ```
 
-If metadata must be regenerated after changing SQL queries, start PostgreSQL, set `DATABASE_URL` to the Docker database on port `5433`, and run:
+If metadata must be regenerated after changing SQL queries, start PostgreSQL, set `DATABASE_URL` to the Docker database on port `5434`, and run:
 
 ```bash
-DATABASE_URL='postgres://sayangcare:changeme@127.0.0.1:5433/sayangcare' \
-	cargo sqlx prepare --workspace
+set -a
+. ./.env
+set +a
+cargo sqlx prepare --workspace
 ```
 
 Review the generated `.sqlx/` files before committing them.
@@ -619,10 +635,11 @@ Inspect listeners:
 ```bash
 lsof -nP -iTCP:5432 -sTCP:LISTEN
 lsof -nP -iTCP:5433 -sTCP:LISTEN
+lsof -nP -iTCP:5434 -sTCP:LISTEN
 lsof -nP -iTCP:8080 -sTCP:LISTEN
 ```
 
-The intended local arrangement is PostgreSQL on `5432` for the existing host service and Docker PostgreSQL on `5433`.
+The intended local arrangement keeps host PostgreSQL on `5432` or `5433` and publishes Docker PostgreSQL on `5434`.
 
 ## Known Limitations
 
@@ -631,7 +648,6 @@ The intended local arrangement is PostgreSQL on `5432` for the existing host ser
 - `/api/v1/ready` does not verify PostgreSQL or Redis connectivity.
 - `/api/v1/metrics` returns placeholder text rather than real Prometheus metrics.
 - Cold-store fallback does not fully rehydrate a session from PostgreSQL.
-- The API bootstrap priority queue currently uses `redis://127.0.0.1/` instead of the configured Sentinel/master endpoint, which is unsuitable for queue operations inside the API container.
 - The Compose Redis setup is a small local demonstration, not a hardened production Redis Sentinel deployment.
 - Kubernetes manifests contain placeholder image and secret values and require environment-specific review.
 - The HPA references an `active_voice_sessions` custom metric that requires a metrics adapter and an actual exporter.

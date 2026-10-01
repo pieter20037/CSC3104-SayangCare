@@ -51,6 +51,14 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          env:
+            - name: SAYANGCARE__POSTGRES__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sayangcare-secrets
+                  key: SAYANGCARE__POSTGRES__PASSWORD
+            - name: SAYANGCARE__POSTGRES__URL
+              value: "postgres://sayangcare:$(SAYANGCARE__POSTGRES__PASSWORD)@postgres.sayangcare.svc.cluster.local:5432/sayangcare"
           envFrom:
             - configMapRef:
                 name: sayangcare-config
