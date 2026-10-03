@@ -36,6 +36,7 @@ The current codebase is a working scaffold. The LLM inference port exists in the
 - [Kubernetes](#kubernetes)
 - [Observability](#observability)
 - [Troubleshooting](#troubleshooting)
+- [Phase 1 Test Guide](PHASE_1_TEST_GUIDE.md)
 - [Known Limitations](#known-limitations)
 - [Development Guidelines](#development-guidelines)
 
@@ -651,6 +652,7 @@ The intended local arrangement keeps host PostgreSQL on `5432` or `5433` and pub
 
 ## Known Limitations
 
+- The Raft priority-queue command model and OpenRaft type configuration are implemented and unit-tested, but `AppState` still uses `RedisPriorityQueue`. Raft peer transport, cluster membership/bootstrap, leader forwarding, and runtime state-machine/log integration are not implemented yet; do not describe the running service as having a Raft-backed HA queue.
 - The LLM inference port is defined, but no concrete inference provider is wired into the API. `/twilio/gather` returns a fixed placeholder reply.
 - Sentiment and risk scoring are domain concepts but are not currently populated by a live inference service.
 - `/api/v1/ready` does not verify PostgreSQL or Redis connectivity.
