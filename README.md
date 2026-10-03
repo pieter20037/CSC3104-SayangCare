@@ -1,11 +1,5 @@
 # CSC3104-SayangCare
 
-Running code #For Darren's Reference
-cargo run -p sayangcare-api
-
-Second Terminal Curl to see it's working
-curl.exe http://localhost:8081/api/v1/health
-
 SayangCare is a Rust-based, voice-first telehealth service for handling inbound calls, maintaining conversation state, detecting distress, and escalating high-risk sessions to human volunteers.
 
 This repository is the CSC3104 cloud-computing project. It demonstrates a modular backend with:
@@ -26,6 +20,7 @@ The current codebase is a working scaffold. The LLM inference port exists in the
 - [Repository Layout](#repository-layout)
 - [Requirements](#requirements)
 - [Quick Start: Local Development](#quick-start-local-development)
+- [Verification](#verification)
 - [Useful Commands](#useful-commands)
 - [Configuration](#configuration)
 - [Database and Migrations](#database-and-migrations)
@@ -83,16 +78,14 @@ The API is built as a Cargo workspace. The `core` crate owns domain types and po
 
 ## Requirements
 
-Install the following tools:
-
 - Rust `1.88` or newer, including Cargo
 - Docker Desktop with Docker Compose
-- SQLx CLI, preferably matching the SQLx major version used by the project
-- `psql` is optional but useful for database inspection
+- SQLx CLI only if applying or inspecting migrations manually
+- `psql` is optional; it is available inside the PostgreSQL container
 - `curl` for endpoint checks
 - `kubectl` only if deploying to Kubernetes
 
-Install SQLx CLI if necessary:
+Install SQLx CLI if needed:
 
 ```bash
 cargo install sqlx-cli --no-default-features --features postgres,rustls
@@ -105,93 +98,102 @@ rustc --version
 cargo --version
 docker --version
 docker compose version
-sqlx --version
 ```
 
 ## Quick Start: Local Development
 
-### 1. Create local configuration
+The native development workflow is the same on Windows and macOS: Docker runs PostgreSQL and Redis/Sentinel, while Cargo runs the API on port `8081`. The `.env.example` defaults use PostgreSQL `127.0.0.1:5434`, Redis `127.0.0.1:6379`, and Sentinel `127.0.0.1:26379`. Port `5434` avoids conflicts with host PostgreSQL services on `5432` or `5433`.
 
-The repository ignores `.env` because it may contain credentials. Create it from the example if it does not exist:
+The repository ignores `.env` because it can contain credentials. Copy the example once and keep real credentials out of Git. The example Twilio values are placeholders; they let the local scaffold start but do not connect a real Twilio account.
 
-```bash
-cp .env.example .env
-```
+### Windows (PowerShell)
 
-Set your PostgreSQL password and Twilio credentials in `.env` before starting the API or Compose. The sample values are placeholders for local development; do not use them for a deployed service. The API requires the database URL and Twilio credentials from environment variables rather than `config/default.toml`.
+From the repository root:
 
-The checked-in local defaults use:
-
-- PostgreSQL: `127.0.0.1:5434`
-- Redis Sentinel: `127.0.0.1:26379`
-- API: `http://localhost:8081`
-
-Port `5434` is intentional. It avoids conflicts with host PostgreSQL services that may already use ports `5432` or `5433`.
-
-### 2. Start local infrastructure
-
-For the recommended local workflow, run the databases and Redis services but run the Rust API from Cargo:
-
-```bash
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 docker compose up -d --wait postgres redis-master redis-replica redis-sentinel
-```
-
-Check service status:
-
-```bash
 docker compose ps
 ```
 
-### 3. Apply migrations
+In terminal 1, start the API and leave it running:
 
-Clear shell-level overrides if you previously exported an old `DATABASE_URL`:
+```powershell
+cargo run -p sayangcare-api
+```
+
+In terminal 2, check that it responds:
+
+```powershell
+curl.exe -i http://localhost:8081/api/v1/health
+curl.exe -i http://localhost:8081/api/v1/ready
+```
+
+Both should return HTTP `200`. Use `curl.exe` in PowerShell to avoid the `curl` alias. The API stays in the foreground; do not start a second copy on port 8081. Press `Ctrl+C` in terminal 1 to stop it.
+
+### macOS (Terminal)
+
+From the repository root:
 
 ```bash
-unset DATABASE_URL SQLX_DATABASE_URL
-sqlx migrate run --source migrations
+test -f .env || cp .env.example .env
+docker compose up -d --wait postgres redis-master redis-replica redis-sentinel
+docker compose ps
 ```
 
-Confirm the migration state:
-
-```bash
-sqlx migrate info --source migrations
-```
-
-Expected output includes:
-
-```text
-1/installed init
-2/installed add session recovery fields
-```
-
-### 4. Build and run the API
+In terminal 1, start the API and leave it running:
 
 ```bash
 cargo run -p sayangcare-api
 ```
 
-The local `.env` listens on `http://localhost:8081`, overriding the `8080` port in `config/default.toml`. The API loads `.env`, `config/default.toml`, and `SAYANGCARE__...` environment overrides during startup.
-
-For native Windows/macOS/Linux development, `.env.example` configures `SAYANGCARE__REDIS__MASTER_URL` to use the host-published Redis port directly. Docker Sentinel advertises a container-private master address that a process running on the host cannot reach. Leave `MASTER_URL` unset for Compose or Kubernetes so the session store discovers the master through Sentinel.
-
-In a second terminal, check the service:
+In terminal 2, check the endpoints:
 
 ```bash
-curl http://localhost:8081/api/v1/health
-curl http://localhost:8081/api/v1/ready
+curl -i http://localhost:8081/api/v1/health
+curl -i http://localhost:8081/api/v1/ready
 ```
 
-Stop local infrastructure when finished:
+Both should return HTTP `200`. Press `Ctrl+C` in terminal 1 to stop the API.
+
+The API applies embedded SQLx migrations at startup. To inspect migration status manually, install SQLx CLI and run `sqlx migrate info --source migrations` after setting `DATABASE_URL` from `.env`. See [Database and Migrations](#database-and-migrations).
+
+Stop local infrastructure when finished; named database volumes are retained:
 
 ```bash
 docker compose down
 ```
 
-The PostgreSQL and Redis data volumes are retained by default. To remove them as well, use the destructive command:
+`docker compose down -v` also deletes the PostgreSQL data volume and is destructive.
+
+## Verification
+
+Run these three checks from the repository root for a fast Rust-code verification pass.
+
+### Windows (PowerShell)
+
+Each step stops the sequence if it fails:
+
+```powershell
+cargo fmt --all -- --check
+if ($LASTEXITCODE -ne 0) { throw 'Formatting check failed' }
+cargo check --workspace --all-targets
+if ($LASTEXITCODE -ne 0) { throw 'Workspace compile check failed' }
+cargo test --workspace
+if ($LASTEXITCODE -ne 0) { throw 'Workspace tests failed' }
+```
+
+### macOS (Terminal)
+
+The `&&` operators stop the sequence at the first failure:
 
 ```bash
-docker compose down -v
+cargo fmt --all -- --check && \
+cargo check --workspace --all-targets && \
+cargo test --workspace
 ```
+
+`cargo fmt --check` checks formatting, `cargo check --workspace --all-targets` compiles the workspace and test targets, and `cargo test --workspace` runs automated tests. These commands do not prove Docker services or real Twilio connectivity work. For live local service checks, follow Quick Start and run the session lifecycle in [PHASE_1_TEST_GUIDE.md](PHASE_1_TEST_GUIDE.md).
 
 ## Useful Commands
 
