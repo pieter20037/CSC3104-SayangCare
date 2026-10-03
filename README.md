@@ -1,5 +1,11 @@
 # CSC3104-SayangCare
 
+Running code #For Darren's Reference
+cargo run -p sayangcare-api
+
+Second Terminal Curl to see it's working
+curl.exe http://localhost:8081/api/v1/health
+
 SayangCare is a Rust-based, voice-first telehealth service for handling inbound calls, maintaining conversation state, detecting distress, and escalating high-risk sessions to human volunteers.
 
 This repository is the CSC3104 cloud-computing project. It demonstrates a modular backend with:
@@ -154,6 +160,7 @@ Expected output includes:
 
 ```text
 1/installed init
+2/installed add session recovery fields
 ```
 
 ### 4. Build and run the API
@@ -390,6 +397,8 @@ curl -X POST http://localhost:8081/api/v1/calls/incoming \
 	-d '{"call_sid":"CA-demo-001","from":"+6590000000","to":"+6560000000"}'
 ```
 
+The supplied `call_sid` is the session ID. Creation is atomic in Redis, so a retried request for the same CallSid and caller returns the existing session instead of resetting it; reuse of that CallSid by a different caller returns `409 Conflict`.
+
 Record a caller turn:
 
 ```bash
@@ -404,7 +413,7 @@ Complete a call:
 curl -X POST http://localhost:8081/api/v1/calls/CA-demo-001/hangup
 ```
 
-The session store writes active state to Redis. On completion, the tiered store archives the session in PostgreSQL and deletes the Redis copy only after the archive succeeds.
+Turn batches increment the session version once and persist through Redis Lua compare-and-swap. Concurrent updates with a stale version return `409 Conflict`. Completion also uses CAS before archiving the full session to PostgreSQL; Redis state is deleted only after the durable archive succeeds. On a cache miss, nonterminal archived sessions are restored to Redis only if no concurrent request has already recreated them.
 
 ### Volunteer queue
 
@@ -466,7 +475,7 @@ Entries have a one-hour TTL. Updates use a Lua compare-and-swap operation based 
 
 ### Tiered storage
 
-`TieredSessionStore` reads Redis first and archives completed sessions to PostgreSQL before deleting their Redis state. The cold-read rehydration path is currently only partially implemented and does not reconstruct a full session object.
+`TieredSessionStore` reads Redis first, restores full nonterminal sessions from PostgreSQL on a cache miss, and archives completed sessions before deleting Redis state. Redis CAS and create-if-absent scripts serialize conflicting operations across API pods; process-local locks would not provide that guarantee.
 
 ### Circuit breaker
 
@@ -646,7 +655,6 @@ The intended local arrangement keeps host PostgreSQL on `5432` or `5433` and pub
 - Sentiment and risk scoring are domain concepts but are not currently populated by a live inference service.
 - `/api/v1/ready` does not verify PostgreSQL or Redis connectivity.
 - `/api/v1/metrics` returns placeholder text rather than real Prometheus metrics.
-- Cold-store fallback does not fully rehydrate a session from PostgreSQL.
 - The Compose Redis setup is a small local demonstration, not a hardened production Redis Sentinel deployment.
 - Kubernetes manifests contain placeholder image and secret values and require environment-specific review.
 - The HPA references an `active_voice_sessions` custom metric that requires a metrics adapter and an actual exporter.

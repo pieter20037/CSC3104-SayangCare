@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use redis::sentinel::{Sentinel, SentinelNodeConnectionInfo};
-use redis::RedisConnectionInfo;
 use redis::AsyncCommands;
+use redis::RedisConnectionInfo;
 use sayangcare_core::domain::{Session, SessionId};
 use sayangcare_core::ports::SessionStore;
 use sayangcare_core::{CoreError, CoreResult};
@@ -83,6 +83,29 @@ impl SessionStore for RedisSessionStore {
         }
     }
 
+    async fn create_if_absent(&self, session: &Session) -> CoreResult<bool> {
+        let mut conn = self.client.clone();
+        let json = serde_json::to_string(session)
+            .map_err(|e| CoreError::Storage(format!("encode: {e}")))?;
+        // Redis runs this O(1)-key script atomically across pods; JSON encoding is O(session size).
+        let script = redis::Script::new(
+            r#"
+            if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
+            redis.call('SETEX', KEYS[1], ARGV[1], ARGV[2])
+            return 1
+            "#,
+        );
+        let created: i32 = script
+            .key(Self::key(&session.id))
+            .arg(self.ttl_secs)
+            .arg(json)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| CoreError::Storage(format!("redis create: {e}")))?;
+
+        Ok(created == 1)
+    }
+
     async fn put(&self, session: &Session) -> CoreResult<()> {
         let mut conn = self.client.clone();
         let json = serde_json::to_string(session)
@@ -121,10 +144,10 @@ impl SessionStore for RedisSessionStore {
 
         match result {
             1 => Ok(()),
-            0 => Err(CoreError::Storage(format!(
-                "CAS failed for session {}: version mismatch",
-                session.id
-            ))),
+            0 => Err(CoreError::VersionConflict {
+                session_id: session.id.0.clone(),
+                expected_version,
+            }),
             _ => Err(CoreError::SessionNotFound(session.id.0.clone())),
         }
     }

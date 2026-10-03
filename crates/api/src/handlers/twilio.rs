@@ -35,21 +35,39 @@ pub async fn voice(
 ) -> impl Responder {
     info!(call_sid = %form.call_sid, from = %form.from, "incoming call");
 
-    // Create session bound to the Twilio CallSid (so hangup can find it).
-    let mut session = Session::new(CallerId {
-        phone_number: form.from.clone(),
-        display_name: None,
-    });
-    // Overwrite the internal id with CallSid so subsequent webhooks map cleanly.
-    session.id = SessionId(form.call_sid.clone());
+    // Twilio retries a webhook with the same CallSid; Redis atomically preserves its first state.
+    let session = Session::with_id(
+        SessionId(form.call_sid.clone()),
+        CallerId {
+            phone_number: form.from.clone(),
+            display_name: None,
+        },
+    );
 
-    if let Err(e) = state.sessions.put(&session).await {
-        warn!(error = %e, "failed to persist new session");
-        return twiml_error("We're having trouble connecting you. Please try again.");
+    match state.sessions.create_if_absent(&session).await {
+        Ok(true) => {}
+        Ok(false) => match state.sessions.get(&session.id).await {
+            Ok(Some(existing)) if existing.caller.phone_number == form.from => {}
+            Ok(_) => return twiml_error("We couldn't match this call. Please call back."),
+            Err(e) => {
+                warn!(error = %e, "failed to load existing session");
+                return twiml_error("We're having trouble connecting you. Please try again.");
+            }
+        },
+        Err(e) => {
+            warn!(error = %e, "failed to persist new session");
+            return twiml_error("We're having trouble connecting you. Please try again.");
+        }
     }
 
-    let action = format!("{}{}", state.config.telephony.public_base_url, GATHER_ACTION);
-    let status_cb = format!("{}{}", state.config.telephony.public_base_url, HANGUP_ACTION);
+    let action = format!(
+        "{}{}",
+        state.config.telephony.public_base_url, GATHER_ACTION
+    );
+    let status_cb = format!(
+        "{}{}",
+        state.config.telephony.public_base_url, HANGUP_ACTION
+    );
 
     // Greet + gather speech.
     let body = format!(
@@ -103,12 +121,12 @@ pub async fn gather(
         }
     };
 
-    // Record caller turn.
-    session.transcript.push(Turn {
+    let expected = session.version;
+    let caller_turn = Turn {
         speaker: Speaker::Caller,
         text: speech,
         timestamp: chrono::Utc::now(),
-    });
+    };
 
     // --- Circuit-breaker-guarded LLM call ---
     let breaker = state.breakers.get("llm-inference").await;
@@ -116,20 +134,31 @@ pub async fn gather(
     if breaker.acquire().is_err() {
         // OPEN: park the caller with buffered audio, escalate if high risk.
         warn!(call_sid = %form.call_sid, "circuit open — degrading gracefully");
-        if session.risk.level.requires_immediate_escalation() {
-            let _ = state
-                .queue
-                .enqueue(
-                    session.id.clone(),
-                    session.risk.level.0,
-                    chrono::Utc::now(),
-                )
-                .await;
-            let _ = session.transition(sayangcare_core::domain::SessionState::Escalated);
-        } else {
-            let _ = session.transition(sayangcare_core::domain::SessionState::Degraded);
+        if session.record_turns([caller_turn]).is_err() {
+            return twiml_error("Your call state could not be updated. Please try again.");
         }
-        let _ = state.sessions.put(&session).await;
+        let escalated = session.risk.level.requires_immediate_escalation();
+        let next_state = if escalated {
+            sayangcare_core::domain::SessionState::Escalated
+        } else {
+            sayangcare_core::domain::SessionState::Degraded
+        };
+        if session.transition(next_state).is_err() {
+            return twiml_error("Your session cannot continue in its current state.");
+        }
+        if let Err(e) = state.sessions.update_cas(&session, expected).await {
+            warn!(error = %e, "CAS failed during degraded transition");
+            return twiml_error("Your session changed concurrently. Please try again.");
+        }
+        if escalated {
+            if let Err(e) = state
+                .queue
+                .enqueue(session.id.clone(), session.risk.level.0, chrono::Utc::now())
+                .await
+            {
+                warn!(error = %e, "failed to enqueue high-risk session");
+            }
+        }
 
         let body = r#"<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -144,22 +173,29 @@ pub async fn gather(
     // Replace with: state.inference.generate_reply(&session.transcript).await
     let assistant_reply = "I hear you. Tell me more about what's on your mind.".to_string();
 
-    session.transcript.push(Turn {
-        speaker: Speaker::Assistant,
-        text: assistant_reply.clone(),
-        timestamp: chrono::Utc::now(),
-    });
-
-    // Persist with optimistic concurrency.
-    let expected = session.version;
-    session.version += 1;
-    session.updated_at = chrono::Utc::now();
+    if session
+        .record_turns([
+            caller_turn,
+            Turn {
+                speaker: Speaker::Assistant,
+                text: assistant_reply.clone(),
+                timestamp: chrono::Utc::now(),
+            },
+        ])
+        .is_err()
+    {
+        return twiml_error("Your session cannot continue in its current state.");
+    }
     if let Err(e) = state.sessions.update_cas(&session, expected).await {
         warn!(error = %e, "CAS failed on gather — retrying next turn");
+        return twiml_error("Your session changed concurrently. Please try again.");
     }
 
     // Respond with the assistant's spoken reply + gather again.
-    let action = format!("{}{}", state.config.telephony.public_base_url, GATHER_ACTION);
+    let action = format!(
+        "{}{}",
+        state.config.telephony.public_base_url, GATHER_ACTION
+    );
     let escaped = xml_escape(&assistant_reply);
     let body = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -189,12 +225,17 @@ pub async fn status_callback(
 ) -> impl Responder {
     if form.call_status == "completed" || form.call_status == "failed" {
         let sid = SessionId(form.call_sid.clone());
-        if let Ok(Some(mut session)) = state.sessions.get(&sid).await {
-            let _ = session.transition(sayangcare_core::domain::SessionState::Completed);
-            if let Err(e) = state.tiered.flush_to_cold(&session).await {
-                warn!(error = %e, "cold flush failed");
-            } else {
-                info!(call_sid = %form.call_sid, "session archived");
+        let terminal_state = if form.call_status == "failed" {
+            sayangcare_core::domain::SessionState::Failed
+        } else {
+            sayangcare_core::domain::SessionState::Completed
+        };
+        match state.tiered.finish(&sid, terminal_state).await {
+            Ok(true) => info!(call_sid = %form.call_sid, "session archived"),
+            Ok(false) => warn!(call_sid = %form.call_sid, "session not found on status callback"),
+            Err(e) => {
+                warn!(error = %e, call_sid = %form.call_sid, "cold flush failed");
+                return HttpResponse::InternalServerError().finish();
             }
         }
     }

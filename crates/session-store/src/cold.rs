@@ -1,8 +1,13 @@
 use async_trait::async_trait;
-use sayangcare_core::domain::{Session, SessionId, Transcript};
+use sayangcare_core::domain::{CallerId, Session, SessionId, SessionState};
 use sayangcare_core::ports::ArchiveStore;
 use sayangcare_core::{CoreError, CoreResult};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
+use std::fmt::Display;
+
+fn archive_decode_error(error: impl Display) -> CoreError {
+    CoreError::Storage(format!("decode archived session: {error}"))
+}
 
 pub struct PostgresArchiveStore {
     pool: PgPool,
@@ -21,28 +26,40 @@ impl ArchiveStore for PostgresArchiveStore {
             .map_err(|e| CoreError::Storage(format!("encode transcript: {e}")))?;
         let risk_json = serde_json::to_value(&session.risk)
             .map_err(|e| CoreError::Storage(format!("encode risk: {e}")))?;
+        let sentiment_json = session
+            .latest_sentiment
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|e| CoreError::Storage(format!("encode sentiment: {e}")))?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO sessions
-                (id, caller_phone, state, transcript, risk, created_at, updated_at, version)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                (id, caller_phone, caller_display_name, state, transcript, risk,
+                 latest_sentiment, created_at, updated_at, version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (id) DO UPDATE SET
+                caller_phone = EXCLUDED.caller_phone,
+                caller_display_name = EXCLUDED.caller_display_name,
                 state = EXCLUDED.state,
                 transcript = EXCLUDED.transcript,
                 risk = EXCLUDED.risk,
+                latest_sentiment = EXCLUDED.latest_sentiment,
                 updated_at = EXCLUDED.updated_at,
                 version = EXCLUDED.version
             "#,
-            session.id.0,
-            session.caller.phone_number,
-            format!("{:?}", session.state).to_lowercase(),
-            transcript_json,
-            risk_json,
-            session.created_at,
-            session.updated_at,
-            session.version as i64,
         )
+        .bind(&session.id.0)
+        .bind(&session.caller.phone_number)
+        .bind(&session.caller.display_name)
+        .bind(format!("{:?}", session.state).to_lowercase())
+        .bind(transcript_json)
+        .bind(risk_json)
+        .bind(sentiment_json)
+        .bind(session.created_at)
+        .bind(session.updated_at)
+        .bind(session.version as i64)
         .execute(&self.pool)
         .await
         .map_err(|e| CoreError::Storage(format!("pg archive: {e}")))?;
@@ -50,20 +67,52 @@ impl ArchiveStore for PostgresArchiveStore {
         Ok(())
     }
 
-    async fn fetch_transcript(&self, id: &SessionId) -> CoreResult<Option<Transcript>> {
-        let row = sqlx::query!(
-            r#"SELECT transcript FROM sessions WHERE id = $1"#,
-            id.0
+    async fn fetch_session(&self, id: &SessionId) -> CoreResult<Option<Session>> {
+        let row = sqlx::query(
+            r#"SELECT id, caller_phone, caller_display_name, state, transcript, risk,
+                      latest_sentiment, created_at, updated_at, version
+               FROM sessions WHERE id = $1"#,
         )
+        .bind(&id.0)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| CoreError::Storage(format!("pg fetch: {e}")))?;
 
         match row {
             Some(r) => {
-                let t: Transcript = serde_json::from_value(r.transcript)
-                    .map_err(|e| CoreError::Storage(format!("decode: {e}")))?;
-                Ok(Some(t))
+                let state: String = r.try_get("state").map_err(archive_decode_error)?;
+                let state: SessionState = serde_json::from_value(serde_json::Value::String(state))
+                    .map_err(archive_decode_error)?;
+                let transcript =
+                    serde_json::from_value(r.try_get("transcript").map_err(archive_decode_error)?)
+                        .map_err(archive_decode_error)?;
+                let risk = serde_json::from_value(r.try_get("risk").map_err(archive_decode_error)?)
+                    .map_err(archive_decode_error)?;
+                let latest_sentiment = r
+                    .try_get::<Option<serde_json::Value>, _>("latest_sentiment")
+                    .map_err(archive_decode_error)?
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(archive_decode_error)?;
+                let version: i64 = r.try_get("version").map_err(archive_decode_error)?;
+                let version = u64::try_from(version).map_err(archive_decode_error)?;
+
+                Ok(Some(Session {
+                    id: SessionId(r.try_get("id").map_err(archive_decode_error)?),
+                    caller: CallerId {
+                        phone_number: r.try_get("caller_phone").map_err(archive_decode_error)?,
+                        display_name: r
+                            .try_get("caller_display_name")
+                            .map_err(archive_decode_error)?,
+                    },
+                    state,
+                    transcript,
+                    latest_sentiment,
+                    risk,
+                    created_at: r.try_get("created_at").map_err(archive_decode_error)?,
+                    updated_at: r.try_get("updated_at").map_err(archive_decode_error)?,
+                    version,
+                }))
             }
             None => Ok(None),
         }

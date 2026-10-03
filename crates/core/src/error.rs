@@ -8,6 +8,12 @@ pub enum CoreError {
     #[error("Session already exists: {0}")]
     SessionConflict(String),
 
+    #[error("Concurrent session update for {session_id} at version {expected_version}")]
+    VersionConflict {
+        session_id: String,
+        expected_version: u64,
+    },
+
     #[error("Invalid state transition: {from} -> {to}")]
     InvalidTransition { from: String, to: String },
 

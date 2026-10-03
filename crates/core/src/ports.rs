@@ -10,6 +10,8 @@ use crate::CoreResult;
 #[async_trait]
 pub trait SessionStore: Send + Sync {
     async fn get(&self, id: &SessionId) -> CoreResult<Option<Session>>;
+    /// Atomically inserts a new session without replacing an existing call.
+    async fn create_if_absent(&self, session: &Session) -> CoreResult<bool>;
     async fn put(&self, session: &Session) -> CoreResult<()>;
     /// Atomic compare-and-swap on version. Used for optimistic concurrency.
     async fn update_cas(&self, session: &Session, expected_version: u64) -> CoreResult<()>;
@@ -20,21 +22,15 @@ pub trait SessionStore: Send + Sync {
 #[async_trait]
 pub trait ArchiveStore: Send + Sync {
     async fn archive(&self, session: &Session) -> CoreResult<()>;
-    async fn fetch_transcript(&self, id: &SessionId) -> CoreResult<Option<Transcript>>;
+    async fn fetch_session(&self, id: &SessionId) -> CoreResult<Option<Session>>;
 }
 
 /// LLM inference port. Circuit breaker wraps this.
 #[async_trait]
 pub trait InferenceService: Send + Sync {
-    async fn generate_reply(
-        &self,
-        context: &Transcript,
-    ) -> CoreResult<String>;
+    async fn generate_reply(&self, context: &Transcript) -> CoreResult<String>;
 
-    async fn score_sentiment(
-        &self,
-        text: &str,
-    ) -> CoreResult<SentimentSignal>;
+    async fn score_sentiment(&self, text: &str) -> CoreResult<SentimentSignal>;
 
     async fn assess_risk(
         &self,
@@ -54,7 +50,12 @@ pub trait TelephonyProvider: Send + Sync {
 /// Priority queue for high-risk escalation.
 #[async_trait]
 pub trait PriorityQueue: Send + Sync {
-    async fn enqueue(&self, session_id: SessionId, risk: u8, enqueued_at: DateTime<Utc>) -> CoreResult<()>;
+    async fn enqueue(
+        &self,
+        session_id: SessionId,
+        risk: u8,
+        enqueued_at: DateTime<Utc>,
+    ) -> CoreResult<()>;
     async fn peek_highest(&self) -> CoreResult<Option<SessionId>>;
     async fn claim(&self, volunteer_id: &str) -> CoreResult<Option<SessionId>>;
 }

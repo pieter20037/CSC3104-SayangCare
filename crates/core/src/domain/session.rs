@@ -52,6 +52,7 @@ impl SessionState {
         matches!(
             (self, next),
             (Initiated, Active)
+                | (Initiated, Completed)
                 | (Initiated, Failed)
                 | (Active, Degraded)
                 | (Active, Escalated)
@@ -59,6 +60,7 @@ impl SessionState {
                 | (Active, Failed)
                 | (Degraded, Active)
                 | (Degraded, Escalated)
+                | (Degraded, Completed)
                 | (Degraded, Failed)
                 | (Escalated, Completed)
                 | (Escalated, Failed)
@@ -84,9 +86,13 @@ pub struct Session {
 
 impl Session {
     pub fn new(caller: CallerId) -> Self {
+        Self::with_id(SessionId::new(), caller)
+    }
+
+    pub fn with_id(id: SessionId, caller: CallerId) -> Self {
         let now = Utc::now();
         Self {
-            id: SessionId::new(),
+            id,
             caller,
             state: SessionState::Initiated,
             transcript: Transcript::default(),
@@ -96,6 +102,31 @@ impl Session {
             updated_at: now,
             version: 1,
         }
+    }
+
+    /// Appends a webhook's turns as one versioned mutation; work is O(turns), and callers persist it with CAS.
+    pub fn record_turns(
+        &mut self,
+        turns: impl IntoIterator<Item = super::Turn>,
+    ) -> crate::CoreResult<()> {
+        let turns: Vec<_> = turns.into_iter().collect();
+        if turns.is_empty() {
+            return Ok(());
+        }
+
+        if self.state != SessionState::Active && !self.state.can_transition_to(SessionState::Active)
+        {
+            return Err(crate::CoreError::InvalidTransition {
+                from: format!("{:?}", self.state),
+                to: format!("{:?}", SessionState::Active),
+            });
+        }
+
+        self.state = SessionState::Active;
+        self.transcript.turns.extend(turns);
+        self.version += 1;
+        self.updated_at = Utc::now();
+        Ok(())
     }
 
     /// Transition to a new state, enforcing the state machine.
@@ -110,5 +141,71 @@ impl Session {
         self.version += 1;
         self.updated_at = Utc::now();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CallerId, Session, SessionId, SessionState};
+    use crate::domain::{Speaker, Turn};
+    use chrono::Utc;
+
+    fn caller() -> CallerId {
+        CallerId {
+            phone_number: "+6500000000".to_string(),
+            display_name: None,
+        }
+    }
+
+    #[test]
+    fn supplied_call_id_is_preserved() {
+        let session = Session::with_id(SessionId("CA-test".to_string()), caller());
+
+        assert_eq!(session.id.0, "CA-test");
+        assert_eq!(session.version, 1);
+    }
+
+    #[test]
+    fn recording_turns_activates_session_and_increments_version_once() {
+        let mut session = Session::with_id(SessionId("CA-test".to_string()), caller());
+        let updated_at = session.updated_at;
+
+        session
+            .record_turns([
+                Turn {
+                    speaker: Speaker::Caller,
+                    text: "Hello".to_string(),
+                    timestamp: Utc::now(),
+                },
+                Turn {
+                    speaker: Speaker::Assistant,
+                    text: "Hi".to_string(),
+                    timestamp: Utc::now(),
+                },
+            ])
+            .unwrap();
+
+        assert_eq!(session.state, SessionState::Active);
+        assert_eq!(session.version, 2);
+        assert_eq!(session.transcript.turns.len(), 2);
+        assert!(session.updated_at >= updated_at);
+    }
+
+    #[test]
+    fn completed_session_rejects_new_turns_without_mutation() {
+        let mut session = Session::with_id(SessionId("CA-test".to_string()), caller());
+        session.transition(SessionState::Active).unwrap();
+        session.transition(SessionState::Completed).unwrap();
+        let version = session.version;
+
+        let result = session.record_turns([Turn {
+            speaker: Speaker::Caller,
+            text: "Late turn".to_string(),
+            timestamp: Utc::now(),
+        }]);
+
+        assert!(result.is_err());
+        assert_eq!(session.version, version);
+        assert!(session.transcript.turns.is_empty());
     }
 }
