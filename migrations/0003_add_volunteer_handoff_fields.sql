@@ -1,0 +1,5 @@
+ALTER TABLE sessions
+    ADD COLUMN IF NOT EXISTS handoff_status TEXT NOT NULL DEFAULT 'not_required',
+    ADD COLUMN IF NOT EXISTS assigned_volunteer_id TEXT,
+    ADD COLUMN IF NOT EXISTS escalation_count INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS operator_acknowledged BOOLEAN NOT NULL DEFAULT FALSE;

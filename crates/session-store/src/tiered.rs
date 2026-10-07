@@ -36,7 +36,7 @@ impl TieredSessionStore {
     pub async fn finish(&self, id: &SessionId, terminal_state: SessionState) -> CoreResult<bool> {
         if !matches!(
             terminal_state,
-            SessionState::Completed | SessionState::Failed
+            SessionState::Completed | SessionState::Failed | SessionState::Escalated
         ) {
             return Err(CoreError::Internal(anyhow::anyhow!(
                 "finish requires a terminal state"
@@ -49,7 +49,7 @@ impl TieredSessionStore {
 
         if !matches!(
             session.state,
-            SessionState::Completed | SessionState::Failed
+            SessionState::Completed | SessionState::Failed | SessionState::Escalated
         ) {
             let expected_version = session.version;
             session.transition(terminal_state)?;
@@ -253,6 +253,32 @@ mod tests {
         assert_eq!(
             cold.fetch_session(&active.id).await.unwrap().unwrap().state,
             SessionState::Completed
+        );
+    }
+
+    #[tokio::test]
+    async fn finish_preserves_escalated_state_for_high_risk_calls() {
+        let hot = Arc::new(MemoryHot::default());
+        let cold = Arc::new(MemoryArchive::default());
+        let tiered = TieredSessionStore::new(hot.clone(), cold.clone());
+        let mut escalated = session("CA-escalated");
+        escalated.transition(SessionState::Active).unwrap();
+        escalated.transition(SessionState::Escalated).unwrap();
+        hot.put(&escalated).await.unwrap();
+
+        assert!(tiered
+            .finish(&escalated.id, SessionState::Escalated)
+            .await
+            .unwrap());
+
+        assert!(hot.get(&escalated.id).await.unwrap().is_none());
+        assert_eq!(
+            cold.fetch_session(&escalated.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .state,
+            SessionState::Escalated
         );
     }
 

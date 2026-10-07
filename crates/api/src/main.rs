@@ -90,8 +90,40 @@ async fn main() -> anyhow::Result<()> {
                         web::post().to(handlers::calls::hangup),
                     )
                     .route(
+                        "/calls/{sid}/acknowledge",
+                        web::post().to(handlers::calls::acknowledge_operator),
+                    )
+                    .route(
+                        "/volunteers",
+                        web::get().to(handlers::volunteers::list_volunteers),
+                    )
+                    .route(
+                        "/volunteers/queue",
+                        web::get().to(handlers::volunteers::list_pending),
+                    )
+                    .route(
+                        "/volunteers/{volunteer_id}/cases",
+                        web::get().to(handlers::volunteers::list_assigned),
+                    )
+                    .route(
+                        "/volunteers/{volunteer_id}/cases/{session_id}/resolve",
+                        web::post().to(handlers::volunteers::resolve_case),
+                    )
+                    .route(
+                        "/volunteers/{volunteer_id}/cases/{session_id}/transfer",
+                        web::post().to(handlers::volunteers::transfer_case),
+                    )
+                    .route(
+                        "/volunteers/claims/alerts",
+                        web::get().to(handlers::volunteers::list_alerts),
+                    )
+                    .route(
                         "/volunteers/claim",
                         web::post().to(handlers::volunteers::claim),
+                    )
+                    .route(
+                        "/operator/alerts",
+                        web::get().to(handlers::volunteers::list_alerts),
                     ),
             )
             // Twilio-facing webhook scope (returns TwiML, not JSON).

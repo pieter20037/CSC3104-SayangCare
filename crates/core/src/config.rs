@@ -107,10 +107,9 @@ mod tests {
     fn sentinel_endpoints_accept_env_string_and_toml_sequence() {
         let env_value: Endpoints =
             serde_json::from_str(r#"{"sentinel_endpoints":"[127.0.0.1:26379]"}"#).unwrap();
-        let sequence: Endpoints = serde_json::from_str(
-            r#"{"sentinel_endpoints":["127.0.0.1:26379","127.0.0.2:26379"]}"#,
-        )
-        .unwrap();
+        let sequence: Endpoints =
+            serde_json::from_str(r#"{"sentinel_endpoints":["127.0.0.1:26379","127.0.0.2:26379"]}"#)
+                .unwrap();
 
         assert_eq!(env_value.sentinel_endpoints, ["127.0.0.1:26379"]);
         assert_eq!(

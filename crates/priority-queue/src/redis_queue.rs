@@ -37,6 +37,43 @@ impl RedisPriorityQueue {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::RedisPriorityQueue;
+    use chrono::Utc;
+    use redis::Client;
+    use sayangcare_core::domain::SessionId;
+    use sayangcare_core::ports::PriorityQueue;
+
+    #[tokio::test]
+    async fn list_pending_returns_sorted_sessions() {
+        let client = Client::open("redis://127.0.0.1:6379/").unwrap();
+        let mut conn = client.get_async_connection().await.unwrap();
+        let queue = RedisPriorityQueue::new(
+            redis::aio::ConnectionManager::new(client).await.unwrap(),
+            "test:queue",
+        );
+
+        let _: () = redis::cmd("DEL")
+            .arg("test:queue")
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+        queue
+            .enqueue(SessionId("CA-2".into()), 2, Utc::now())
+            .await
+            .unwrap();
+        queue
+            .enqueue(SessionId("CA-1".into()), 5, Utc::now())
+            .await
+            .unwrap();
+
+        let pending = queue.list_pending().await.unwrap();
+        assert!(pending.iter().any(|sid| sid.0 == "CA-2"));
+        assert!(pending.iter().any(|sid| sid.0 == "CA-1"));
+    }
+}
+
 #[async_trait]
 impl PriorityQueue for RedisPriorityQueue {
     async fn enqueue(
@@ -52,6 +89,15 @@ impl PriorityQueue for RedisPriorityQueue {
             .await
             .map_err(|e| CoreError::Storage(format!("zadd: {e}")))?;
         Ok(())
+    }
+
+    async fn list_pending(&self) -> CoreResult<Vec<SessionId>> {
+        let mut conn = self.client.clone();
+        let result: Vec<String> = conn
+            .zrange(&self.queue_key, 0, -1)
+            .await
+            .map_err(|e| CoreError::Storage(format!("zrange: {e}")))?;
+        Ok(result.into_iter().map(SessionId).collect())
     }
 
     async fn peek_highest(&self) -> CoreResult<Option<SessionId>> {
@@ -85,4 +131,29 @@ impl PriorityQueue for RedisPriorityQueue {
             .map_err(|e| CoreError::Storage(format!("claim: {e}")))?;
         Ok(claimed.map(SessionId))
     }
+    
+        async fn claim_session(
+            &self,
+            session_id: &SessionId,
+            volunteer_id: &str,
+        ) -> CoreResult<bool> {
+            let mut conn = self.client.clone();
+            let script = redis::Script::new(
+                r#"
+                if redis.call('ZSCORE', KEYS[1], ARGV[1]) == false then return 0 end
+                redis.call('ZREM', KEYS[1], ARGV[1])
+                redis.call('HSET', KEYS[2], ARGV[1], ARGV[2])
+                return 1
+                "#,
+            );
+            let claimed: i32 = script
+                .key(&self.queue_key)
+                .key(&self.claim_prefix)
+                .arg(&session_id.0)
+                .arg(volunteer_id)
+                .invoke_async(&mut conn)
+                .await
+                .map_err(|e| CoreError::Storage(format!("claim session: {e}")))?;
+            Ok(claimed == 1)
+        }
 }

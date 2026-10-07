@@ -95,7 +95,8 @@ impl CircuitBreaker {
     /// Record a successful call.
     pub fn record_success(&self, latency_ms: u64) {
         self.total.fetch_add(1, Ordering::Relaxed);
-        self.total_latency_ms.fetch_add(latency_ms, Ordering::Relaxed);
+        self.total_latency_ms
+            .fetch_add(latency_ms, Ordering::Relaxed);
         if self.state() == CircuitState::HalfOpen {
             // Successful probe -> close.
             self.reset();
@@ -106,7 +107,8 @@ impl CircuitBreaker {
     pub async fn record_failure(&self, latency_ms: u64, distress_severity: f32) {
         self.total.fetch_add(1, Ordering::Relaxed);
         self.errors.fetch_add(1, Ordering::Relaxed);
-        self.total_latency_ms.fetch_add(latency_ms, Ordering::Relaxed);
+        self.total_latency_ms
+            .fetch_add(latency_ms, Ordering::Relaxed);
 
         if self.state() != CircuitState::Closed {
             return;
@@ -137,12 +139,14 @@ impl CircuitBreaker {
     }
 
     async fn trip(&self) {
-        self.state.store(CircuitState::Open as u8, Ordering::Relaxed);
+        self.state
+            .store(CircuitState::Open as u8, Ordering::Relaxed);
         *self.opened_at.write().await = Some(Utc::now());
     }
 
     fn reset(&self) {
-        self.state.store(CircuitState::Closed as u8, Ordering::Relaxed);
+        self.state
+            .store(CircuitState::Closed as u8, Ordering::Relaxed);
         self.total.store(0, Ordering::Relaxed);
         self.errors.store(0, Ordering::Relaxed);
         self.total_latency_ms.store(0, Ordering::Relaxed);
@@ -169,7 +173,11 @@ impl CircuitBreaker {
         let errors = self.errors.load(Ordering::Relaxed);
         BreakerSnapshot {
             state: self.state(),
-            error_rate: if total == 0 { 0.0 } else { errors as f64 / total as f64 },
+            error_rate: if total == 0 {
+                0.0
+            } else {
+                errors as f64 / total as f64
+            },
             p95_latency_ms: self.total_latency_ms.load(Ordering::Relaxed) / total.max(1),
             total_requests: total,
             opened_at: *self.opened_at.blocking_read(),

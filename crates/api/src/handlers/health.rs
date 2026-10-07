@@ -47,4 +47,6 @@ pub fn internal_error<E: std::fmt::Display>(e: E) -> HttpResponse {
     }))
 }
 
-pub fn _use_web() -> web::Json<()> { unreachable!() }
+pub fn _use_web() -> web::Json<()> {
+    unreachable!()
+}

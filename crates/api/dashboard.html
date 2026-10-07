@@ -90,9 +90,10 @@
     h1 { margin: 0; font: 500 36px/1.05 Georgia, "Times New Roman", serif; letter-spacing: 0; }
     .heading-note { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
 
-    .layout { display: grid; grid-template-columns: minmax(320px, 0.88fr) minmax(0, 1.12fr); gap: 18px; align-items: start; }
-    .stack { display: grid; gap: 18px; }
+    .layout { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 18px; align-items: start; }
+    .stack { display: contents; }
     .panel {
+      min-width: 0;
       overflow: hidden;
       border: 1px solid var(--line);
       border-radius: 7px;
@@ -100,13 +101,21 @@
       box-shadow: var(--shadow);
       animation: arrive 480ms ease-out both;
     }
+    .test-panel { grid-column: 1 / -1; order: 1; }
+    .queue-panel { grid-column: span 7; order: 2; }
+    .session-panel { grid-column: span 5; order: 3; }
+    .roster-panel { grid-column: span 4; order: 4; }
+    .assigned-panel { grid-column: span 4; order: 5; }
+    .alerts-panel { grid-column: span 4; order: 6; }
+    .activity-panel { grid-column: span 6; order: 7; }
+    .response-panel { grid-column: span 6; order: 8; }
     .panel:nth-child(2) { animation-delay: 60ms; }
     .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 19px; border-bottom: 1px solid var(--line); }
     .panel-title { margin: 0; font-size: 14px; font-weight: 750; }
     .panel-kicker { color: var(--muted); font-size: 11px; }
     .panel-body { padding: 19px; }
 
-    .field-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+    .field-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
     .field { display: grid; gap: 7px; min-width: 0; }
     .field.full { grid-column: 1 / -1; }
     label { color: #4e5e54; font-size: 11px; font-weight: 750; }
@@ -164,20 +173,20 @@
     .button.danger { color: #a44332; }
     .button .arrow { font-size: 15px; line-height: 1; }
 
-    .workflow-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 9px; }
+    .workflow-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }
     .workflow-buttons .button { width: 100%; }
-    .workflow-buttons .button:last-child { grid-column: 1 / -1; }
     .divider { height: 1px; margin: 17px 0 13px; background: var(--line); }
     .microcopy { margin: 11px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 
-    .session-strip { display: flex; align-items: center; gap: 9px; }
+    .session-strip { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
     .state-pill { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: 99px; background: #edf1ed; color: #59685f; font-size: 10px; font-weight: 800; text-transform: uppercase; }
     .state-pill.active { background: var(--green-soft); color: var(--forest); }
     .state-pill.completed { background: #e9edda; color: #627322; }
     .state-pill.failed { background: var(--red-soft); color: #a44332; }
-    .session-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); }
+    .session-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
     .stat { min-width: 0; padding: 14px 17px; border-right: 1px solid var(--line); }
-    .stat:last-child { border-right: 0; }
+    .stat:nth-child(2n) { border-right: 0; }
+    .stat:last-child { border-top: 1px solid var(--line); }
     .stat-label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
     .stat-value { display: block; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -205,10 +214,20 @@
     .text-button { padding: 4px 0; border: 0; background: transparent; color: var(--forest); font-size: 11px; font-weight: 700; }
     .text-button:hover { text-decoration: underline; }
 
+    .panel-header { min-height: 58px; }
+    .panel-kicker { white-space: nowrap; }
+    .activity-list { max-height: 390px; }
+    .queue-panel .activity-list,
+    .roster-panel .activity-list,
+    .assigned-panel .activity-list,
+    .alerts-panel .activity-list { max-height: 330px; }
+
     @keyframes arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-    @media (max-width: 790px) {
+    @media (max-width: 960px) {
       main { padding-top: 25px; }
-      .layout { grid-template-columns: 1fr; }
+      .layout { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+      .test-panel, .activity-panel, .response-panel { grid-column: 1 / -1; }
+      .queue-panel, .session-panel, .roster-panel, .assigned-panel, .alerts-panel { grid-column: span 1; }
     }
     @media (max-width: 480px) {
       .topbar { height: 58px; padding: 0 16px; }
@@ -220,10 +239,11 @@
       .field-grid { grid-template-columns: 1fr; }
       .field.full { grid-column: auto; }
       .workflow-buttons { grid-template-columns: 1fr; }
-      .workflow-buttons .button:last-child { grid-column: auto; }
-      .session-stats { grid-template-columns: 1fr 1fr; }
-      .stat:nth-child(2) { border-right: 0; }
-      .stat:last-child { grid-column: 1 / -1; border-top: 1px solid var(--line); }
+      .layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+      .layout > .stack > .panel { grid-column: 1 / -1; }
+      .session-strip { justify-content: flex-start; }
+      .session-panel .panel-header { align-items: flex-start; flex-direction: column; }
+      .stat { padding: 12px; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
@@ -248,7 +268,7 @@
 
     <div class="layout">
       <div class="stack">
-        <section class="panel">
+        <section class="panel test-panel">
           <div class="panel-header"><h2 class="panel-title">Test call</h2><span class="panel-kicker">JSON API</span></div>
           <div class="panel-body">
             <div class="field-grid">
@@ -268,8 +288,8 @@
                 <input id="recipient" type="tel" value="+6560000000" autocomplete="off">
               </div>
               <div class="field full">
-                <label for="transcript-input">Caller transcript</label>
-                <textarea id="transcript-input">I have been feeling isolated.</textarea>
+                <label for="transcript-input">Escalation statement</label>
+                <textarea id="transcript-input">I want to end my life.</textarea>
               </div>
             </div>
             <div class="workflow-buttons">
@@ -278,12 +298,61 @@
               <button class="button danger" id="hangup-button" type="button"><span class="arrow" aria-hidden="true">■</span> End call</button>
             </div>
             <div class="divider"></div>
-            <button class="button accent" id="full-test-button" type="button"><span class="arrow" aria-hidden="true">▶</span> Run full test</button>
-            <p class="microcopy">A full test creates a new session, records this transcript, and archives it on hangup.</p>
+            <button class="button accent" id="full-test-button" type="button"><span class="arrow" aria-hidden="true">▶</span> Simulate crisis call</button>
+            <p class="microcopy">Runs a two-turn caller simulation and leaves any escalation in the volunteer queue. Claim it to test assignment; simulated calls never dial a phone.</p>
           </div>
         </section>
 
-        <section class="panel">
+        <section class="panel queue-panel">
+          <div class="panel-header">
+            <div class="subhead-row" style="width:100%"><h2 class="panel-title">Volunteer queue</h2><button class="text-button" id="refresh-queue" type="button">Refresh</button></div>
+          </div>
+          <div class="panel-body">
+            <div class="button-row">
+              <button class="button primary" id="queue-button" type="button"><span class="arrow" aria-hidden="true">↻</span> Refresh queue</button>
+              <button class="button" id="claim-next-button" type="button"><span class="arrow" aria-hidden="true">✓</span> Claim next</button>
+            </div>
+            <div class="activity-list" id="queue-list"><div class="empty-activity">No escalated callers waiting.</div></div>
+          </div>
+        </section>
+
+        <section class="panel alerts-panel">
+          <div class="panel-header">
+            <div class="subhead-row" style="width:100%"><h2 class="panel-title">Operator alerts</h2><button class="text-button" id="refresh-alerts" type="button">Refresh</button></div>
+          </div>
+          <div class="panel-body">
+            <div class="button-row">
+              <button class="button primary" id="alerts-button" type="button"><span class="arrow" aria-hidden="true">↻</span> Refresh alerts</button>
+            </div>
+            <div class="activity-list" id="alerts-list"><div class="empty-activity">No operator alerts yet.</div></div>
+          </div>
+        </section>
+
+        <section class="panel roster-panel">
+          <div class="panel-header">
+            <div class="subhead-row" style="width:100%"><h2 class="panel-title">Volunteer roster</h2><button class="text-button" id="refresh-volunteers" type="button">Refresh</button></div>
+          </div>
+          <div class="panel-body">
+            <div class="button-row">
+              <button class="button primary" id="volunteers-button" type="button"><span class="arrow" aria-hidden="true">↻</span> Refresh roster</button>
+            </div>
+            <div class="activity-list" id="volunteer-list"><div class="empty-activity">No volunteers available.</div></div>
+          </div>
+        </section>
+
+        <section class="panel assigned-panel">
+          <div class="panel-header">
+            <div class="subhead-row" style="width:100%"><h2 class="panel-title">Assigned cases</h2><button class="text-button" id="refresh-assigned" type="button">Refresh</button></div>
+          </div>
+          <div class="panel-body">
+            <div class="button-row">
+              <button class="button primary" id="assigned-button" type="button"><span class="arrow" aria-hidden="true">↻</span> My cases</button>
+            </div>
+            <div class="activity-list" id="assigned-list"><div class="empty-activity">Select a volunteer to view assigned cases.</div></div>
+          </div>
+        </section>
+
+        <section class="panel activity-panel">
           <div class="panel-header">
             <div class="subhead-row" style="width:100%"><h2 class="panel-title">Request activity</h2><button class="text-button" id="clear-activity" type="button">Clear</button></div>
           </div>
@@ -292,20 +361,26 @@
       </div>
 
       <div class="stack">
-        <section class="panel">
+        <section class="panel session-panel">
           <div class="panel-header">
             <h2 class="panel-title">Session record</h2>
-            <div class="session-strip"><span class="state-pill" id="state-pill">Not loaded</span><button class="text-button" id="refresh-session" type="button">Refresh</button></div>
+            <div class="session-strip">
+              <span class="state-pill" id="state-pill">Not loaded</span>
+              <button class="button" id="acknowledge-button" type="button">Acknowledge</button>
+              <button class="text-button" id="refresh-session" type="button">Refresh</button>
+            </div>
           </div>
           <div class="session-stats">
             <div class="stat"><span class="stat-label">Call SID</span><span class="stat-value" id="stat-id">—</span></div>
             <div class="stat"><span class="stat-label">Version</span><span class="stat-value" id="stat-version">—</span></div>
             <div class="stat"><span class="stat-label">Turns</span><span class="stat-value" id="stat-turns">—</span></div>
+            <div class="stat"><span class="stat-label">Handoff</span><span class="stat-value" id="stat-handoff">—</span></div>
+            <div class="stat"><span class="stat-label">Volunteer</span><span class="stat-value" id="stat-volunteer">—</span></div>
           </div>
           <div class="transcript" id="transcript-view"><div class="empty-state">Session turns will appear here.</div></div>
         </section>
 
-        <section class="panel">
+        <section class="panel response-panel">
           <div class="panel-header"><h2 class="panel-title">Latest response</h2><span class="panel-kicker" id="latest-meta">Waiting for request</span></div>
           <div class="activity-list" id="latest-response"><div class="empty-activity">Run a request to inspect its status and response body.</div></div>
         </section>
@@ -320,9 +395,9 @@
     const controls = [...document.querySelectorAll("button")];
     let busy = false;
 
-    function freshCallId() {
+    function freshCallId(prefix = "SIM-") {
       const value = crypto.randomUUID().replaceAll("-", "").toUpperCase();
-      $("call-id").value = `CA${value}`;
+      $("call-id").value = `${prefix}${value}`;
     }
 
     function setBusy(value) {
@@ -406,7 +481,12 @@
         try { data = text ? JSON.parse(text) : ""; } catch { /* Keep non-JSON responses readable. */ }
         const entry = { label, method, path, request: payload || "", response: data, status: response.status, ok: response.ok, at: startedAt };
         addActivity(entry);
-        if (!response.ok) throw new Error(`${label} returned HTTP ${response.status}`);
+        if (!response.ok) {
+          const detail = typeof data === "object" && data !== null
+            ? data.detail || data.error || data.message
+            : data;
+          throw new Error(`${label} failed (HTTP ${response.status})${detail ? `: ${detail}` : ""}`);
+        }
         return data;
       } catch (error) {
         if (!activity.length || activity[0].at !== startedAt) {
@@ -443,11 +523,15 @@
 
     function renderSession(session) {
       const state = String(session.state || "unknown").replaceAll("_", " ");
+      const handoff = String(session.handoff_status || "not_required").replaceAll("_", " ");
+      const volunteer = session.assigned_volunteer_id || "Unassigned";
       const pill = $("state-pill");
       pill.textContent = state;
       pill.className = `state-pill ${state}`;
       $("stat-id").textContent = session.id || "—";
       $("stat-version").textContent = session.version ?? "—";
+      $("stat-handoff").textContent = `${handoff}${session.operator_acknowledged ? " · acked" : " · pending"}`;
+      $("stat-volunteer").textContent = volunteer;
       const turns = session.transcript?.turns || [];
       $("stat-turns").textContent = turns.length;
       const view = $("transcript-view");
@@ -477,6 +561,295 @@
         view.append(item);
       });
       view.scrollTop = view.scrollHeight;
+    }
+
+    function renderQueue(data) {
+      const list = $("queue-list");
+      list.replaceChildren();
+      const pending = data?.pending || [];
+      if (!pending.length) {
+        list.innerHTML = '<div class="empty-activity">No escalated callers waiting.</div>';
+        return;
+      }
+
+      pending.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "activity-item";
+        row.style.display = "flex";
+        row.style.flexDirection = "column";
+        row.style.gap = "8px";
+
+        const top = document.createElement("div");
+        top.className = "activity-top";
+        top.style.marginBottom = "0";
+
+        const label = document.createElement("strong");
+        label.style.fontSize = "12px";
+        label.textContent = item.session_id;
+
+        const risk = document.createElement("span");
+        risk.className = "http-badge";
+        risk.textContent = `Risk ${item.risk}`;
+
+        top.append(label, risk);
+
+        const actions = document.createElement("div");
+        actions.style.display = "flex";
+        actions.style.gap = "8px";
+
+        const openBtn = document.createElement("button");
+        openBtn.type = "button";
+        openBtn.className = "button";
+        openBtn.textContent = "Open";
+        openBtn.addEventListener("click", () => {
+          $("call-id").value = item.session_id;
+          withBusy(loadSession).catch(() => {});
+        });
+
+        const claimBtn = document.createElement("button");
+        claimBtn.type = "button";
+        claimBtn.className = "button primary";
+        claimBtn.textContent = "Claim";
+        claimBtn.addEventListener("click", () => {
+          withBusy(async () => {
+            const result = await request("Claim queue item", "POST", `${api}/volunteers/claim`, {
+              volunteer_id: "volunteer-aisha",
+              session_id: item.session_id
+            });
+            const claimed = result?.session_id;
+            if (claimed) {
+              $("call-id").value = claimed;
+              await loadSession();
+              await loadQueue();
+              await loadVolunteers();
+              await loadAssignedCases("volunteer-aisha");
+            }
+          }).catch(() => {});
+        });
+
+        actions.append(openBtn, claimBtn);
+        row.append(top, actions);
+        list.append(row);
+      });
+    }
+
+    function renderAlerts(data) {
+      const list = $("alerts-list");
+      list.replaceChildren();
+      const alerts = data?.alerts || [];
+      if (!alerts.length) {
+        list.innerHTML = '<div class="empty-activity">No operator alerts yet.</div>';
+        return;
+      }
+
+      alerts.forEach((alert) => {
+        const row = document.createElement("div");
+        row.className = "activity-item";
+        row.style.display = "flex";
+        row.style.flexDirection = "column";
+        row.style.gap = "6px";
+
+        const top = document.createElement("div");
+        top.className = "activity-top";
+        top.style.marginBottom = "0";
+
+        const kind = document.createElement("span");
+        kind.className = "http-badge";
+        kind.textContent = (alert.kind || "alert").toUpperCase();
+
+        const time = document.createElement("span");
+        time.className = "activity-time";
+        time.textContent = formatTime(alert.created_at);
+        top.append(kind, time);
+
+        const message = document.createElement("div");
+        message.style.color = "#3b4b42";
+        message.style.fontSize = "12px";
+        message.style.lineHeight = "1.5";
+        message.textContent = alert.message || "Operator update";
+
+        const meta = document.createElement("div");
+        meta.style.color = "#5d6d64";
+        meta.style.fontSize = "11px";
+        meta.textContent = `Session: ${alert.session_id}${alert.volunteer_id ? ` · Volunteer: ${alert.volunteer_id}` : ""}`;
+
+        row.append(top, message, meta);
+        list.append(row);
+      });
+    }
+
+    function renderVolunteers(data) {
+      const list = $("volunteer-list");
+      list.replaceChildren();
+      const volunteers = data?.volunteers || [];
+      if (!volunteers.length) {
+        list.innerHTML = '<div class="empty-activity">No volunteers available.</div>';
+        return;
+      }
+
+      volunteers.forEach((volunteer) => {
+        const row = document.createElement("div");
+        row.className = "activity-item";
+        row.style.display = "flex";
+        row.style.flexDirection = "column";
+        row.style.gap = "7px";
+
+        const top = document.createElement("div");
+        top.className = "activity-top";
+        top.style.marginBottom = "0";
+
+        const label = document.createElement("strong");
+        label.style.fontSize = "12px";
+        label.textContent = `${volunteer.display_name} (${volunteer.id})`;
+
+        const shift = document.createElement("span");
+        shift.className = `http-badge ${volunteer.on_shift ? "" : "error"}`;
+        shift.textContent = volunteer.on_shift ? "On shift" : "Off shift";
+        top.append(label, shift);
+
+        const meta = document.createElement("div");
+        meta.style.color = "#5d6d64";
+        meta.style.fontSize = "11px";
+        meta.textContent = `Phone: ${volunteer.phone_number}`;
+
+        const action = document.createElement("button");
+        action.type = "button";
+        action.className = "button";
+        action.textContent = `Claim as ${volunteer.display_name.split(" ")[0]}`;
+        action.addEventListener("click", () => {
+          withBusy(async () => {
+            const result = await request("Claim queue item", "POST", `${api}/volunteers/claim`, {
+              volunteer_id: volunteer.id
+            });
+            if (result?.session_id) {
+              $("call-id").value = result.session_id;
+              await loadSession();
+              await loadQueue();
+              await loadVolunteers();
+              await loadAssignedCases(volunteer.id);
+            }
+          }).catch(() => {});
+        });
+
+        row.append(top, meta, action);
+        list.append(row);
+      });
+    }
+
+    function renderAssignedCases(data) {
+      const list = $("assigned-list");
+      list.replaceChildren();
+      const volunteerId = data?.volunteer_id || "";
+      const cases = data?.cases || [];
+      if (!cases.length) {
+        list.innerHTML = `<div class="empty-activity">No assigned cases for ${volunteerId || "this volunteer"}.</div>`;
+        return;
+      }
+
+      cases.forEach((entry) => {
+        const row = document.createElement("div");
+        row.className = "activity-item";
+        row.style.display = "flex";
+        row.style.flexDirection = "column";
+        row.style.gap = "8px";
+
+        const top = document.createElement("div");
+        top.className = "activity-top";
+        top.style.marginBottom = "0";
+
+        const label = document.createElement("strong");
+        label.style.fontSize = "12px";
+        label.textContent = entry.session_id;
+
+        const risk = document.createElement("span");
+        risk.className = "http-badge";
+        risk.textContent = `Risk ${entry.risk}`;
+        top.append(label, risk);
+
+        const meta = document.createElement("div");
+        meta.style.color = "#5d6d64";
+        meta.style.fontSize = "11px";
+        meta.textContent = `Status: ${entry.status}`;
+
+        const openBtn = document.createElement("button");
+        openBtn.type = "button";
+        openBtn.className = "button";
+        openBtn.textContent = "Open";
+        openBtn.addEventListener("click", () => {
+          $("call-id").value = entry.session_id;
+          withBusy(loadSession).catch(() => {});
+        });
+
+        const transferBtn = document.createElement("button");
+        transferBtn.type = "button";
+        transferBtn.className = "button";
+        transferBtn.textContent = "Transfer";
+        transferBtn.addEventListener("click", () => {
+          withBusy(async () => {
+            const result = await request("Transfer case", "POST", `${api}/volunteers/${encodeURIComponent(volunteerId)}/cases/${encodeURIComponent(entry.session_id)}/transfer`);
+            if (result?.handoff_status === "transferred") {
+              await loadSession();
+              await loadAssignedCases(result.volunteer_id);
+              await loadAlerts();
+            }
+          }).catch(() => {});
+        });
+
+        const resolveBtn = document.createElement("button");
+        resolveBtn.type = "button";
+        resolveBtn.className = "button primary";
+        resolveBtn.textContent = "Resolve";
+        resolveBtn.addEventListener("click", () => {
+          withBusy(async () => {
+            const result = await request("Resolve case", "POST", `${api}/volunteers/${encodeURIComponent(volunteerId)}/cases/${encodeURIComponent(entry.session_id)}/resolve`);
+            if (result?.handoff_status === "resolved") {
+              await loadSession();
+              await loadAssignedCases(volunteerId);
+            }
+          }).catch(() => {});
+        });
+
+        row.append(top, meta, openBtn, transferBtn, resolveBtn);
+        list.append(row);
+      });
+    }
+
+    async function loadQueue() {
+      const data = await request("Load volunteer queue", "GET", `${api}/volunteers/queue`);
+      renderQueue(data);
+      return data;
+    }
+
+    async function loadAlerts() {
+      const data = await request("Load operator alerts", "GET", `${api}/operator/alerts`);
+      renderAlerts(data);
+      return data;
+    }
+
+    async function loadVolunteers() {
+      const data = await request("Load volunteer roster", "GET", `${api}/volunteers`);
+      renderVolunteers(data);
+      return data;
+    }
+
+    async function loadAssignedCases(volunteerId) {
+      const id = volunteerId || "volunteer-aisha";
+      const data = await request("Load assigned cases", "GET", `${api}/volunteers/${encodeURIComponent(id)}/cases`);
+      renderAssignedCases(data);
+      return data;
+    }
+
+    async function claimNext() {
+      const data = await request("Claim next", "POST", `${api}/volunteers/claim`, {
+        volunteer_id: "volunteer-aisha"
+      });
+      if (data?.session_id) {
+        $("call-id").value = data.session_id;
+        await loadSession();
+      }
+      await loadQueue();
+      await loadVolunteers();
+      await loadAssignedCases("volunteer-aisha");
     }
 
     async function checkHealth() {
@@ -514,12 +887,37 @@
     $("start-button").addEventListener("click", () => withBusy(startCall));
     $("turn-button").addEventListener("click", () => withBusy(recordTurn));
     $("hangup-button").addEventListener("click", () => withBusy(endCall));
+    $("acknowledge-button").addEventListener("click", () => withBusy(async () => {
+      const id = currentId();
+      const result = await request("Acknowledge operator review", "POST", `${api}/calls/${encodeURIComponent(id)}/acknowledge`);
+      if (result?.operator_acknowledged) {
+        await loadSession();
+        await loadAlerts();
+      }
+    }));
     $("refresh-session").addEventListener("click", () => withBusy(loadSession));
+    $("refresh-queue").addEventListener("click", () => withBusy(loadQueue));
+    $("queue-button").addEventListener("click", () => withBusy(loadQueue));
+    $("claim-next-button").addEventListener("click", () => withBusy(claimNext));
+    $("refresh-alerts").addEventListener("click", () => withBusy(loadAlerts));
+    $("alerts-button").addEventListener("click", () => withBusy(loadAlerts));
+    $("refresh-volunteers").addEventListener("click", () => withBusy(loadVolunteers));
+    $("volunteers-button").addEventListener("click", () => withBusy(loadVolunteers));
+    $("refresh-assigned").addEventListener("click", () => withBusy(() => loadAssignedCases("volunteer-aisha")));
+    $("assigned-button").addEventListener("click", () => withBusy(() => loadAssignedCases("volunteer-aisha")));
     $("full-test-button").addEventListener("click", () => withBusy(async () => {
-      freshCallId();
+      freshCallId("SIM-");
       await startCall();
+      const escalationStatement = $("transcript-input").value.trim();
+      if (!escalationStatement) throw new Error("Enter an escalation statement before running the simulation.");
+      $("transcript-input").value = "I have been stressed lately.";
       await recordTurn();
-      await endCall();
+      $("transcript-input").value = escalationStatement;
+      await recordTurn();
+      await loadSession();
+      await loadQueue();
+      await loadAlerts();
+      await loadVolunteers();
     }));
     $("clear-activity").addEventListener("click", () => {
       activity.length = 0;
@@ -529,7 +927,13 @@
     });
 
     freshCallId();
-    withBusy(checkHealth).catch(() => {
+    withBusy(async () => {
+      await checkHealth();
+      await loadAlerts();
+      await loadQueue();
+      await loadVolunteers();
+      await loadAssignedCases("volunteer-aisha");
+    }).catch(() => {
       $("api-dot").className = "status-dot offline";
       $("api-status").textContent = "API unavailable";
     });

@@ -56,6 +56,12 @@ pub trait PriorityQueue: Send + Sync {
         risk: u8,
         enqueued_at: DateTime<Utc>,
     ) -> CoreResult<()>;
+    async fn list_pending(&self) -> CoreResult<Vec<SessionId>>;
     async fn peek_highest(&self) -> CoreResult<Option<SessionId>>;
     async fn claim(&self, volunteer_id: &str) -> CoreResult<Option<SessionId>>;
+    async fn claim_session(
+        &self,
+        session_id: &SessionId,
+        volunteer_id: &str,
+    ) -> CoreResult<bool>;
 }
