@@ -86,6 +86,14 @@ pub struct TurnRequest {
     pub transcript: String,
 }
 
+fn response_for_risk(level: u8) -> &'static str {
+    match level {
+        4..=u8::MAX => "Thank you for telling me. I'm sorry you're going through this. I want to help keep you safe, and I'm alerting a human volunteer now. Are you in immediate danger right now?",
+        2..=3 => "I'm glad you told me. That sounds difficult to carry. What feels most important for me to understand right now?",
+        _ => "Thank you for sharing that with me. What has been weighing on you most today?",
+    }
+}
+
 pub async fn turn(
     state: web::Data<Arc<AppState>>,
     path: web::Path<String>,
@@ -115,12 +123,21 @@ pub async fn turn(
     let assessment = sayangcare_core::domain::RiskAssessment::from_text(transcript);
     session.risk = assessment.clone();
 
+    let assistant_response = response_for_risk(session.risk.level.0).to_string();
+    let now = chrono::Utc::now();
     if session
-        .record_turns([Turn {
-            speaker: sayangcare_core::domain::Speaker::Caller,
-            text: transcript.to_string(),
-            timestamp: chrono::Utc::now(),
-        }])
+        .record_turns([
+            Turn {
+                speaker: sayangcare_core::domain::Speaker::Caller,
+                text: transcript.to_string(),
+                timestamp: now,
+            },
+            Turn {
+                speaker: sayangcare_core::domain::Speaker::Assistant,
+                text: assistant_response.clone(),
+                timestamp: chrono::Utc::now(),
+            },
+        ])
         .is_err()
     {
         return HttpResponse::Conflict().finish();
@@ -184,6 +201,7 @@ pub async fn turn(
         "version": session.version,
         "risk_level": session.risk.level.0,
         "risk_rationale": session.risk.rationale,
+        "assistant_response": assistant_response,
     }))
 }
 
