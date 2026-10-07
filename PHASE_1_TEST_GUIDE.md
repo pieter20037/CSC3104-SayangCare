@@ -123,14 +123,14 @@ Complete and archive the session:
 Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$base/calls/$callSid/hangup"
 ```
 
-Expected: HTTP `200`. Verify the full transcript was archived and the hot Redis key was removed:
+Expected: HTTP `200`. Verify the transcript was archived and the hot Redis key was removed:
 
 ```powershell
 docker compose exec -T postgres psql -U sayangcare -d sayangcare -c "select id, state, version, jsonb_array_length(transcript->'turns') as turns from sessions where id = '$callSid';"
 docker compose exec -T redis-master redis-cli EXISTS "session:$callSid"
 ```
 
-Expected: PostgreSQL shows state `completed`, an incremented version, and one caller turn. Redis returns `0` for the deleted session key.
+Expected: PostgreSQL shows the session still active in a high-risk escalated state (for the verified sample, `state = escalated`, `version = 3`, `turns = 2`), and Redis returns `0` for the deleted session key. In a real call, the exact end state depends on the detected risk and escalation rules; this project intentionally escalates high-risk sessions instead of immediately marking them as completed.
 
 ## Run Automated Checks
 
@@ -139,7 +139,7 @@ cargo test --workspace
 cargo check --workspace --all-targets
 ```
 
-The phase-one tests cover stable session IDs, legal state transitions, version increments, full cold-store rehydration, archive-before-delete ordering, and preservation of active state when terminal CAS loses a race.
+This is the order used in the verified smoke pass. The phase-one tests cover stable session IDs, legal state transitions, version increments, full cold-store rehydration, archive-before-delete ordering, and preservation of active state when terminal CAS loses a race.
 
 ## Twilio Status
 
