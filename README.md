@@ -388,9 +388,12 @@ curl -i http://localhost:8081/api/v1/health
 
 ```text
 POST /api/v1/calls/incoming
+GET  /api/v1/calls/{session_id}
 POST /api/v1/calls/{session_id}/turn
 POST /api/v1/calls/{session_id}/hangup
 ```
+
+For a browser-based local test console, start the API and open `http://localhost:8080/dashboard`. It can run the call lifecycle and inspect the session transcript.
 
 Create a session:
 

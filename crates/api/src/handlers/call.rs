@@ -19,6 +19,21 @@ pub struct IncomingResponse {
     pub state: String,
 }
 
+pub async fn get_session(
+    state: web::Data<Arc<AppState>>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let sid = SessionId(path.into_inner());
+    match state.sessions.get(&sid).await {
+        Ok(Some(session)) => HttpResponse::Ok().json(session),
+        Ok(None) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            tracing::error!(error = %e, "failed to load session");
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
 pub async fn incoming(
     state: web::Data<Arc<AppState>>,
     body: web::Json<IncomingCall>,

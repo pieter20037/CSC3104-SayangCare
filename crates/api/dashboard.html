@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eef2ed">
+  <title>SayangCare | Call Lab</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #eef2ed;
+      --surface: #fbfcf9;
+      --ink: #1c2b25;
+      --muted: #6d7b73;
+      --line: #d8e0d9;
+      --forest: #235c49;
+      --forest-dark: #174432;
+      --coral: #cf6048;
+      --lime: #d8ed89;
+      --red-soft: #f8e4df;
+      --green-soft: #e5f0e9;
+      --shadow: 0 14px 40px rgb(32 58 45 / 7%);
+      font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      background-color: var(--paper);
+      background-image: radial-gradient(#cfdbd1 0.7px, transparent 0.7px);
+      background-size: 18px 18px;
+    }
+
+    button, input, textarea { font: inherit; }
+    button { cursor: pointer; }
+
+    .topbar {
+      height: 66px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 clamp(18px, 4vw, 58px);
+      border-bottom: 1px solid var(--line);
+      background: rgb(251 252 249 / 92%);
+    }
+
+    .brand { display: flex; align-items: center; gap: 11px; font-weight: 700; }
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--forest);
+      color: white;
+      font-family: Georgia, serif;
+      font-size: 18px;
+      line-height: 1;
+    }
+    .brand-name { letter-spacing: 0; }
+    .top-meta { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      display: inline-block;
+      border-radius: 50%;
+      background: #9aa79e;
+    }
+    .status-dot.online { background: #3c9a68; box-shadow: 0 0 0 3px #3c9a6820; }
+    .status-dot.offline { background: var(--coral); }
+
+    main { width: min(1320px, 100%); margin: 0 auto; padding: 35px clamp(16px, 4vw, 58px) 56px; }
+
+    .page-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 25px;
+      animation: arrive 420ms ease-out both;
+    }
+
+    .eyebrow { margin: 0 0 7px; color: var(--forest); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    h1 { margin: 0; font: 500 36px/1.05 Georgia, "Times New Roman", serif; letter-spacing: 0; }
+    .heading-note { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+
+    .layout { display: grid; grid-template-columns: minmax(320px, 0.88fr) minmax(0, 1.12fr); gap: 18px; align-items: start; }
+    .stack { display: grid; gap: 18px; }
+    .panel {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      animation: arrive 480ms ease-out both;
+    }
+    .panel:nth-child(2) { animation-delay: 60ms; }
+    .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 19px; border-bottom: 1px solid var(--line); }
+    .panel-title { margin: 0; font-size: 14px; font-weight: 750; }
+    .panel-kicker { color: var(--muted); font-size: 11px; }
+    .panel-body { padding: 19px; }
+
+    .field-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+    .field { display: grid; gap: 7px; min-width: 0; }
+    .field.full { grid-column: 1 / -1; }
+    label { color: #4e5e54; font-size: 11px; font-weight: 750; }
+    input, textarea {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid #cbd6cd;
+      border-radius: 5px;
+      outline: none;
+      background: white;
+      color: var(--ink);
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+    input { height: 40px; padding: 0 11px; }
+    textarea { min-height: 98px; resize: vertical; padding: 10px 11px; line-height: 1.45; }
+    input:focus, textarea:focus { border-color: var(--forest); box-shadow: 0 0 0 3px #235c4919; }
+    input[readonly] { background: #f2f5f1; color: #596a60; }
+
+    .sid-control { display: flex; gap: 7px; }
+    .sid-control input { flex: 1; }
+    .icon-button {
+      width: 40px;
+      flex: 0 0 40px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #cbd6cd;
+      border-radius: 5px;
+      background: white;
+      color: var(--forest);
+      font-size: 18px;
+    }
+    .icon-button:hover { border-color: var(--forest); background: #f1f6f2; }
+
+    .button-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 17px; }
+    .button {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 13px;
+      border: 1px solid #cbd6cd;
+      border-radius: 5px;
+      background: white;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 700;
+      transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+    }
+    .button:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--forest); }
+    .button:disabled { cursor: wait; opacity: 0.55; }
+    .button.primary { border-color: var(--forest); background: var(--forest); color: white; }
+    .button.primary:hover:not(:disabled) { background: var(--forest-dark); }
+    .button.accent { border-color: #c3d778; background: var(--lime); color: #283620; }
+    .button.danger { color: #a44332; }
+    .button .arrow { font-size: 15px; line-height: 1; }
+
+    .workflow-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 9px; }
+    .workflow-buttons .button { width: 100%; }
+    .workflow-buttons .button:last-child { grid-column: 1 / -1; }
+    .divider { height: 1px; margin: 17px 0 13px; background: var(--line); }
+    .microcopy { margin: 11px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+    .session-strip { display: flex; align-items: center; gap: 9px; }
+    .state-pill { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: 99px; background: #edf1ed; color: #59685f; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .state-pill.active { background: var(--green-soft); color: var(--forest); }
+    .state-pill.completed { background: #e9edda; color: #627322; }
+    .state-pill.failed { background: var(--red-soft); color: #a44332; }
+    .session-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); }
+    .stat { min-width: 0; padding: 14px 17px; border-right: 1px solid var(--line); }
+    .stat:last-child { border-right: 0; }
+    .stat-label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .stat-value { display: block; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+
+    .transcript { display: grid; gap: 10px; max-height: 330px; overflow: auto; padding: 17px; }
+    .empty-state { display: grid; min-height: 132px; place-items: center; padding: 20px; color: var(--muted); text-align: center; font: 16px/1.45 Georgia, "Times New Roman", serif; }
+    .turn { max-width: 88%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 5px; background: white; }
+    .turn.assistant { justify-self: end; border-color: #d3e2d7; background: #edf5ef; }
+    .turn-speaker { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; color: var(--forest); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .turn-time { color: #87948b; font-size: 9px; font-weight: 500; }
+    .turn-text { margin: 0; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+
+    .activity-list { display: grid; max-height: 350px; overflow: auto; }
+    .activity-item { padding: 13px 17px; border-bottom: 1px solid #e5eae5; }
+    .activity-item:last-child { border-bottom: 0; }
+    .activity-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 7px; }
+    .activity-label { font-size: 12px; font-weight: 750; }
+    .activity-time { color: var(--muted); font-size: 10px; }
+    .http-badge { min-width: 47px; padding: 4px 6px; border-radius: 4px; background: var(--green-soft); color: var(--forest); font-size: 10px; font-weight: 800; text-align: center; }
+    .http-badge.error { background: var(--red-soft); color: #a44332; }
+    details { margin-top: 4px; }
+    summary { width: fit-content; color: var(--muted); cursor: pointer; font-size: 10px; }
+    pre { max-height: 180px; overflow: auto; margin: 8px 0 0; padding: 10px; border-radius: 4px; background: #f0f3ef; color: #31463a; font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .empty-activity { padding: 18px; color: var(--muted); font-size: 12px; }
+    .subhead-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .text-button { padding: 4px 0; border: 0; background: transparent; color: var(--forest); font-size: 11px; font-weight: 700; }
+    .text-button:hover { text-decoration: underline; }
+
+    @keyframes arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @media (max-width: 790px) {
+      main { padding-top: 25px; }
+      .layout { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .topbar { height: 58px; padding: 0 16px; }
+      .top-meta { font-size: 10px; }
+      main { padding-inline: 12px; }
+      .page-heading { align-items: start; flex-direction: column; }
+      h1 { font-size: 31px; }
+      .panel-header, .panel-body { padding-inline: 14px; }
+      .field-grid { grid-template-columns: 1fr; }
+      .field.full { grid-column: auto; }
+      .workflow-buttons { grid-template-columns: 1fr; }
+      .workflow-buttons .button:last-child { grid-column: auto; }
+      .session-stats { grid-template-columns: 1fr 1fr; }
+      .stat:nth-child(2) { border-right: 0; }
+      .stat:last-child { grid-column: 1 / -1; border-top: 1px solid var(--line); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">s</span><span class="brand-name">SayangCare</span></div>
+    <div class="top-meta"><span id="api-dot" class="status-dot"></span><span id="api-status">Checking API</span></div>
+  </header>
+
+  <main>
+    <section class="page-heading">
+      <div>
+        <p class="eyebrow">Developer tools / Local environment</p>
+        <h1>Call lab</h1>
+        <p class="heading-note">Webhook workflow and session inspector</p>
+      </div>
+      <button class="button" id="health-button" type="button"><span class="arrow" aria-hidden="true">↻</span> Check API</button>
+    </section>
+
+    <div class="layout">
+      <div class="stack">
+        <section class="panel">
+          <div class="panel-header"><h2 class="panel-title">Test call</h2><span class="panel-kicker">JSON API</span></div>
+          <div class="panel-body">
+            <div class="field-grid">
+              <div class="field full">
+                <label for="call-id">Call SID</label>
+                <div class="sid-control">
+                  <input id="call-id" type="text" spellcheck="false" autocomplete="off">
+                  <button class="icon-button" id="new-id" type="button" title="Generate a fresh Call SID" aria-label="Generate a fresh Call SID">⟳</button>
+                </div>
+              </div>
+              <div class="field">
+                <label for="caller">Caller number</label>
+                <input id="caller" type="tel" value="+6591110001" autocomplete="off">
+              </div>
+              <div class="field">
+                <label for="recipient">Service number</label>
+                <input id="recipient" type="tel" value="+6560000000" autocomplete="off">
+              </div>
+              <div class="field full">
+                <label for="transcript-input">Caller transcript</label>
+                <textarea id="transcript-input">I have been feeling isolated.</textarea>
+              </div>
+            </div>
+            <div class="workflow-buttons">
+              <button class="button primary" id="start-button" type="button"><span class="arrow" aria-hidden="true">+</span> Start call</button>
+              <button class="button" id="turn-button" type="button"><span class="arrow" aria-hidden="true">↗</span> Record turn</button>
+              <button class="button danger" id="hangup-button" type="button"><span class="arrow" aria-hidden="true">■</span> End call</button>
+            </div>
+            <div class="divider"></div>
+            <button class="button accent" id="full-test-button" type="button"><span class="arrow" aria-hidden="true">▶</span> Run full test</button>
+            <p class="microcopy">A full test creates a new session, records this transcript, and archives it on hangup.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div class="subhead-row" style="width:100%"><h2 class="panel-title">Request activity</h2><button class="text-button" id="clear-activity" type="button">Clear</button></div>
+          </div>
+          <div class="activity-list" id="activity-list"><div class="empty-activity">No requests yet.</div></div>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="panel">
+          <div class="panel-header">
+            <h2 class="panel-title">Session record</h2>
+            <div class="session-strip"><span class="state-pill" id="state-pill">Not loaded</span><button class="text-button" id="refresh-session" type="button">Refresh</button></div>
+          </div>
+          <div class="session-stats">
+            <div class="stat"><span class="stat-label">Call SID</span><span class="stat-value" id="stat-id">—</span></div>
+            <div class="stat"><span class="stat-label">Version</span><span class="stat-value" id="stat-version">—</span></div>
+            <div class="stat"><span class="stat-label">Turns</span><span class="stat-value" id="stat-turns">—</span></div>
+          </div>
+          <div class="transcript" id="transcript-view"><div class="empty-state">Session turns will appear here.</div></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header"><h2 class="panel-title">Latest response</h2><span class="panel-kicker" id="latest-meta">Waiting for request</span></div>
+          <div class="activity-list" id="latest-response"><div class="empty-activity">Run a request to inspect its status and response body.</div></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const api = "/api/v1";
+    const $ = (id) => document.getElementById(id);
+    const activity = [];
+    const controls = [...document.querySelectorAll("button")];
+    let busy = false;
+
+    function freshCallId() {
+      const value = crypto.randomUUID().replaceAll("-", "").toUpperCase();
+      $("call-id").value = `CA${value}`;
+    }
+
+    function setBusy(value) {
+      busy = value;
+      controls.forEach((button) => { button.disabled = value; });
+    }
+
+    function pretty(value) {
+      if (value === null || value === undefined || value === "") return "No response body";
+      if (typeof value === "string") {
+        try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; }
+      }
+      return JSON.stringify(value, null, 2);
+    }
+
+    function formatTime(value) {
+      return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+
+    function addActivity(entry) {
+      activity.unshift(entry);
+      const list = $("activity-list");
+      list.replaceChildren();
+      activity.slice(0, 30).forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "activity-item";
+        const top = document.createElement("div");
+        top.className = "activity-top";
+        const label = document.createElement("span");
+        label.className = "activity-label";
+        label.textContent = item.label;
+        const time = document.createElement("span");
+        time.className = "activity-time";
+        time.textContent = formatTime(item.at);
+        const badge = document.createElement("span");
+        badge.className = `http-badge${item.ok ? "" : " error"}`;
+        badge.textContent = item.status ? `${item.status}` : "ERR";
+        top.append(label, time, badge);
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = `${item.method} ${item.path} · details`;
+        const pre = document.createElement("pre");
+        pre.textContent = `Request\n${pretty(item.request)}\n\nResponse\n${pretty(item.response)}`;
+        details.append(summary, pre);
+        row.append(top, details);
+        list.append(row);
+      });
+      if (!activity.length) list.innerHTML = '<div class="empty-activity">No requests yet.</div>';
+      const latest = activity[0];
+      if (latest) {
+        $("latest-meta").textContent = `${latest.label} · ${formatTime(latest.at)}`;
+        const latestBox = $("latest-response");
+        latestBox.replaceChildren();
+        const row = document.createElement("div");
+        row.className = "activity-item";
+        const badge = document.createElement("span");
+        badge.className = `http-badge${latest.ok ? "" : " error"}`;
+        badge.textContent = latest.status ? `${latest.status}` : "ERR";
+        const route = document.createElement("div");
+        route.className = "activity-label";
+        route.style.marginTop = "8px";
+        route.textContent = `${latest.method} ${latest.path}`;
+        const pre = document.createElement("pre");
+        pre.textContent = pretty(latest.response);
+        row.append(badge, route, pre);
+        latestBox.append(row);
+      }
+    }
+
+    async function request(label, method, path, payload) {
+      const startedAt = new Date();
+      try {
+        const response = await fetch(path, {
+          method,
+          headers: payload ? { "content-type": "application/json" } : {},
+          body: payload ? JSON.stringify(payload) : undefined,
+          signal: AbortSignal.timeout(12000)
+        });
+        const text = await response.text();
+        let data = text;
+        try { data = text ? JSON.parse(text) : ""; } catch { /* Keep non-JSON responses readable. */ }
+        const entry = { label, method, path, request: payload || "", response: data, status: response.status, ok: response.ok, at: startedAt };
+        addActivity(entry);
+        if (!response.ok) throw new Error(`${label} returned HTTP ${response.status}`);
+        return data;
+      } catch (error) {
+        if (!activity.length || activity[0].at !== startedAt) {
+          addActivity({ label, method, path, request: payload || "", response: error.message, status: 0, ok: false, at: startedAt });
+        }
+        throw error;
+      }
+    }
+
+    async function withBusy(action) {
+      if (busy) return;
+      setBusy(true);
+      try {
+        await action();
+      } catch (error) {
+        $("api-status").textContent = error.message;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function currentId() {
+      const id = $("call-id").value.trim();
+      if (!id) throw new Error("Enter a Call SID first.");
+      return id;
+    }
+
+    async function loadSession() {
+      const id = currentId();
+      const session = await request("Load session", "GET", `${api}/calls/${encodeURIComponent(id)}`);
+      renderSession(session);
+      return session;
+    }
+
+    function renderSession(session) {
+      const state = String(session.state || "unknown").replaceAll("_", " ");
+      const pill = $("state-pill");
+      pill.textContent = state;
+      pill.className = `state-pill ${state}`;
+      $("stat-id").textContent = session.id || "—";
+      $("stat-version").textContent = session.version ?? "—";
+      const turns = session.transcript?.turns || [];
+      $("stat-turns").textContent = turns.length;
+      const view = $("transcript-view");
+      view.replaceChildren();
+      if (!turns.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = "Session exists. No transcript turns recorded yet.";
+        view.append(empty);
+        return;
+      }
+      turns.forEach((turn) => {
+        const item = document.createElement("article");
+        item.className = `turn ${turn.speaker === "assistant" ? "assistant" : "caller"}`;
+        const heading = document.createElement("div");
+        heading.className = "turn-speaker";
+        const speaker = document.createElement("span");
+        speaker.textContent = String(turn.speaker || "unknown").replaceAll("_", " ");
+        const time = document.createElement("span");
+        time.className = "turn-time";
+        time.textContent = turn.timestamp ? formatTime(turn.timestamp) : "";
+        heading.append(speaker, time);
+        const text = document.createElement("p");
+        text.className = "turn-text";
+        text.textContent = turn.text || "";
+        item.append(heading, text);
+        view.append(item);
+      });
+      view.scrollTop = view.scrollHeight;
+    }
+
+    async function checkHealth() {
+      const data = await request("Health check", "GET", `${api}/health`);
+      $("api-dot").className = "status-dot online";
+      $("api-status").textContent = `${data.service || "API"} · ${data.status || "ok"}`;
+    }
+
+    async function startCall() {
+      const id = currentId();
+      await request("Start call", "POST", `${api}/calls/incoming`, {
+        call_sid: id,
+        from: $("caller").value.trim(),
+        to: $("recipient").value.trim()
+      });
+      await loadSession();
+    }
+
+    async function recordTurn() {
+      const id = currentId();
+      const transcript = $("transcript-input").value.trim();
+      if (!transcript) throw new Error("Enter a transcript before recording a turn.");
+      await request("Record turn", "POST", `${api}/calls/${encodeURIComponent(id)}/turn`, { transcript });
+      await loadSession();
+    }
+
+    async function endCall() {
+      const id = currentId();
+      await request("End call", "POST", `${api}/calls/${encodeURIComponent(id)}/hangup`);
+      await loadSession();
+    }
+
+    $("health-button").addEventListener("click", () => withBusy(checkHealth));
+    $("new-id").addEventListener("click", freshCallId);
+    $("start-button").addEventListener("click", () => withBusy(startCall));
+    $("turn-button").addEventListener("click", () => withBusy(recordTurn));
+    $("hangup-button").addEventListener("click", () => withBusy(endCall));
+    $("refresh-session").addEventListener("click", () => withBusy(loadSession));
+    $("full-test-button").addEventListener("click", () => withBusy(async () => {
+      freshCallId();
+      await startCall();
+      await recordTurn();
+      await endCall();
+    }));
+    $("clear-activity").addEventListener("click", () => {
+      activity.length = 0;
+      $("activity-list").innerHTML = '<div class="empty-activity">No requests yet.</div>';
+      $("latest-meta").textContent = "Waiting for request";
+      $("latest-response").innerHTML = '<div class="empty-activity">Run a request to inspect its status and response body.</div>';
+    });
+
+    freshCallId();
+    withBusy(checkHealth).catch(() => {
+      $("api-dot").className = "status-dot offline";
+      $("api-status").textContent = "API unavailable";
+    });
+  </script>
+</body>
+</html>

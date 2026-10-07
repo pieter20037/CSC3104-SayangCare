@@ -76,19 +76,15 @@ async fn main() -> anyhow::Result<()> {
             .wrap(TracingLogger::default())
             .wrap(Compress::default())
             .wrap(middleware::RequestId::default())
+            .route("/dashboard", web::get().to(handlers::dashboard::index))
             .service(
                 web::scope("/api/v1")
                     .route("/health", web::get().to(handlers::health::health))
                     .route("/ready", web::get().to(handlers::health::ready))
                     .route("/metrics", web::get().to(handlers::health::metrics))
-                    .route(
-                        "/calls/incoming",
-                        web::post().to(handlers::calls::incoming),
-                    )
-                    .route(
-                        "/calls/{sid}/turn",
-                        web::post().to(handlers::calls::turn),
-                    )
+                    .route("/calls/incoming", web::post().to(handlers::calls::incoming))
+                    .route("/calls/{sid}", web::get().to(handlers::calls::get_session))
+                    .route("/calls/{sid}/turn", web::post().to(handlers::calls::turn))
                     .route(
                         "/calls/{sid}/hangup",
                         web::post().to(handlers::calls::hangup),
@@ -103,10 +99,7 @@ async fn main() -> anyhow::Result<()> {
                 web::scope("/twilio")
                     .route("/voice", web::post().to(handlers::twilio::voice))
                     .route("/gather", web::post().to(handlers::twilio::gather))
-                    .route(
-                        "/status",
-                        web::post().to(handlers::twilio::status_callback),
-                    ),
+                    .route("/status", web::post().to(handlers::twilio::status_callback)),
             )
     })
     .workers(config.server.workers)
