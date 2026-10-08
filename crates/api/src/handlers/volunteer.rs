@@ -196,14 +196,20 @@ pub async fn claim(
                     "assigned",
                     &sid.0,
                     Some(&body.volunteer_id),
-                    format!("Volunteer {} claimed simulated session {}; no live phone call was placed.", body.volunteer_id, sid.0),
+                    format!(
+                        "Volunteer {} claimed simulated session {}; no live phone call was placed.",
+                        body.volunteer_id, sid.0
+                    ),
                 );
             } else {
                 state.record_alert(
                     "assigned",
                     &sid.0,
                     Some(&body.volunteer_id),
-                    format!("Volunteer {} claimed session {} and the call was routed for live handoff.", body.volunteer_id, sid.0),
+                    format!(
+                        "Volunteer {} claimed session {} and the call was routed for live handoff.",
+                        body.volunteer_id, sid.0
+                    ),
                 );
 
                 if let Err(e) = state
@@ -288,7 +294,10 @@ pub async fn resolve_case(
         "resolved",
         &session_id,
         Some(&volunteer_id),
-        format!("Volunteer {} resolved case {} after live handoff review.", volunteer_id, session_id),
+        format!(
+            "Volunteer {} resolved case {} after live handoff review.",
+            volunteer_id, session_id
+        ),
     );
 
     HttpResponse::Ok().json(ResolveCaseResponse {
@@ -360,7 +369,10 @@ pub async fn transfer_case(
                 "transfer_failed",
                 &session_id,
                 Some(&volunteer_id),
-                format!("Transfer of live session {} to {} failed: {}", session_id, next_volunteer.id, error),
+                format!(
+                    "Transfer of live session {} to {} failed: {}",
+                    session_id, next_volunteer.id, error
+                ),
             );
             return HttpResponse::BadGateway().json(serde_json::json!({
                 "error": "live call redirect failed",
@@ -401,7 +413,10 @@ pub async fn transfer_case(
         "transferred",
         &session_id,
         Some(&next_volunteer.id),
-        format!("Volunteer {} transferred session {} to volunteer {}.", volunteer_id, session_id, next_volunteer.id),
+        format!(
+            "Volunteer {} transferred session {} to volunteer {}.",
+            volunteer_id, session_id, next_volunteer.id
+        ),
     );
 
     HttpResponse::Ok().json(TransferCaseResponse {

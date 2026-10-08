@@ -4,6 +4,7 @@ use sayangcare_core::domain::{CallerId, Session, SessionId, Turn};
 use sayangcare_core::CoreError;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::info;
 
 #[derive(Debug, Deserialize)]
@@ -110,9 +111,6 @@ pub async fn turn(
         }
     };
 
-    // Circuit-breaker-guarded LLM call would go here:
-    //   let breaker = state.breakers.get("llm-inference").await;
-    //   if breaker.acquire().is_err() { /* fallback to buffered audio */ }
     let expected = session.version;
     let transcript = body.transcript.trim();
 
@@ -120,18 +118,66 @@ pub async fn turn(
         return HttpResponse::BadRequest().finish();
     }
 
-    let assessment = sayangcare_core::domain::RiskAssessment::from_text(transcript);
-    session.risk = assessment.clone();
+    let prior_assessment = session
+        .transcript
+        .turns
+        .iter()
+        .filter(|turn| turn.speaker == sayangcare_core::domain::Speaker::Caller)
+        .map(|turn| sayangcare_core::domain::RiskAssessment::from_text(&turn.text))
+        .max_by_key(|assessment| assessment.level);
+    let current_assessment = sayangcare_core::domain::RiskAssessment::from_text(transcript);
+    let assessment = prior_assessment
+        .filter(|prior| prior.level > current_assessment.level)
+        .unwrap_or(current_assessment);
+    // Once a session is escalated, a later harmless utterance ("hi", silence,
+    // etc.) must not erase the risk that triggered the handoff.
+    session.risk = if session.state == sayangcare_core::domain::SessionState::Escalated
+        && assessment.level < session.risk.level
+    {
+        // Keep the highest assessment seen during the active handoff.
+        session.risk.clone()
+    } else {
+        assessment
+    };
+    let escalated = session.state == sayangcare_core::domain::SessionState::Escalated
+        || session.risk.level.requires_immediate_escalation();
 
-    let assistant_response = response_for_risk(session.risk.level.0).to_string();
     let now = chrono::Utc::now();
+    let caller_turn = Turn {
+        speaker: sayangcare_core::domain::Speaker::Caller,
+        text: transcript.to_string(),
+        timestamp: now,
+    };
+    let assistant_response = if escalated {
+        response_for_risk(session.risk.level.0).to_string()
+    } else if let Some(inference) = state.inference.as_ref() {
+        let breaker = state.breakers.get("llm-inference").await;
+        if breaker.acquire().is_err() {
+            response_for_risk(session.risk.level.0).to_string()
+        } else {
+            let mut context = session.transcript.clone();
+            context.push(caller_turn.clone());
+            let started = Instant::now();
+            match inference.generate_reply(&context).await {
+                Ok(reply) => {
+                    breaker.record_success(started.elapsed().as_millis() as u64);
+                    reply
+                }
+                Err(error) => {
+                    let latency = started.elapsed().as_millis() as u64;
+                    breaker.record_failure(latency, 0.25).await;
+                    tracing::warn!(error = %error, session_id = %session.id, "Groq reply failed; using deterministic fallback");
+                    response_for_risk(session.risk.level.0).to_string()
+                }
+            }
+        }
+    } else {
+        response_for_risk(session.risk.level.0).to_string()
+    };
+
     if session
         .record_turns([
-            Turn {
-                speaker: sayangcare_core::domain::Speaker::Caller,
-                text: transcript.to_string(),
-                timestamp: now,
-            },
+            caller_turn,
             Turn {
                 speaker: sayangcare_core::domain::Speaker::Assistant,
                 text: assistant_response.clone(),
@@ -143,8 +189,9 @@ pub async fn turn(
         return HttpResponse::Conflict().finish();
     }
 
-    if session.risk.level.requires_immediate_escalation() {
-        let is_repeat_escalation = session.state == sayangcare_core::domain::SessionState::Escalated
+    if escalated {
+        let is_repeat_escalation = session.state
+            == sayangcare_core::domain::SessionState::Escalated
             || session.escalation_count > 0;
 
         if is_repeat_escalation {
@@ -159,7 +206,8 @@ pub async fn turn(
                     session.escalation_count
                 ),
             );
-        } else if let Err(e) = session.transition(sayangcare_core::domain::SessionState::Escalated) {
+        } else if let Err(e) = session.transition(sayangcare_core::domain::SessionState::Escalated)
+        {
             tracing::warn!(error = %e, session_id = %session.id, "failed to escalate session");
             return HttpResponse::Conflict().finish();
         }
@@ -232,7 +280,10 @@ pub async fn acknowledge_operator(
         "acknowledged",
         &sid.0,
         session.assigned_volunteer_id.as_deref(),
-        format!("Operator acknowledged session {} after escalation review.", sid.0),
+        format!(
+            "Operator acknowledged session {} after escalation review.",
+            sid.0
+        ),
     );
 
     HttpResponse::Ok().json(serde_json::json!({

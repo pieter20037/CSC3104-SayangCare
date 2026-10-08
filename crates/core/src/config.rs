@@ -7,6 +7,28 @@ pub struct AppConfig {
     pub postgres: PostgresConfig,
     pub circuit_breaker: CircuitBreakerConfig,
     pub telephony: TelephonyConfig,
+    #[serde(default)]
+    pub ai: AiConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct AiConfig {
+    pub api_key: Option<String>,
+    pub model: String,
+    pub base_url: String,
+    pub timeout_secs: u64,
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            api_key: None,
+            model: "allam-2-7b".to_string(),
+            base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+            timeout_secs: 12,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

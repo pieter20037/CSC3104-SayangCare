@@ -2702,11 +2702,13 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "anyhow",
+ "async-trait",
  "chrono",
  "config",
  "dotenvy",
  "futures",
  "redis",
+ "reqwest",
  "sayangcare-circuit-breaker",
  "sayangcare-core",
  "sayangcare-priority-queue",

@@ -85,15 +85,24 @@ impl RiskAssessment {
         let mut level = RiskLevel::LOW;
         let mut rationale = "no acute distress markers detected".to_string();
 
-        if score >= 9 || immediate.iter().any(|(marker, _)| normalized.contains(marker)) {
+        if score >= 9
+            || immediate
+                .iter()
+                .any(|(marker, _)| normalized.contains(marker))
+        {
             level = RiskLevel::CRISIS;
             rationale = "immediate safety risk detected; urgent escalation required".to_string();
         } else if score >= 5 || high.iter().any(|(marker, _)| normalized.contains(marker)) {
             level = RiskLevel::HIGH;
             rationale = "high-risk distress markers detected; human review recommended".to_string();
-        } else if score >= 2 || moderate.iter().any(|(marker, _)| normalized.contains(marker)) {
+        } else if score >= 2
+            || moderate
+                .iter()
+                .any(|(marker, _)| normalized.contains(marker))
+        {
             level = RiskLevel::MODERATE;
-            rationale = "moderate distress markers detected; monitor and continue support".to_string();
+            rationale =
+                "moderate distress markers detected; monitor and continue support".to_string();
         }
 
         if !evidence.is_empty() && level == RiskLevel::LOW {

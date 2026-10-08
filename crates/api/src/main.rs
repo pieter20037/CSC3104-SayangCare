@@ -14,6 +14,7 @@ use tracing::{error, info, warn};
 use tracing_actix_web::TracingLogger;
 
 mod handlers;
+mod inference;
 mod middleware;
 mod state;
 mod telemetry;

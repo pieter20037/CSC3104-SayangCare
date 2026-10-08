@@ -1,10 +1,12 @@
+use crate::inference::GroqInference;
 use chrono::{DateTime, Utc};
 use sayangcare_circuit_breaker::{BreakerConfig, BreakerRegistry, SentimentAdaptivePolicy};
 use sayangcare_core::config::AppConfig;
 use sayangcare_core::domain::{HandoffStatus, SessionId};
-use sayangcare_core::ports::{ArchiveStore, PriorityQueue, SessionStore, TelephonyProvider};
+use sayangcare_core::ports::{
+    ArchiveStore, InferenceService, PriorityQueue, SessionStore, TelephonyProvider,
+};
 use sayangcare_core::CoreResult;
-use uuid::Uuid;
 use sayangcare_priority_queue::RedisPriorityQueue;
 use sayangcare_session_store::{PostgresArchiveStore, RedisSessionStore, TieredSessionStore};
 use sayangcare_telephony::TwilioProvider;
@@ -13,6 +15,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::time::{interval, Duration};
 use tracing::info;
+use uuid::Uuid;
 
 use tokio_util::sync::CancellationToken;
 
@@ -41,6 +44,7 @@ pub struct AppState {
     pub breakers: Arc<BreakerRegistry>,
     pub queue: Arc<dyn PriorityQueue>,
     pub telephony: Arc<dyn TelephonyProvider>,
+    pub inference: Option<Arc<dyn InferenceService>>,
     pub volunteers: Arc<RwLock<HashMap<String, Volunteer>>>,
     pub assigned_cases: Arc<RwLock<HashMap<String, Vec<String>>>>,
     pub alerts: Arc<RwLock<Vec<OperatorAlert>>>,
@@ -110,6 +114,14 @@ impl AppState {
             config.telephony.twilio_auth_token.clone(),
         ));
 
+        let inference: Option<Arc<dyn InferenceService>> = GroqInference::new(&config.ai)?
+            .map(|provider| Arc::new(provider) as Arc<dyn InferenceService>);
+        if inference.is_some() {
+            info!(model = %config.ai.model, "Groq inference provider configured");
+        } else {
+            info!("Groq inference provider not configured; deterministic replies will be used");
+        }
+
         let volunteers = Arc::new(RwLock::new(HashMap::from([
             (
                 "volunteer-aisha".to_string(),
@@ -150,6 +162,7 @@ impl AppState {
             breakers,
             queue,
             telephony,
+            inference,
             volunteers,
             assigned_cases,
             alerts,
@@ -157,11 +170,14 @@ impl AppState {
         })
     }
 
-    pub fn record_alert(&self, kind: &str, session_id: &str, volunteer_id: Option<&str>, message: impl Into<String>) {
-        let mut alerts = self
-            .alerts
-            .write()
-            .expect("operator alert lock poisoned");
+    pub fn record_alert(
+        &self,
+        kind: &str,
+        session_id: &str,
+        volunteer_id: Option<&str>,
+        message: impl Into<String>,
+    ) {
+        let mut alerts = self.alerts.write().expect("operator alert lock poisoned");
         let alert = OperatorAlert {
             id: Uuid::new_v4().to_string(),
             kind: kind.to_string(),

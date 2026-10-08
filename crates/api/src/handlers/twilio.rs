@@ -13,6 +13,7 @@ use actix_web::{http::header, web, HttpResponse, Responder};
 use sayangcare_core::domain::{CallerId, Session, SessionId, Speaker, Turn};
 use serde::Deserialize;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{info, warn};
 
 const GATHER_ACTION: &str = "/twilio/gather";
@@ -122,56 +123,62 @@ pub async fn gather(
     };
 
     let expected = session.version;
+    let prior_assessment = session
+        .transcript
+        .turns
+        .iter()
+        .filter(|turn| turn.speaker == Speaker::Caller)
+        .map(|turn| sayangcare_core::domain::RiskAssessment::from_text(&turn.text))
+        .max_by_key(|assessment| assessment.level);
+    let current_assessment = sayangcare_core::domain::RiskAssessment::from_text(&speech);
+    let assessment = prior_assessment
+        .filter(|prior| prior.level > current_assessment.level)
+        .unwrap_or(current_assessment);
+    // Keep the highest observed risk throughout an active human handoff. A
+    // benign follow-up must not drop the caller back into ordinary LLM chat.
+    session.risk = if session.state == sayangcare_core::domain::SessionState::Escalated
+        && assessment.level < session.risk.level
+    {
+        session.risk.clone()
+    } else {
+        assessment
+    };
     let caller_turn = Turn {
         speaker: Speaker::Caller,
-        text: speech,
+        text: speech.clone(),
         timestamp: chrono::Utc::now(),
     };
 
-    // --- Circuit-breaker-guarded LLM call ---
-    let breaker = state.breakers.get("llm-inference").await;
-
-    if breaker.acquire().is_err() {
-        // OPEN: park the caller with buffered audio, escalate if high risk.
-        warn!(call_sid = %form.call_sid, "circuit open — degrading gracefully");
-        if session.record_turns([caller_turn]).is_err() {
-            return twiml_error("Your call state could not be updated. Please try again.");
-        }
-        let escalated = session.risk.level.requires_immediate_escalation();
-        let next_state = if escalated {
-            sayangcare_core::domain::SessionState::Escalated
+    let escalated = session.state == sayangcare_core::domain::SessionState::Escalated
+        || session.risk.level.requires_immediate_escalation();
+    let assistant_reply = if escalated {
+        "Thank you for telling me. I'm sorry you're going through this. I want to help keep you safe, and I'm alerting a human volunteer now. Are you in immediate danger right now?".to_string()
+    } else if let Some(inference) = state.inference.as_ref() {
+        let breaker = state.breakers.get("llm-inference").await;
+        if breaker.acquire().is_err() {
+            "I'm here with you. Please tell me a little more about what is happening.".to_string()
         } else {
-            sayangcare_core::domain::SessionState::Degraded
-        };
-        if session.transition(next_state).is_err() {
-            return twiml_error("Your session cannot continue in its current state.");
-        }
-        if let Err(e) = state.sessions.update_cas(&session, expected).await {
-            warn!(error = %e, "CAS failed during degraded transition");
-            return twiml_error("Your session changed concurrently. Please try again.");
-        }
-        if escalated {
-            if let Err(e) = state
-                .queue
-                .enqueue(session.id.clone(), session.risk.level.0, chrono::Utc::now())
-                .await
-            {
-                warn!(error = %e, "failed to enqueue high-risk session");
+            let mut context = session.transcript.clone();
+            context.push(caller_turn.clone());
+            let started = Instant::now();
+            match inference.generate_reply(&context).await {
+                Ok(reply) => {
+                    breaker.record_success(started.elapsed().as_millis() as u64);
+                    reply
+                }
+                Err(error) => {
+                    breaker
+                        .record_failure(started.elapsed().as_millis() as u64, 0.25)
+                        .await;
+                    warn!(error = %error, call_sid = %form.call_sid, "Groq reply failed; using deterministic fallback");
+                    "I'm here with you. Please tell me a little more about what is happening."
+                        .to_string()
+                }
             }
         }
-
-        let body = r#"<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play>/static/audio/holding.mp3</Play>
-  <Redirect method="POST">/twilio/gather</Redirect>
-</Response>"#;
-        return xml_response(body.to_string());
-    }
-
-    // --- Real LLM path (wire your inference crate here) ---
-    // This is a stub reply so the binary compiles without the inference crate.
-    // Replace with: state.inference.generate_reply(&session.transcript).await
-    let assistant_reply = "I hear you. Tell me more about what's on your mind.".to_string();
+    } else {
+        "I'm here with you. Please tell me a little more about what is happening.".to_string()
+    };
 
     if session
         .record_turns([
@@ -185,6 +192,48 @@ pub async fn gather(
         .is_err()
     {
         return twiml_error("Your session cannot continue in its current state.");
+    }
+
+    if escalated {
+        let is_repeat_escalation = session.state
+            == sayangcare_core::domain::SessionState::Escalated
+            || session.escalation_count > 0;
+        if is_repeat_escalation {
+            session.record_repeated_risk();
+            state.record_alert(
+                "repeated_risk",
+                &session.id.0,
+                None,
+                format!(
+                    "Repeated high-risk language on live call {} requires operator review.",
+                    session.id.0
+                ),
+            );
+        } else if let Err(error) =
+            session.transition(sayangcare_core::domain::SessionState::Escalated)
+        {
+            warn!(error = %error, call_sid = %form.call_sid, "failed to transition high-risk call to escalated");
+            return twiml_error("I want to connect you with a human supporter, but our system is having trouble. Please contact local emergency services or someone you trust now.");
+        }
+
+        if let Err(error) = state
+            .queue
+            .enqueue(session.id.clone(), session.risk.level.0, chrono::Utc::now())
+            .await
+        {
+            warn!(error = %error, call_sid = %form.call_sid, "failed to enqueue high-risk live call");
+        }
+        if !is_repeat_escalation {
+            state.record_alert(
+                "escalated",
+                &session.id.0,
+                None,
+                format!(
+                    "Live call {} escalated at risk level {}.",
+                    session.id.0, session.risk.level.0
+                ),
+            );
+        }
     }
     if let Err(e) = state.sessions.update_cas(&session, expected).await {
         warn!(error = %e, "CAS failed on gather — retrying next turn");

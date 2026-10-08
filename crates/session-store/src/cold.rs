@@ -115,15 +115,10 @@ impl ArchiveStore for PostgresArchiveStore {
                     "resolved" => sayangcare_core::domain::HandoffStatus::Resolved,
                     _ => sayangcare_core::domain::HandoffStatus::NotRequired,
                 };
-                let assigned_volunteer_id: Option<String> = r
-                    .try_get("assigned_volunteer_id")
-                    .ok();
-                let escalation_count: i32 = r
-                    .try_get("escalation_count")
-                    .unwrap_or_default();
-                let operator_acknowledged: bool = r
-                    .try_get("operator_acknowledged")
-                    .unwrap_or(false);
+                let assigned_volunteer_id: Option<String> = r.try_get("assigned_volunteer_id").ok();
+                let escalation_count: i32 = r.try_get("escalation_count").unwrap_or_default();
+                let operator_acknowledged: bool =
+                    r.try_get("operator_acknowledged").unwrap_or(false);
                 let version: i64 = r.try_get("version").map_err(archive_decode_error)?;
                 let version = u64::try_from(version).map_err(archive_decode_error)?;
 

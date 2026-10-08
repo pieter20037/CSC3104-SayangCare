@@ -136,7 +136,10 @@ impl Session {
             return Ok(());
         }
 
-        if self.state != SessionState::Active && !self.state.can_transition_to(SessionState::Active)
+        let already_escalated = self.state == SessionState::Escalated;
+        if self.state != SessionState::Active
+            && !already_escalated
+            && !self.state.can_transition_to(SessionState::Active)
         {
             return Err(crate::CoreError::InvalidTransition {
                 from: format!("{:?}", self.state),
@@ -144,7 +147,9 @@ impl Session {
             });
         }
 
-        self.state = SessionState::Active;
+        if !already_escalated {
+            self.state = SessionState::Active;
+        }
         self.transcript.turns.extend(turns);
         self.version += 1;
         self.updated_at = Utc::now();
@@ -218,8 +223,10 @@ impl Session {
     }
 
     pub fn is_handoff_stale(&self, timeout: chrono::Duration) -> bool {
-        matches!(self.handoff_status, HandoffStatus::Assigned | HandoffStatus::Transferred)
-            && self.updated_at + timeout <= Utc::now()
+        matches!(
+            self.handoff_status,
+            HandoffStatus::Assigned | HandoffStatus::Transferred
+        ) && self.updated_at + timeout <= Utc::now()
     }
 }
 
@@ -271,6 +278,24 @@ mod tests {
     }
 
     #[test]
+    fn recording_followup_turns_preserves_escalated_state() {
+        let mut session = Session::with_id(SessionId("CA-test".to_string()), caller());
+        session.transition(SessionState::Active).unwrap();
+        session.transition(SessionState::Escalated).unwrap();
+
+        session
+            .record_turns([Turn {
+                speaker: Speaker::Caller,
+                text: "I still feel unsafe".to_string(),
+                timestamp: Utc::now(),
+            }])
+            .unwrap();
+
+        assert_eq!(session.state, SessionState::Escalated);
+        assert_eq!(session.transcript.turns.len(), 1);
+    }
+
+    #[test]
     fn completed_session_rejects_new_turns_without_mutation() {
         let mut session = Session::with_id(SessionId("CA-test".to_string()), caller());
         session.transition(SessionState::Active).unwrap();
@@ -296,7 +321,10 @@ mod tests {
         session.assign_volunteer("volunteer-42");
 
         assert_eq!(session.handoff_status, super::HandoffStatus::Assigned);
-        assert_eq!(session.assigned_volunteer_id.as_deref(), Some("volunteer-42"));
+        assert_eq!(
+            session.assigned_volunteer_id.as_deref(),
+            Some("volunteer-42")
+        );
     }
 
     #[test]
@@ -309,7 +337,10 @@ mod tests {
         session.resolve_handoff();
 
         assert_eq!(session.handoff_status, super::HandoffStatus::Resolved);
-        assert_eq!(session.assigned_volunteer_id.as_deref(), Some("volunteer-42"));
+        assert_eq!(
+            session.assigned_volunteer_id.as_deref(),
+            Some("volunteer-42")
+        );
         assert_eq!(session.version, 5);
     }
 
@@ -324,7 +355,10 @@ mod tests {
         session.transfer_handoff_to("volunteer-43");
 
         assert_eq!(session.handoff_status, super::HandoffStatus::Transferred);
-        assert_eq!(session.assigned_volunteer_id.as_deref(), Some("volunteer-43"));
+        assert_eq!(
+            session.assigned_volunteer_id.as_deref(),
+            Some("volunteer-43")
+        );
         assert_eq!(session.version, previous_version + 1);
     }
 

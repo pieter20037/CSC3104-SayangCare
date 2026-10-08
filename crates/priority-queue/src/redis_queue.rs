@@ -131,29 +131,25 @@ impl PriorityQueue for RedisPriorityQueue {
             .map_err(|e| CoreError::Storage(format!("claim: {e}")))?;
         Ok(claimed.map(SessionId))
     }
-    
-        async fn claim_session(
-            &self,
-            session_id: &SessionId,
-            volunteer_id: &str,
-        ) -> CoreResult<bool> {
-            let mut conn = self.client.clone();
-            let script = redis::Script::new(
-                r#"
+
+    async fn claim_session(&self, session_id: &SessionId, volunteer_id: &str) -> CoreResult<bool> {
+        let mut conn = self.client.clone();
+        let script = redis::Script::new(
+            r#"
                 if redis.call('ZSCORE', KEYS[1], ARGV[1]) == false then return 0 end
                 redis.call('ZREM', KEYS[1], ARGV[1])
                 redis.call('HSET', KEYS[2], ARGV[1], ARGV[2])
                 return 1
                 "#,
-            );
-            let claimed: i32 = script
-                .key(&self.queue_key)
-                .key(&self.claim_prefix)
-                .arg(&session_id.0)
-                .arg(volunteer_id)
-                .invoke_async(&mut conn)
-                .await
-                .map_err(|e| CoreError::Storage(format!("claim session: {e}")))?;
-            Ok(claimed == 1)
-        }
+        );
+        let claimed: i32 = script
+            .key(&self.queue_key)
+            .key(&self.claim_prefix)
+            .arg(&session_id.0)
+            .arg(volunteer_id)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| CoreError::Storage(format!("claim session: {e}")))?;
+        Ok(claimed == 1)
+    }
 }
