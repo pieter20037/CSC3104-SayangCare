@@ -954,7 +954,8 @@
     });
     $("volunteer-select").addEventListener("change", () => withBusy(() => loadAssignedCases(selectedVolunteerId())));
     $("health-button").addEventListener("click", () => withBusy(checkHealth));
-    $("new-id").addEventListener("click", freshCallId);
+    // Ignore the click event; freshCallId's optional argument is the ID prefix.
+    $("new-id").addEventListener("click", () => freshCallId());
     $("start-button").addEventListener("click", () => withBusy(startCall));
     $("turn-button").addEventListener("click", () => withBusy(recordTurn));
     $("hangup-button").addEventListener("click", () => withBusy(endCall));
