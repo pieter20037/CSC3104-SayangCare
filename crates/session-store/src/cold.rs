@@ -36,11 +36,12 @@ impl ArchiveStore for PostgresArchiveStore {
         sqlx::query(
             r#"
             INSERT INTO sessions
-                (id, caller_phone, caller_display_name, state, transcript, risk,
+                (id, is_simulated, caller_phone, caller_display_name, state, transcript, risk,
                  latest_sentiment, handoff_status, assigned_volunteer_id,
                  escalation_count, operator_acknowledged, created_at, updated_at, version)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             ON CONFLICT (id) DO UPDATE SET
+                is_simulated = EXCLUDED.is_simulated,
                 caller_phone = EXCLUDED.caller_phone,
                 caller_display_name = EXCLUDED.caller_display_name,
                 state = EXCLUDED.state,
@@ -56,6 +57,7 @@ impl ArchiveStore for PostgresArchiveStore {
             "#,
         )
         .bind(&session.id.0)
+        .bind(session.is_simulated)
         .bind(&session.caller.phone_number)
         .bind(&session.caller.display_name)
         .bind(format!("{:?}", session.state).to_lowercase())
@@ -78,7 +80,7 @@ impl ArchiveStore for PostgresArchiveStore {
 
     async fn fetch_session(&self, id: &SessionId) -> CoreResult<Option<Session>> {
         let row = sqlx::query(
-            r#"SELECT id, caller_phone, caller_display_name, state, transcript, risk,
+            r#"SELECT id, is_simulated, caller_phone, caller_display_name, state, transcript, risk,
                       latest_sentiment, handoff_status, assigned_volunteer_id,
                       escalation_count, operator_acknowledged, created_at, updated_at,
                       version
@@ -124,7 +126,7 @@ impl ArchiveStore for PostgresArchiveStore {
 
                 Ok(Some(Session {
                     id: SessionId(r.try_get("id").map_err(archive_decode_error)?),
-                    is_simulated: false,
+                    is_simulated: r.try_get("is_simulated").map_err(archive_decode_error)?,
                     caller: CallerId {
                         phone_number: r.try_get("caller_phone").map_err(archive_decode_error)?,
                         display_name: r

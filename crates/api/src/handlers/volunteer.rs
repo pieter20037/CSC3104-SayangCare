@@ -107,18 +107,29 @@ pub async fn list_assigned(
     volunteer_id: web::Path<String>,
 ) -> impl Responder {
     let volunteer_id = volunteer_id.into_inner();
-    let mapping = state
-        .assigned_cases
-        .read()
-        .expect("assigned cases lock poisoned");
-    let session_ids = mapping.get(&volunteer_id).cloned().unwrap_or_default();
+    let session_ids = match state.queue.list_claimed(&volunteer_id).await {
+        Ok(session_ids) => session_ids,
+        Err(error) => {
+            tracing::error!(error = %error, volunteer_id = %volunteer_id, "assigned case listing failed");
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
 
     let mut cases = Vec::new();
     for session_id in session_ids {
-        let sid = sayangcare_core::domain::SessionId(session_id.clone());
+        let sid = session_id.clone();
         if let Ok(Some(session)) = state.sessions.get(&sid).await {
+            if session.assigned_volunteer_id.as_deref() != Some(volunteer_id.as_str())
+                || !matches!(
+                    session.handoff_status,
+                    sayangcare_core::domain::HandoffStatus::Assigned
+                        | sayangcare_core::domain::HandoffStatus::Transferred
+                )
+            {
+                continue;
+            }
             cases.push(AssignedCaseItem {
-                session_id: session_id.clone(),
+                session_id: session_id.0,
                 risk: session.risk.level.0,
                 status: format!("{:?}", session.handoff_status).to_lowercase(),
             });
@@ -135,6 +146,19 @@ pub async fn claim(
     state: web::Data<Arc<AppState>>,
     body: web::Json<ClaimRequest>,
 ) -> impl Responder {
+    let volunteer = state
+        .volunteers
+        .read()
+        .expect("volunteer registry lock poisoned")
+        .get(&body.volunteer_id)
+        .cloned();
+    let Some(_volunteer) = volunteer.filter(|volunteer| volunteer.on_shift) else {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "volunteer is not registered or is off shift",
+            "volunteer_id": body.volunteer_id,
+        }));
+    };
+
     if body.simulate
         && !body
             .session_id
@@ -161,20 +185,51 @@ pub async fn claim(
             let mut assigned_session = match state.sessions.get(&sid).await {
                 Ok(Some(session)) => session,
                 Ok(None) => {
-                    return HttpResponse::Ok().json(ClaimResponse {
-                        session_id: Some(sid.0.clone()),
-                        volunteer_id: Some(body.volunteer_id.clone()),
-                        handoff_status: "assigned".to_string(),
-                    });
+                    let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
+                    return HttpResponse::NotFound().json(serde_json::json!({
+                        "error": "case session no longer exists",
+                        "session_id": sid.0,
+                    }));
                 }
                 Err(e) => {
                     tracing::error!(error = %e, "lookup failed during claim");
+                    let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
+                    let _ = state
+                        .queue
+                        .enqueue(sid.clone(), 4, chrono::Utc::now())
+                        .await;
                     return HttpResponse::InternalServerError().finish();
                 }
             };
 
+            if assigned_session.handoff_status != sayangcare_core::domain::HandoffStatus::Pending {
+                let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
+                return HttpResponse::Conflict().json(serde_json::json!({
+                    "error": "case is no longer pending",
+                    "session_id": sid.0,
+                    "handoff_status": format!("{:?}", assigned_session.handoff_status).to_lowercase(),
+                }));
+            }
+
             let expected = assigned_session.version;
             assigned_session.assign_volunteer(&body.volunteer_id);
+
+            if let Err(error) = state.sessions.update_cas(&assigned_session, expected).await {
+                tracing::warn!(error = %error, session_id = %sid, volunteer_id = %body.volunteer_id, "failed to persist volunteer assignment");
+                let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
+                let _ = state
+                    .queue
+                    .enqueue(
+                        sid.clone(),
+                        assigned_session.risk.level.0,
+                        chrono::Utc::now(),
+                    )
+                    .await;
+                return HttpResponse::Conflict().json(serde_json::json!({
+                    "error": "case assignment changed; refresh the queue and try again",
+                    "session_id": sid.0,
+                }));
+            }
 
             {
                 let mut assigned_cases = state
@@ -185,10 +240,6 @@ pub async fn claim(
                 if !entries.iter().any(|case_id| case_id == &sid.0) {
                     entries.push(sid.0.clone());
                 }
-            }
-
-            if let Err(e) = state.sessions.update_cas(&assigned_session, expected).await {
-                tracing::warn!(error = %e, session_id = %sid, volunteer_id = %body.volunteer_id, "failed to persist volunteer assignment");
             }
 
             if assigned_session.is_simulated || sid.0.starts_with("SIM-") || body.simulate {
@@ -272,6 +323,11 @@ pub async fn resolve_case(
     let expected = session.version;
     session.resolve_handoff();
 
+    if let Err(e) = state.sessions.update_cas(&session, expected).await {
+        tracing::warn!(error = %e, session_id = %sid, volunteer_id = %volunteer_id, "failed to persist resolved handoff");
+        return HttpResponse::Conflict().finish();
+    }
+
     {
         let mut assigned_cases = state
             .assigned_cases
@@ -285,9 +341,8 @@ pub async fn resolve_case(
         }
     }
 
-    if let Err(e) = state.sessions.update_cas(&session, expected).await {
-        tracing::warn!(error = %e, session_id = %sid, volunteer_id = %volunteer_id, "failed to persist resolved handoff");
-        return HttpResponse::Conflict().finish();
+    if let Err(error) = state.queue.release_claim(&sid, &volunteer_id).await {
+        tracing::warn!(error = %error, session_id = %sid, volunteer_id = %volunteer_id, "failed to clear resolved queue claim");
     }
 
     state.record_alert(
@@ -387,8 +442,30 @@ pub async fn transfer_case(
     let expected = session.version;
     session.transfer_handoff_to(next_volunteer.id.clone());
 
+    match state
+        .queue
+        .move_claim(&sid, &volunteer_id, &next_volunteer.id)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            return HttpResponse::Conflict().json(serde_json::json!({
+                "error": "case assignment changed; refresh and try again",
+                "session_id": session_id,
+            }));
+        }
+        Err(error) => {
+            tracing::error!(error = %error, session_id = %sid, "failed to transfer queue claim");
+            return HttpResponse::InternalServerError().finish();
+        }
+    }
+
     if let Err(e) = state.sessions.update_cas(&session, expected).await {
         tracing::warn!(error = %e, session_id = %sid, volunteer_id = %volunteer_id, "failed to persist transferred handoff");
+        let _ = state
+            .queue
+            .move_claim(&sid, &next_volunteer.id, &volunteer_id)
+            .await;
         return HttpResponse::Conflict().finish();
     }
 

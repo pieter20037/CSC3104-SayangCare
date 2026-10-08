@@ -416,6 +416,7 @@
             <div class="stat"><span class="stat-label">Call SID</span><span class="stat-value" id="stat-id">—</span></div>
             <div class="stat"><span class="stat-label">Version</span><span class="stat-value" id="stat-version">—</span></div>
             <div class="stat"><span class="stat-label">Turns</span><span class="stat-value" id="stat-turns">—</span></div>
+            <div class="stat"><span class="stat-label">Risk</span><span class="stat-value" id="stat-risk" title="">—</span></div>
             <div class="stat"><span class="stat-label">Handoff</span><span class="stat-value" id="stat-handoff">—</span></div>
             <div class="stat"><span class="stat-label">Volunteer</span><span class="stat-value" id="stat-volunteer">—</span></div>
           </div>
@@ -591,6 +592,12 @@
       return session;
     }
 
+    async function openCase(sessionId) {
+      $("call-id").value = sessionId;
+      await loadSession();
+      $("transcript-view").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
     function renderSession(session) {
       const state = String(session.state || "unknown").replaceAll("_", " ");
       const handoff = String(session.handoff_status || "not_required").replaceAll("_", " ");
@@ -600,6 +607,9 @@
       pill.className = `state-pill ${state}`;
       $("stat-id").textContent = session.id || "—";
       $("stat-version").textContent = session.version ?? "—";
+      const riskLevel = Number(session.risk?.level?.[0] ?? session.risk?.level);
+      $("stat-risk").textContent = Number.isFinite(riskLevel) ? `${riskLevel} / 5` : "—";
+      $("stat-risk").title = session.risk?.rationale || "";
       $("stat-handoff").textContent = `${handoff}${session.operator_acknowledged ? " · acked" : " · pending"}`;
       $("stat-volunteer").textContent = volunteer;
       const turns = session.transcript?.turns || [];
@@ -670,11 +680,8 @@
         const openBtn = document.createElement("button");
         openBtn.type = "button";
         openBtn.className = "button";
-        openBtn.textContent = "Open";
-        openBtn.addEventListener("click", () => {
-          $("call-id").value = item.session_id;
-          withBusy(loadSession).catch(() => {});
-        });
+        openBtn.textContent = "View case details";
+        openBtn.addEventListener("click", () => withBusy(() => openCase(item.session_id)));
 
         const claimBtn = document.createElement("button");
         claimBtn.type = "button";
@@ -836,11 +843,8 @@
         const openBtn = document.createElement("button");
         openBtn.type = "button";
         openBtn.className = "button";
-        openBtn.textContent = "Open";
-        openBtn.addEventListener("click", () => {
-          $("call-id").value = entry.session_id;
-          withBusy(loadSession).catch(() => {});
-        });
+        openBtn.textContent = "View case details";
+        openBtn.addEventListener("click", () => withBusy(() => openCase(entry.session_id)));
 
         const transferBtn = document.createElement("button");
         transferBtn.type = "button";

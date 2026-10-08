@@ -1,0 +1,6 @@
+ALTER TABLE sessions
+    ADD COLUMN IF NOT EXISTS is_simulated BOOLEAN NOT NULL DEFAULT FALSE;
+
+UPDATE sessions
+SET is_simulated = TRUE
+WHERE id LIKE 'SIM-%';

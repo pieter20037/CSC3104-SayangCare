@@ -60,4 +60,12 @@ pub trait PriorityQueue: Send + Sync {
     async fn peek_highest(&self) -> CoreResult<Option<SessionId>>;
     async fn claim(&self, volunteer_id: &str) -> CoreResult<Option<SessionId>>;
     async fn claim_session(&self, session_id: &SessionId, volunteer_id: &str) -> CoreResult<bool>;
+    async fn list_claimed(&self, volunteer_id: &str) -> CoreResult<Vec<SessionId>>;
+    async fn move_claim(
+        &self,
+        session_id: &SessionId,
+        from_volunteer_id: &str,
+        to_volunteer_id: &str,
+    ) -> CoreResult<bool>;
+    async fn release_claim(&self, session_id: &SessionId, volunteer_id: &str) -> CoreResult<bool>;
 }
