@@ -26,6 +26,7 @@
     }
 
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
 
     body {
       min-width: 320px;
@@ -36,7 +37,7 @@
       background-size: 18px 18px;
     }
 
-    button, input, textarea { font: inherit; }
+    button, input, textarea, select { font: inherit; }
     button { cursor: pointer; }
 
     .topbar {
@@ -90,6 +91,11 @@
     h1 { margin: 0; font: 500 36px/1.05 Georgia, "Times New Roman", serif; letter-spacing: 0; }
     .heading-note { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
 
+    .role-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; max-width: 590px; margin: 0 0 22px; padding: 5px; border: 1px solid var(--line); border-radius: 7px; background: #e4eae4; }
+    .role-tab { min-height: 42px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 750; transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease; }
+    .role-tab:hover { color: var(--ink); }
+    .role-tab[aria-selected="true"] { background: var(--surface); color: var(--forest-dark); box-shadow: 0 1px 4px rgb(32 58 45 / 12%); }
+
     .layout { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 18px; align-items: start; }
     .stack { display: contents; }
     .panel {
@@ -109,6 +115,18 @@
     .alerts-panel { grid-column: span 4; order: 6; }
     .activity-panel { grid-column: span 6; order: 7; }
     .response-panel { grid-column: span 6; order: 8; }
+    .layout.role-caller .test-panel { grid-column: span 5; order: 1; }
+    .layout.role-caller .session-panel { grid-column: span 7; order: 2; }
+    .layout.role-volunteer .queue-panel { grid-column: span 7; order: 1; }
+    .layout.role-volunteer .assigned-panel { grid-column: span 5; order: 2; }
+    .layout.role-volunteer .roster-panel { grid-column: span 5; order: 3; }
+    .layout.role-volunteer .session-panel { grid-column: span 7; order: 4; }
+    .layout.role-operator .queue-panel { grid-column: span 7; order: 1; }
+    .layout.role-operator .session-panel { grid-column: span 5; order: 2; }
+    .layout.role-operator .alerts-panel { grid-column: span 6; order: 3; }
+    .layout.role-operator .activity-panel { grid-column: span 6; order: 4; }
+    .layout.role-operator .response-panel { grid-column: 1 / -1; order: 5; }
+    .panel[hidden] { display: none; }
     .panel:nth-child(2) { animation-delay: 60ms; }
     .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 19px; border-bottom: 1px solid var(--line); }
     .panel-title { margin: 0; font-size: 14px; font-weight: 750; }
@@ -119,7 +137,7 @@
     .field { display: grid; gap: 7px; min-width: 0; }
     .field.full { grid-column: 1 / -1; }
     label { color: #4e5e54; font-size: 11px; font-weight: 750; }
-    input, textarea {
+    input, textarea, select {
       width: 100%;
       min-width: 0;
       border: 1px solid #cbd6cd;
@@ -129,7 +147,7 @@
       color: var(--ink);
       transition: border-color 140ms ease, box-shadow 140ms ease;
     }
-    input { height: 40px; padding: 0 11px; }
+    input, select { height: 40px; padding: 0 11px; }
     textarea { min-height: 98px; resize: vertical; padding: 10px 11px; line-height: 1.45; }
     input:focus, textarea:focus { border-color: var(--forest); box-shadow: 0 0 0 3px #235c4919; }
     input[readonly] { background: #f2f5f1; color: #596a60; }
@@ -228,6 +246,13 @@
       .layout { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
       .test-panel, .activity-panel, .response-panel { grid-column: 1 / -1; }
       .queue-panel, .session-panel, .roster-panel, .assigned-panel, .alerts-panel { grid-column: span 1; }
+      .layout.role-caller .test-panel, .layout.role-caller .session-panel,
+      .layout.role-volunteer .queue-panel, .layout.role-volunteer .assigned-panel,
+      .layout.role-volunteer .roster-panel, .layout.role-volunteer .session-panel,
+      .layout.role-operator .queue-panel, .layout.role-operator .session-panel,
+      .layout.role-operator .alerts-panel, .layout.role-operator .activity-panel,
+      .layout.role-operator .response-panel { grid-column: span 1; }
+      .layout.role-caller .test-panel, .layout.role-operator .response-panel { grid-column: 1 / -1; }
     }
     @media (max-width: 480px) {
       .topbar { height: 58px; padding: 0 16px; }
@@ -235,6 +260,8 @@
       main { padding-inline: 12px; }
       .page-heading { align-items: start; flex-direction: column; }
       h1 { font-size: 31px; }
+      .role-tabs { width: 100%; max-width: none; margin-bottom: 16px; }
+      .role-tab { font-size: 11px; }
       .panel-header, .panel-body { padding-inline: 14px; }
       .field-grid { grid-template-columns: 1fr; }
       .field.full { grid-column: auto; }
@@ -260,15 +287,22 @@
     <section class="page-heading">
       <div>
         <p class="eyebrow">Developer tools / Local environment</p>
-        <h1>Call lab</h1>
-        <p class="heading-note">Webhook workflow and session inspector</p>
+        <h1 id="workspace-title">Caller workspace</h1>
+        <p class="heading-note" id="workspace-note">Simulate a caller conversation and review the transcript.</p>
       </div>
       <button class="button" id="health-button" type="button"><span class="arrow" aria-hidden="true">↻</span> Check API</button>
     </section>
 
-    <div class="layout">
+    <nav class="role-tabs" role="tablist" aria-label="Select SayangCare workspace">
+      <button class="role-tab" id="tab-caller" type="button" role="tab" aria-selected="true" aria-controls="role-layout" data-role="caller">Caller</button>
+      <button class="role-tab" id="tab-volunteer" type="button" role="tab" aria-selected="false" aria-controls="role-layout" data-role="volunteer">Volunteer</button>
+      <button class="role-tab" id="tab-operator" type="button" role="tab" aria-selected="false" aria-controls="role-layout" data-role="operator">Operator</button>
+    </nav>
+    <p class="microcopy role-note">Workspace selection changes the local dashboard view; it is not user authentication.</p>
+
+    <div class="layout role-caller" id="role-layout">
       <div class="stack">
-        <section class="panel test-panel">
+        <section class="panel test-panel" data-roles="caller">
           <div class="panel-header"><h2 class="panel-title">Test call</h2><span class="panel-kicker">JSON API</span></div>
           <div class="panel-body">
             <div class="field-grid">
@@ -303,7 +337,7 @@
           </div>
         </section>
 
-        <section class="panel queue-panel">
+        <section class="panel queue-panel" data-roles="volunteer operator">
           <div class="panel-header">
             <div class="subhead-row" style="width:100%"><h2 class="panel-title">Volunteer queue</h2><button class="text-button" id="refresh-queue" type="button">Refresh</button></div>
           </div>
@@ -316,7 +350,7 @@
           </div>
         </section>
 
-        <section class="panel alerts-panel">
+        <section class="panel alerts-panel" data-roles="operator">
           <div class="panel-header">
             <div class="subhead-row" style="width:100%"><h2 class="panel-title">Operator alerts</h2><button class="text-button" id="refresh-alerts" type="button">Refresh</button></div>
           </div>
@@ -328,11 +362,19 @@
           </div>
         </section>
 
-        <section class="panel roster-panel">
+        <section class="panel roster-panel" data-roles="volunteer">
           <div class="panel-header">
             <div class="subhead-row" style="width:100%"><h2 class="panel-title">Volunteer roster</h2><button class="text-button" id="refresh-volunteers" type="button">Refresh</button></div>
           </div>
           <div class="panel-body">
+            <div class="field">
+              <label for="volunteer-select">Working as</label>
+              <select id="volunteer-select" aria-label="Select volunteer identity">
+                <option value="volunteer-aisha">Aisha Rahman</option>
+                <option value="volunteer-noor">Noor Hazim</option>
+                <option value="volunteer-ibrahim">Ibrahim Lim</option>
+              </select>
+            </div>
             <div class="button-row">
               <button class="button primary" id="volunteers-button" type="button"><span class="arrow" aria-hidden="true">↻</span> Refresh roster</button>
             </div>
@@ -340,7 +382,7 @@
           </div>
         </section>
 
-        <section class="panel assigned-panel">
+        <section class="panel assigned-panel" data-roles="volunteer">
           <div class="panel-header">
             <div class="subhead-row" style="width:100%"><h2 class="panel-title">Assigned cases</h2><button class="text-button" id="refresh-assigned" type="button">Refresh</button></div>
           </div>
@@ -352,7 +394,7 @@
           </div>
         </section>
 
-        <section class="panel activity-panel">
+        <section class="panel activity-panel" data-roles="operator">
           <div class="panel-header">
             <div class="subhead-row" style="width:100%"><h2 class="panel-title">Request activity</h2><button class="text-button" id="clear-activity" type="button">Clear</button></div>
           </div>
@@ -361,7 +403,7 @@
       </div>
 
       <div class="stack">
-        <section class="panel session-panel">
+        <section class="panel session-panel" data-roles="caller volunteer operator">
           <div class="panel-header">
             <h2 class="panel-title">Session record</h2>
             <div class="session-strip">
@@ -380,7 +422,7 @@
           <div class="transcript" id="transcript-view"><div class="empty-state">Session turns will appear here.</div></div>
         </section>
 
-        <section class="panel response-panel">
+        <section class="panel response-panel" data-roles="operator">
           <div class="panel-header"><h2 class="panel-title">Latest response</h2><span class="panel-kicker" id="latest-meta">Waiting for request</span></div>
           <div class="activity-list" id="latest-response"><div class="empty-activity">Run a request to inspect its status and response body.</div></div>
         </section>
@@ -394,6 +436,34 @@
     const activity = [];
     const controls = [...document.querySelectorAll("button")];
     let busy = false;
+    let currentRole = "caller";
+
+    const roleCopy = {
+      caller: ["Caller workspace", "Simulate a caller conversation and review the transcript."],
+      volunteer: ["Volunteer workspace", "Review the priority queue, claim a case, and manage your assigned callers."],
+      operator: ["Operator workspace", "Monitor escalations, inspect sessions, and review system activity."]
+    };
+
+    function selectedVolunteerId() {
+      return $("volunteer-select").value || "volunteer-aisha";
+    }
+
+    function setRole(role) {
+      currentRole = roleCopy[role] ? role : "caller";
+      $("role-layout").className = `layout role-${currentRole}`;
+      document.querySelectorAll(".role-tab").forEach((tab) => {
+        const selected = tab.dataset.role === currentRole;
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+      });
+      document.querySelectorAll("[data-roles]").forEach((panel) => {
+        panel.hidden = !panel.dataset.roles.split(" ").includes(currentRole);
+      });
+      $("claim-next-button").hidden = currentRole !== "volunteer";
+      $("acknowledge-button").hidden = currentRole !== "operator";
+      $("workspace-title").textContent = roleCopy[currentRole][0];
+      $("workspace-note").textContent = roleCopy[currentRole][1];
+    }
 
     function freshCallId(prefix = "SIM-") {
       const value = crypto.randomUUID().replaceAll("-", "").toUpperCase();
@@ -610,10 +680,11 @@
         claimBtn.type = "button";
         claimBtn.className = "button primary";
         claimBtn.textContent = "Claim";
+        claimBtn.hidden = currentRole !== "volunteer";
         claimBtn.addEventListener("click", () => {
           withBusy(async () => {
             const result = await request("Claim queue item", "POST", `${api}/volunteers/claim`, {
-              volunteer_id: "volunteer-aisha",
+              volunteer_id: selectedVolunteerId(),
               session_id: item.session_id
             });
             const claimed = result?.session_id;
@@ -622,7 +693,7 @@
               await loadSession();
               await loadQueue();
               await loadVolunteers();
-              await loadAssignedCases("volunteer-aisha");
+              await loadAssignedCases(selectedVolunteerId());
             }
           }).catch(() => {});
         });
@@ -715,21 +786,12 @@
         const action = document.createElement("button");
         action.type = "button";
         action.className = "button";
-        action.textContent = `Claim as ${volunteer.display_name.split(" ")[0]}`;
+        action.textContent = `Work as ${volunteer.display_name.split(" ")[0]}`;
         action.addEventListener("click", () => {
-          withBusy(async () => {
-            const result = await request("Claim queue item", "POST", `${api}/volunteers/claim`, {
-              volunteer_id: volunteer.id
-            });
-            if (result?.session_id) {
-              $("call-id").value = result.session_id;
-              await loadSession();
-              await loadQueue();
-              await loadVolunteers();
-              await loadAssignedCases(volunteer.id);
-            }
-          }).catch(() => {});
+          $("volunteer-select").value = volunteer.id;
+          withBusy(() => loadAssignedCases(volunteer.id)).catch(() => {});
         });
+        action.disabled = !volunteer.on_shift;
 
         row.append(top, meta, action);
         list.append(row);
@@ -788,6 +850,7 @@
           withBusy(async () => {
             const result = await request("Transfer case", "POST", `${api}/volunteers/${encodeURIComponent(volunteerId)}/cases/${encodeURIComponent(entry.session_id)}/transfer`);
             if (result?.handoff_status === "transferred") {
+              $("volunteer-select").value = result.volunteer_id;
               await loadSession();
               await loadAssignedCases(result.volunteer_id);
               await loadAlerts();
@@ -841,7 +904,7 @@
 
     async function claimNext() {
       const data = await request("Claim next", "POST", `${api}/volunteers/claim`, {
-        volunteer_id: "volunteer-aisha"
+        volunteer_id: selectedVolunteerId()
       });
       if (data?.session_id) {
         $("call-id").value = data.session_id;
@@ -849,7 +912,7 @@
       }
       await loadQueue();
       await loadVolunteers();
-      await loadAssignedCases("volunteer-aisha");
+      await loadAssignedCases(selectedVolunteerId());
     }
 
     async function checkHealth() {
@@ -882,6 +945,14 @@
       await loadSession();
     }
 
+    document.querySelectorAll(".role-tab").forEach((tab) => {
+      tab.addEventListener("click", () => withBusy(async () => {
+        setRole(tab.dataset.role);
+        if (tab.dataset.role === "volunteer" || tab.dataset.role === "operator") await loadQueue();
+        if (tab.dataset.role === "volunteer") await loadAssignedCases(selectedVolunteerId());
+      }));
+    });
+    $("volunteer-select").addEventListener("change", () => withBusy(() => loadAssignedCases(selectedVolunteerId())));
     $("health-button").addEventListener("click", () => withBusy(checkHealth));
     $("new-id").addEventListener("click", freshCallId);
     $("start-button").addEventListener("click", () => withBusy(startCall));
@@ -903,8 +974,8 @@
     $("alerts-button").addEventListener("click", () => withBusy(loadAlerts));
     $("refresh-volunteers").addEventListener("click", () => withBusy(loadVolunteers));
     $("volunteers-button").addEventListener("click", () => withBusy(loadVolunteers));
-    $("refresh-assigned").addEventListener("click", () => withBusy(() => loadAssignedCases("volunteer-aisha")));
-    $("assigned-button").addEventListener("click", () => withBusy(() => loadAssignedCases("volunteer-aisha")));
+    $("refresh-assigned").addEventListener("click", () => withBusy(() => loadAssignedCases(selectedVolunteerId())));
+    $("assigned-button").addEventListener("click", () => withBusy(() => loadAssignedCases(selectedVolunteerId())));
     $("full-test-button").addEventListener("click", () => withBusy(async () => {
       freshCallId("SIM-");
       await startCall();
@@ -926,13 +997,14 @@
       $("latest-response").innerHTML = '<div class="empty-activity">Run a request to inspect its status and response body.</div>';
     });
 
+    setRole("caller");
     freshCallId();
     withBusy(async () => {
       await checkHealth();
       await loadAlerts();
       await loadQueue();
       await loadVolunteers();
-      await loadAssignedCases("volunteer-aisha");
+      await loadAssignedCases(selectedVolunteerId());
     }).catch(() => {
       $("api-dot").className = "status-dot offline";
       $("api-status").textContent = "API unavailable";
