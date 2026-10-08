@@ -8,7 +8,9 @@ use sayangcare_core::ports::{
 };
 use sayangcare_core::CoreResult;
 use sayangcare_priority_queue::RedisPriorityQueue;
-use sayangcare_session_store::{PostgresArchiveStore, RedisSessionStore, TieredSessionStore};
+use sayangcare_session_store::{
+    OrphanedSessionSweeper, PostgresArchiveStore, RedisSessionStore, TieredSessionStore,
+};
 use sayangcare_telephony::TwilioProvider;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -38,6 +40,7 @@ pub struct OperatorAlert {
 }
 
 pub struct AppState {
+    pub hot_sessions: Arc<RedisSessionStore>,
     pub sessions: Arc<dyn SessionStore>,
     pub archive: Arc<dyn ArchiveStore>,
     pub tiered: Arc<TieredSessionStore>,
@@ -156,6 +159,7 @@ impl AppState {
         let alerts = Arc::new(RwLock::new(Vec::new()));
 
         Ok(Self {
+            hot_sessions: hot,
             sessions: tiered.clone(),
             archive,
             tiered,
@@ -200,6 +204,12 @@ impl AppState {
     }
 
     pub fn spawn_background_tasks(self: &Arc<Self>, cancel: CancellationToken) {
+        Arc::new(OrphanedSessionSweeper::new(
+            self.hot_sessions.clone(),
+            self.tiered.clone(),
+        ))
+        .spawn(cancel.clone());
+
         // Circuit breaker ticker.
         let breakers = self.breakers.clone();
         let cancel_cb = cancel.clone();

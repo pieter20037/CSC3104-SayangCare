@@ -63,6 +63,42 @@ impl RedisSessionStore {
     fn key(id: &SessionId) -> String {
         format!("session:{}", id.0)
     }
+
+    /// Scan the hot session namespace. SCAN avoids blocking Redis as KEYS would.
+    pub async fn scan_sessions(&self) -> CoreResult<Vec<Session>> {
+        let mut conn = self.client.clone();
+        let mut cursor = 0_u64;
+        let mut sessions = Vec::new();
+        loop {
+            let (next, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg("session:*")
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut conn)
+                .await
+                .map_err(|e| CoreError::Storage(format!("redis scan sessions: {e}")))?;
+
+            for key in keys {
+                let raw: Option<String> = conn
+                    .get(&key)
+                    .await
+                    .map_err(|e| CoreError::Storage(format!("redis read scanned session: {e}")))?;
+                if let Some(raw) = raw {
+                    let session = serde_json::from_str(&raw)
+                        .map_err(|e| CoreError::Storage(format!("decode scanned session: {e}")))?;
+                    sessions.push(session);
+                }
+            }
+
+            cursor = next;
+            if cursor == 0 {
+                break;
+            }
+        }
+        Ok(sessions)
+    }
 }
 
 #[async_trait]

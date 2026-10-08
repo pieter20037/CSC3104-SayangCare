@@ -36,7 +36,7 @@ impl TieredSessionStore {
     pub async fn finish(&self, id: &SessionId, terminal_state: SessionState) -> CoreResult<bool> {
         if !matches!(
             terminal_state,
-            SessionState::Completed | SessionState::Failed | SessionState::Escalated
+            SessionState::Completed | SessionState::Failed | SessionState::Escalated | SessionState::Abandoned
         ) {
             return Err(CoreError::Internal(anyhow::anyhow!(
                 "finish requires a terminal state"
@@ -49,10 +49,37 @@ impl TieredSessionStore {
 
         if !matches!(
             session.state,
-            SessionState::Completed | SessionState::Failed | SessionState::Escalated
+            SessionState::Completed | SessionState::Failed | SessionState::Escalated | SessionState::Abandoned
         ) {
             let expected_version = session.version;
             session.transition(terminal_state)?;
+            self.hot.update_cas(&session, expected_version).await?;
+        }
+
+        self.flush_to_cold(&session).await?;
+        Ok(true)
+    }
+
+    /// Mark and archive a session only if its latest activity is older than the cutoff.
+    /// The version CAS prevents a concurrent webhook/turn from being lost to the sweeper.
+    pub async fn abandon_if_inactive(
+        &self,
+        id: &SessionId,
+        cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> CoreResult<bool> {
+        let Some(mut session) = self.hot.get(id).await? else {
+            return Ok(false);
+        };
+        if session.state != SessionState::Abandoned && session.updated_at >= cutoff {
+            return Ok(false);
+        }
+        if matches!(session.state, SessionState::Completed | SessionState::Failed) {
+            return Ok(false);
+        }
+
+        if session.state != SessionState::Abandoned {
+            let expected_version = session.version;
+            session.transition(SessionState::Abandoned)?;
             self.hot.update_cas(&session, expected_version).await?;
         }
 
@@ -72,7 +99,7 @@ impl SessionStore for TieredSessionStore {
         if let Some(session) = self.cold.fetch_session(id).await? {
             if matches!(
                 session.state,
-                SessionState::Completed | SessionState::Failed
+                SessionState::Completed | SessionState::Failed | SessionState::Abandoned
             ) {
                 return Ok(Some(session));
             }
