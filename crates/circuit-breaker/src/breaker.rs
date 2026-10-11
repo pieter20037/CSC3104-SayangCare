@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
@@ -13,12 +13,35 @@ pub enum CircuitState {
     Open = 1,
     HalfOpen = 2,
 }
+// Internal state used when a Half-Open recovery probe is running.
+const HALF_OPEN_PROBING: u8 = 3;
+
+const STATE_BITS: u32 = 2;
+const STATE_MASK: u64 = 0b11;
+
+// Combines the generation and state into a single u64 for atomic updates.
+fn pack_state(generation: u64, state: u8) -> u64 {
+    (generation << STATE_BITS) | u64::from(state)
+}
+
+fn unpack_state(value: u64) -> (u64, u8) {
+    let generation = value >> STATE_BITS;
+    let state = (value & STATE_MASK) as u8;
+
+    (generation, state)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestPermit {
+    Normal { generation: u64 },         // request entered while the circuit was Closed
+    RecoveryProbe { generation: u64 },  // request reserved the Half-Open recovery slot
+}
 
 impl From<u8> for CircuitState {
     fn from(v: u8) -> Self {
         match v {
             1 => CircuitState::Open,
-            2 => CircuitState::HalfOpen,
+            2 | HALF_OPEN_PROBING => CircuitState::HalfOpen,
             _ => CircuitState::Closed,
         }
     }
@@ -52,14 +75,11 @@ pub struct BreakerSnapshot {
 /// the human connection.
 pub struct CircuitBreaker {
     config: BreakerConfig,
-    state: AtomicU8,
+    packed_state: AtomicU64,
     // Simple sliding counters; a production impl would use a ring buffer.
     metrics: Mutex<WindowMetrics>,
     opened_at: RwLock<Option<DateTime<Utc>>>,
     policy: Arc<dyn AdaptiveThresholdPolicy>,
-
-    // Ensures only one recovery request runs during Half-Open state.
-    half_open_probe_in_flight: AtomicBool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -120,43 +140,78 @@ impl CircuitBreaker {
     pub fn new(config: BreakerConfig, policy: Arc<dyn AdaptiveThresholdPolicy>) -> Self {
         Self {
             config,
-            state: AtomicU8::new(CircuitState::Closed as u8),
+            packed_state: AtomicU64::new(pack_state(0, CircuitState::Closed as u8)),
             metrics: Mutex::new(WindowMetrics::default()),
             opened_at: RwLock::new(None),
             policy,
-            half_open_probe_in_flight: AtomicBool::new(false),
         }
     }
 
     pub fn state(&self) -> CircuitState {
-        CircuitState::from(self.state.load(Ordering::Relaxed))
+        let packed = self.packed_state.load(Ordering::Acquire);
+        let (_, state) = unpack_state(packed);
+
+        CircuitState::from(state)
+    }
+
+    // Helper to read the combined state.
+    fn current_state_and_generation(&self) -> (u64, u8) {
+        unpack_state(self.packed_state.load(Ordering::Acquire))
     }
 
     /// Fast pre-check. Returns `Err` if circuit is open.
     pub fn acquire(&self) -> Result<(), sayangcare_core::CoreError> {
+        self.acquire_with_permit().map(|_| ())
+    }
+
+    // To remember whether an LLM request is a normal request or a recovery test.
+    pub fn acquire_with_permit(
+        &self,
+    ) -> Result<RequestPermit, sayangcare_core::CoreError> {
         let circuit_open = || {
             sayangcare_core::CoreError::CircuitOpen("llm-inference".into())
         };
 
-        match self.state() {
-            CircuitState::Closed => Ok(()),
+        loop {
+            let packed = self.packed_state.load(Ordering::Acquire);
+            let (generation, state) = unpack_state(packed);
 
-            CircuitState::Open => Err(circuit_open()),
+            match state {
+                0 => {
+                    return Ok(RequestPermit::Normal { generation });
+                }
 
-            CircuitState::HalfOpen => {
-                if self
-                    .half_open_probe_in_flight
-                    .compare_exchange(
-                        false,
-                        true,
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                    )
-                    .is_ok()
-                {
-                    Ok(())
-                } else {
-                    Err(circuit_open())
+                1 => {
+                    return Err(circuit_open());
+                }
+
+                2 => {
+                    // Reserve the recovery slot without changing its generation.
+                    let probing = pack_state(generation, HALF_OPEN_PROBING);
+
+                    if self
+                        .packed_state
+                        .compare_exchange(
+                            packed,
+                            probing,
+                            Ordering::AcqRel,
+                            Ordering::Acquire,
+                        )
+                        .is_ok()
+                    {
+                        return Ok(RequestPermit::RecoveryProbe { generation });
+                    }
+
+                    // Another thread changed the state. Retry.
+                    continue;
+                }
+
+                HALF_OPEN_PROBING => {
+                    return Err(circuit_open());
+                }
+
+                _ => {
+                    return Err(circuit_open());
                 }
             }
         }
@@ -171,6 +226,70 @@ impl CircuitBreaker {
 
         if self.state() == CircuitState::HalfOpen {
             self.reset();
+        }
+    }
+
+    pub fn record_success_with_permit(
+        &self,
+        permit: RequestPermit,
+        latency_ms: u64,
+    ) {
+        match permit {
+            RequestPermit::Normal {
+                generation: request_generation,
+            } => {
+                // Lock metrics before checking the circuit generation.
+                let mut metrics = self.metrics.lock().unwrap();
+
+                let current = self.packed_state.load(Ordering::Acquire);
+                let (generation, state) = unpack_state(current);
+
+                // Ignore results from an outdated generation
+                // or requests that are no longer in Closed state.
+                if request_generation != generation
+                    || state != CircuitState::Closed as u8
+                {
+                    return;
+                }
+
+                metrics.record(
+                    latency_ms,
+                    true,
+                    self.config.window_size as usize,
+                );
+            }
+
+            RequestPermit::RecoveryProbe {
+                generation: request_generation,
+            } => {
+                // Lock metrics before transitioning so the new
+                // Closed state starts with a clean window.
+                let mut metrics = self.metrics.lock().unwrap();
+
+                let expected = pack_state(
+                    request_generation,
+                    HALF_OPEN_PROBING,
+                );
+
+                let next = pack_state(
+                    request_generation,
+                    CircuitState::Closed as u8,
+                );
+
+                // Close only if this exact recovery probe is still active.
+                if self
+                    .packed_state
+                    .compare_exchange(
+                        expected,
+                        next,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_ok()
+                {
+                    metrics.records.clear();
+                }
+            }
         }
     }
 
@@ -214,40 +333,226 @@ impl CircuitBreaker {
         }
     }
 
+    pub async fn record_failure_with_permit(
+        &self,
+        permit: RequestPermit,
+        latency_ms: u64,
+        distress_severity: f32,
+    ) {
+        let current = self.packed_state.load(Ordering::Acquire);
+        let (generation, state) = unpack_state(current);
+
+        match permit {
+            RequestPermit::Normal {
+                generation: request_generation,
+            } => {
+                let (total, error_rate, p95_latency) = {
+                    // Lock metrics before checking the generation.
+                    let mut metrics = self.metrics.lock().unwrap();
+
+                    let current = self.packed_state.load(Ordering::Acquire);
+                    let (generation, state) = unpack_state(current);
+
+                    // Ignore failures from an outdated generation
+                    // or requests that are no longer in Closed state.
+                    if request_generation != generation
+                        || state != CircuitState::Closed as u8
+                    {
+                        return;
+                    }
+
+                    metrics.record(
+                        latency_ms,
+                        false,
+                        self.config.window_size as usize,
+                    );
+
+                    metrics.snapshot()
+                };
+
+                if total < self.config.min_requests {
+                    return;
+                }
+
+                let (err_threshold, lat_threshold) =
+                    self.policy.thresholds(distress_severity);
+
+                if error_rate >= err_threshold || p95_latency >= lat_threshold {
+                    warn!(
+                        error_rate,
+                        p95_latency,
+                        err_threshold,
+                        lat_threshold,
+                        distress_severity,
+                        "circuit breaker tripping"
+                    );
+
+                    self.trip_if_current(
+                        request_generation,
+                        CircuitState::Closed as u8,
+                    )
+                    .await;
+                }
+            }
+
+            RequestPermit::RecoveryProbe {
+                generation: request_generation,
+            } => {
+                // Only the current recovery probe can reopen the circuit.
+                if request_generation != generation || state != HALF_OPEN_PROBING {
+                    return;
+                }
+
+                if self
+                    .trip_if_current(request_generation, HALF_OPEN_PROBING)
+                    .await
+                {
+                    warn!("recovery probe failed; reopening circuit breaker");
+                }
+            }
+        }
+    }
+
     /// Reset the flag when the circuit opens again and records the start of the new cooldown.
     async fn trip(&self) {
-        *self.opened_at.write().await = Some(Utc::now());
+        let mut opened_at = self.opened_at.write().await;
 
-        self.state
-            .store(CircuitState::Open as u8, Ordering::Release);
+        loop {
+            let current = self.packed_state.load(Ordering::Acquire);
+            let (generation, state) = unpack_state(current);
 
-        self.half_open_probe_in_flight
-            .store(false, Ordering::Release);
+            // The circuit is already Open.
+            if state == CircuitState::Open as u8 {
+                return;
+            }
+
+            let next_generation = (generation + 1) & ((1u64 << 62) - 1);
+
+            let next = pack_state(
+                next_generation,
+                CircuitState::Open as u8,
+            );
+
+            if self
+                .packed_state
+                .compare_exchange(
+                    current,
+                    next,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                *opened_at = Some(Utc::now());
+                return;
+            }
+        }
+    }
+
+    // Conditional trip helper: accepts two values (expected_generation and expected_state)
+    async fn trip_if_current(
+        &self,
+        expected_generation: u64,
+        expected_state: u8,
+    ) -> bool {
+        let mut opened_at = self.opened_at.write().await;
+
+        let expected = pack_state(expected_generation, expected_state);
+
+        let next_generation =
+            (expected_generation + 1) & ((1u64 << 62) - 1);
+
+        let next = pack_state(
+            next_generation,
+            CircuitState::Open as u8,
+        );
+
+        if self
+            .packed_state
+            .compare_exchange(
+                expected,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+        {
+            *opened_at = Some(Utc::now());
+            true
+        } else {
+            false
+        }
     }
 
     /// Reset the breaker to Closed state and clear metrics.
     fn reset(&self) {
-        self.state
-            .store(CircuitState::Closed as u8, Ordering::Relaxed);
+        loop {
+            let current = self.packed_state.load(Ordering::Acquire);
+            let (generation, state) = unpack_state(current);
 
-        self.metrics.lock().unwrap().records.clear();
+            // Only an active recovery probe should lead to Closed.
+            if state != HALF_OPEN_PROBING {
+                return;
+            }
 
-        self.half_open_probe_in_flight
-            .store(false, Ordering::Release);
+            let next = pack_state(generation, CircuitState::Closed as u8);
+
+            if self
+                .packed_state
+                .compare_exchange(
+                    current,
+                    next,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                self.metrics.lock().unwrap().records.clear();
+                return;
+            }
+        }
     }
 
     /// Background task: transition Open -> HalfOpen after cooldown.
     pub async fn tick(&self) {
-        if self.state() != CircuitState::Open {
+        let opened_at = self.opened_at.read().await;
+
+        let Some(opened) = *opened_at else {
+            return;
+        };
+
+        let elapsed = (Utc::now() - opened).num_seconds();
+
+        if elapsed < self.config.half_open_after_secs as i64 {
             return;
         }
-        let opened = *self.opened_at.read().await;
-        if let Some(t) = opened {
-            let elapsed = (Utc::now() - t).num_seconds() as u64;
-            if elapsed >= self.config.half_open_after_secs {
+
+        loop {
+            let current = self.packed_state.load(Ordering::Acquire);
+            let (generation, state) = unpack_state(current);
+
+            // Only Open can transition to Half-Open.
+            if state != CircuitState::Open as u8 {
+                return;
+            }
+
+            let next = pack_state(
+                generation,
+                CircuitState::HalfOpen as u8,
+            );
+
+            if self
+                .packed_state
+                .compare_exchange(
+                    current,
+                    next,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
                 info!("circuit breaker -> half-open");
-                self.state
-                    .store(CircuitState::HalfOpen as u8, Ordering::Relaxed);
+                return;
             }
         }
     }
@@ -339,7 +644,7 @@ mod tests {
         assert_eq!(error_rate, 0.0);
     }
 
-    // This test ensures that only the first request can reserve the Half-Open recovery slot.
+    // This test ensures that only the first request can reserve the Half-Open recovery probe.
     #[test]
     fn half_open_allows_only_one_recovery_probe() {
         struct TestPolicy;
@@ -361,9 +666,10 @@ mod tests {
         let breaker = CircuitBreaker::new(config, Arc::new(TestPolicy));
 
         // Simulate the breaker entering Half-Open.
-        breaker
-            .state
-            .store(CircuitState::HalfOpen as u8, Ordering::Relaxed);
+        breaker.packed_state.store(
+            pack_state(0, CircuitState::HalfOpen as u8),
+            Ordering::Release,
+        );
 
         // First caller should be allowed.
         assert!(breaker.acquire().is_ok());
@@ -397,9 +703,10 @@ mod tests {
         let breaker = CircuitBreaker::new(config, Arc::new(TestPolicy));
 
         // Simulate the circuit entering Half-Open.
-        breaker
-            .state
-            .store(CircuitState::HalfOpen as u8, Ordering::Relaxed);
+        breaker.packed_state.store(
+            pack_state(0, CircuitState::HalfOpen as u8),
+            Ordering::Release,
+        );
 
         // Allow one recovery request.
         assert!(breaker.acquire().is_ok());
@@ -436,9 +743,10 @@ mod tests {
         let breaker = CircuitBreaker::new(config, Arc::new(TestPolicy));
 
         // Simulate entering Half-Open.
-        breaker
-            .state
-            .store(CircuitState::HalfOpen as u8, Ordering::Relaxed);
+        breaker.packed_state.store(
+            pack_state(0, CircuitState::HalfOpen as u8),
+            Ordering::Release,
+        );
 
         // Allow the recovery request.
         assert!(breaker.acquire().is_ok());
@@ -457,7 +765,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn failed_recovery_resets_probe_flag() {
+    async fn failed_recovery_allows_another_probe_after_cooldown() {
         struct TestPolicy;
 
         impl AdaptiveThresholdPolicy for TestPolicy {
@@ -476,34 +784,414 @@ mod tests {
 
         let breaker = CircuitBreaker::new(config, Arc::new(TestPolicy));
 
-        // Simulate Half-Open state.
-        breaker
-            .state
-            .store(CircuitState::HalfOpen as u8, Ordering::Relaxed);
+        // Simulate Half-Open.
+        breaker.packed_state.store(
+            pack_state(0, CircuitState::HalfOpen as u8),
+            Ordering::Release,
+        );
 
-        // First recovery probe reserves the slot.
+        // First recovery request is allowed.
         assert!(breaker.acquire().is_ok());
 
-        assert!(breaker
-            .half_open_probe_in_flight
-            .load(Ordering::Acquire));
+        // Internal state should indicate a probe is running.
+        assert_eq!(
+            unpack_state(breaker.packed_state.load(Ordering::Acquire)).1,
+            HALF_OPEN_PROBING
+        );
 
-        // Recovery probe fails.
+        // Simulate failed recovery.
         breaker.record_failure(150, 0.25).await;
 
         assert_eq!(breaker.state(), CircuitState::Open);
 
-        // The recovery flag should be cleared.
-        assert!(!breaker
-            .half_open_probe_in_flight
-            .load(Ordering::Acquire));
-
-        // Cooldown is zero seconds for this test.
+        // Cooldown is zero seconds for testing.
         breaker.tick().await;
 
         assert_eq!(breaker.state(), CircuitState::HalfOpen);
 
-        // A new recovery probe should now be allowed.
+        // A new recovery request should be allowed.
         assert!(breaker.acquire().is_ok());
+
+        assert_eq!(
+            unpack_state(breaker.packed_state.load(Ordering::Acquire)).1,
+            HALF_OPEN_PROBING
+        );
+    }
+
+    // Concurrency test: to check whether the CB can handle multiple callers trying to access the LLM at the same time.
+    #[test]
+    fn concurrent_half_open_requests_allow_only_one_probe() {
+        use std::sync::Barrier;
+        use std::thread;
+
+        struct TestPolicy;
+
+        impl AdaptiveThresholdPolicy for TestPolicy {
+            fn thresholds(&self, _distress_severity: f32) -> (f64, u64) {
+                (0.5, 1000)
+            }
+        }
+
+        let config = BreakerConfig {
+            base_error_rate: 0.5,
+            base_latency_ms: 1000,
+            min_requests: 3,
+            half_open_after_secs: 5,
+            window_size: 10,
+        };
+
+        let breaker = Arc::new(CircuitBreaker::new(
+            config,
+            Arc::new(TestPolicy),
+        ));
+
+        // Simulate entering Half-Open.
+        breaker.packed_state.store(
+            pack_state(0, CircuitState::HalfOpen as u8),
+            Ordering::Release,
+        );
+
+        let num_callers = 10;
+        let barrier = Arc::new(Barrier::new(num_callers));
+
+        let handles: Vec<_> = (0..num_callers)
+            .map(|_| {
+                let breaker = Arc::clone(&breaker);
+                let barrier = Arc::clone(&barrier);
+
+                thread::spawn(move || {
+                    // All threads begin attempting recovery together.
+                    barrier.wait();
+                    breaker.acquire().is_ok()
+                })
+            })
+            .collect();
+
+        let allowed = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .filter(|&success| success)
+            .count();
+
+        // Exactly one caller should acquire the recovery slot.
+        assert_eq!(allowed, 1);
+
+        // The internal state should indicate a probe in progress.
+        assert_eq!(
+            unpack_state(breaker.packed_state.load(Ordering::Acquire)).1,
+            HALF_OPEN_PROBING
+        );
+    }
+
+    #[test]
+    fn acquire_returns_correct_request_permit() {
+        struct TestPolicy;
+
+        impl AdaptiveThresholdPolicy for TestPolicy {
+            fn thresholds(&self, _distress_severity: f32) -> (f64, u64) {
+                (0.5, 1000)
+            }
+        }
+
+        let config = BreakerConfig {
+            base_error_rate: 0.5,
+            base_latency_ms: 1000,
+            min_requests: 3,
+            half_open_after_secs: 5,
+            window_size: 10,
+        };
+
+        let breaker = CircuitBreaker::new(config, Arc::new(TestPolicy));
+
+        // Normal request while Closed.
+        assert_eq!(
+            breaker.acquire_with_permit().unwrap(),
+            RequestPermit::Normal { generation: 0 }
+        );
+
+        // Simulate Half-Open.
+        breaker.packed_state.store(
+            pack_state(0, CircuitState::HalfOpen as u8),
+            Ordering::Release,
+        );
+
+        // First request becomes the recovery probe.
+        assert_eq!(
+            breaker.acquire_with_permit().unwrap(),
+            RequestPermit::RecoveryProbe { generation: 0 }
+        );
+
+        // Second request must be blocked.
+        assert!(breaker.acquire_with_permit().is_err());
+    }
+
+    // To verify that packing and unpacking preserves both the generation and state correctly.
+    #[test]
+    fn packed_state_preserves_generation_and_state() {
+        let generation = 42;
+
+        for state in 0..=HALF_OPEN_PROBING {
+            let packed = pack_state(generation, state);
+            let (decoded_generation, decoded_state) = unpack_state(packed);
+
+            assert_eq!(decoded_generation, generation);
+            assert_eq!(decoded_state, state);
+        }
+    }
+
+    #[test]
+    fn old_normal_request_must_not_close_half_open_circuit() {
+        struct TestPolicy;
+
+        impl AdaptiveThresholdPolicy for TestPolicy {
+            fn thresholds(&self, _distress_severity: f32) -> (f64, u64) {
+                (0.5, 1000)
+            }
+        }
+
+        let config = BreakerConfig {
+            base_error_rate: 0.5,
+            base_latency_ms: 1000,
+            min_requests: 3,
+            half_open_after_secs: 5,
+            window_size: 10,
+        };
+
+        let breaker = CircuitBreaker::new(config, Arc::new(TestPolicy));
+
+        // Caller A starts while the circuit is Closed.
+        let old_permit = breaker.acquire_with_permit().unwrap();
+
+        assert_eq!(
+            old_permit,
+            RequestPermit::Normal { generation: 0 }
+        );
+
+        // Simulate a later recovery cycle.
+        breaker.packed_state.store(
+            pack_state(1, CircuitState::HalfOpen as u8),
+            Ordering::Release,
+        );
+
+        // Caller B reserves the recovery slot.
+        let recovery_permit = breaker.acquire_with_permit().unwrap();
+
+        assert_eq!(
+            recovery_permit,
+            RequestPermit::RecoveryProbe { generation: 1 }
+        );
+
+        // Caller A's old LLM response finally succeeds.
+        breaker.record_success_with_permit(old_permit, 150);
+
+        // Caller A must NOT close Caller B's recovery attempt.
+        assert_eq!(
+            breaker.state(),
+            CircuitState::HalfOpen
+        );
+    }
+
+    #[tokio::test]
+    async fn old_normal_failure_must_not_reopen_half_open_circuit() {
+        struct TestPolicy;
+
+        impl AdaptiveThresholdPolicy for TestPolicy {
+            fn thresholds(&self, _distress_severity: f32) -> (f64, u64) {
+                (0.5, 1000)
+            }
+        }
+
+        let config = BreakerConfig {
+            base_error_rate: 0.5,
+            base_latency_ms: 1000,
+            min_requests: 3,
+            half_open_after_secs: 5,
+            window_size: 10,
+        };
+
+        let breaker = CircuitBreaker::new(config, Arc::new(TestPolicy));
+
+        // Caller A starts while the circuit is Closed.
+        let old_permit = breaker.acquire_with_permit().unwrap();
+
+        assert_eq!(
+            old_permit,
+            RequestPermit::Normal { generation: 0 }
+        );
+
+        // Simulate the circuit entering a newer recovery cycle.
+        breaker.packed_state.store(
+            pack_state(1, CircuitState::HalfOpen as u8),
+            Ordering::Release,
+        );
+
+        // Caller B reserves the recovery slot.
+        let recovery_permit = breaker.acquire_with_permit().unwrap();
+
+        assert_eq!(
+            recovery_permit,
+            RequestPermit::RecoveryProbe { generation: 1 }
+        );
+
+        // Caller A's old request finally fails.
+        breaker
+            .record_failure_with_permit(old_permit, 150, 0.25)
+            .await;
+
+        // Caller A must not reopen Caller B's recovery attempt.
+        assert_eq!(breaker.state(), CircuitState::HalfOpen);
+    }
+
+    #[test]
+    fn valid_recovery_probe_closes_circuit_with_permit() {
+        struct TestPolicy;
+
+        impl AdaptiveThresholdPolicy for TestPolicy {
+            fn thresholds(&self, _distress_severity: f32) -> (f64, u64) {
+                (0.5, 1000)
+            }
+        }
+
+        let config = BreakerConfig {
+            base_error_rate: 0.5,
+            base_latency_ms: 1000,
+            min_requests: 3,
+            half_open_after_secs: 5,
+            window_size: 10,
+        };
+
+        let breaker = CircuitBreaker::new(config, Arc::new(TestPolicy));
+
+        // Simulate Half-Open in generation 1.
+        breaker.packed_state.store(
+            pack_state(1, CircuitState::HalfOpen as u8),
+            Ordering::Release,
+        );
+
+        // Reserve the recovery probe.
+        let permit = breaker.acquire_with_permit().unwrap();
+
+        assert_eq!(
+            permit,
+            RequestPermit::RecoveryProbe { generation: 1 }
+        );
+
+        // The legitimate recovery probe succeeds.
+        breaker.record_success_with_permit(permit, 150);
+
+        // The circuit should return to Closed.
+        assert_eq!(breaker.state(), CircuitState::Closed);
+
+        // Normal requests should be allowed again.
+        assert!(breaker.acquire_with_permit().is_ok());
+    }
+
+    // Test if the helper (trip_if_current) rejects outdated failures.
+    #[tokio::test]
+    async fn outdated_failure_cannot_trip_new_generation() {
+        struct TestPolicy;
+
+        impl AdaptiveThresholdPolicy for TestPolicy {
+            fn thresholds(&self, _distress_severity: f32) -> (f64, u64) {
+                (0.5, 1000)
+            }
+        }
+
+        let config = BreakerConfig {
+            base_error_rate: 0.5,
+            base_latency_ms: 1000,
+            min_requests: 3,
+            half_open_after_secs: 5,
+            window_size: 10,
+        };
+
+        let breaker = CircuitBreaker::new(config, Arc::new(TestPolicy));
+
+        // Simulate a newer circuit generation that has recovered.
+        breaker.packed_state.store(
+            pack_state(2, CircuitState::Closed as u8),
+            Ordering::Release,
+        );
+
+        // An old failure from generation 1 tries to trip the circuit.
+        let tripped = breaker
+            .trip_if_current(1, CircuitState::Closed as u8)
+            .await;
+
+        // The outdated failure must be rejected.
+        assert!(!tripped);
+
+        // The circuit must remain Closed in generation 2.
+        assert_eq!(breaker.state(), CircuitState::Closed);
+
+        let (generation, _) = breaker.current_state_and_generation();
+        assert_eq!(generation, 2);
+    }
+
+    // This test simulates the state transitions directly rather than using concurrent threads, so it's a focused regression test for
+    // stale recovery processes.
+    #[test]
+    fn outdated_recovery_probe_cannot_close_new_generation() {
+        struct TestPolicy;
+
+        impl AdaptiveThresholdPolicy for TestPolicy {
+            fn thresholds(&self, _distress_severity: f32) -> (f64, u64) {
+                (0.5, 1000)
+            }
+        }
+
+        let config = BreakerConfig {
+            base_error_rate: 0.5,
+            base_latency_ms: 1000,
+            min_requests: 3,
+            half_open_after_secs: 5,
+            window_size: 10,
+        };
+
+        let breaker = CircuitBreaker::new(config, Arc::new(TestPolicy));
+
+        // Generation 1 enters Half-Open.
+        breaker.packed_state.store(
+            pack_state(1, CircuitState::HalfOpen as u8),
+            Ordering::Release,
+        );
+
+        // Caller A reserves the recovery probe for generation 1.
+        let old_permit = breaker.acquire_with_permit().unwrap();
+
+        assert_eq!(
+            old_permit,
+            RequestPermit::RecoveryProbe { generation: 1 }
+        );
+
+        // Simulate a newer recovery cycle in generation 2.
+        breaker.packed_state.store(
+            pack_state(2, CircuitState::HalfOpen as u8),
+            Ordering::Release,
+        );
+
+        // Caller B reserves the new recovery probe.
+        let new_permit = breaker.acquire_with_permit().unwrap();
+
+        assert_eq!(
+            new_permit,
+            RequestPermit::RecoveryProbe { generation: 2 }
+        );
+
+        // Caller A's outdated recovery request finally succeeds.
+        breaker.record_success_with_permit(old_permit, 150);
+
+        // Caller A must NOT close Caller B's recovery attempt.
+        assert_eq!(breaker.state(), CircuitState::HalfOpen);
+
+        assert_eq!(
+            unpack_state(breaker.packed_state.load(Ordering::Acquire)),
+            (2, HALF_OPEN_PROBING)
+        );
+
+        // Caller B succeeds and legitimately closes the circuit.
+        breaker.record_success_with_permit(new_permit, 150);
+
+        assert_eq!(breaker.state(), CircuitState::Closed);
     }
 }
