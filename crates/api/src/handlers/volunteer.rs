@@ -211,11 +211,37 @@ pub async fn claim(
                 }));
             }
 
+            let binding_created = match state
+                .volunteer_bindings
+                .claim(&sid.0, &body.volunteer_id, assigned_session.risk.level.0)
+                .await
+            {
+                Ok(true) => true,
+                Ok(false) => {
+                    let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
+                    return HttpResponse::Conflict().json(serde_json::json!({
+                        "error": "case already has a durable volunteer binding",
+                        "session_id": sid.0,
+                    }));
+                }
+                Err(error) => {
+                    tracing::error!(error = %error, session_id = %sid, "durable binding claim failed");
+                    let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
+                    return HttpResponse::InternalServerError().finish();
+                }
+            };
+
             let expected = assigned_session.version;
             assigned_session.assign_volunteer(&body.volunteer_id);
 
             if let Err(error) = state.sessions.update_cas(&assigned_session, expected).await {
                 tracing::warn!(error = %error, session_id = %sid, volunteer_id = %body.volunteer_id, "failed to persist volunteer assignment");
+                if binding_created {
+                    let _ = state
+                        .volunteer_bindings
+                        .release(&sid.0, &body.volunteer_id)
+                        .await;
+                }
                 let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
                 let _ = state
                     .queue
@@ -326,6 +352,14 @@ pub async fn resolve_case(
     if let Err(e) = state.sessions.update_cas(&session, expected).await {
         tracing::warn!(error = %e, session_id = %sid, volunteer_id = %volunteer_id, "failed to persist resolved handoff");
         return HttpResponse::Conflict().finish();
+    }
+
+    if let Err(error) = state
+        .volunteer_bindings
+        .release(&session_id, &volunteer_id)
+        .await
+    {
+        tracing::warn!(error = %error, session_id = %sid, volunteer_id = %volunteer_id, "failed to resolve durable volunteer binding");
     }
 
     {
@@ -460,11 +494,35 @@ pub async fn transfer_case(
         }
     }
 
+    if !state
+        .volunteer_bindings
+        .transfer(&session_id, &volunteer_id, &next_volunteer.id)
+        .await
+        .map_err(|error| {
+            tracing::error!(error = %error, session_id = %sid, "failed to transfer durable volunteer binding");
+            error
+        })
+        .unwrap_or(false)
+    {
+        let _ = state
+            .queue
+            .move_claim(&sid, &next_volunteer.id, &volunteer_id)
+            .await;
+        return HttpResponse::Conflict().json(serde_json::json!({
+            "error": "durable volunteer binding changed; refresh and try again",
+            "session_id": session_id,
+        }));
+    }
+
     if let Err(e) = state.sessions.update_cas(&session, expected).await {
         tracing::warn!(error = %e, session_id = %sid, volunteer_id = %volunteer_id, "failed to persist transferred handoff");
         let _ = state
             .queue
             .move_claim(&sid, &next_volunteer.id, &volunteer_id)
+            .await;
+        let _ = state
+            .volunteer_bindings
+            .transfer(&session_id, &next_volunteer.id, &volunteer_id)
             .await;
         return HttpResponse::Conflict().finish();
     }

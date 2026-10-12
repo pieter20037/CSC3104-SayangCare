@@ -466,7 +466,7 @@ curl -X POST http://localhost:8081/api/v1/volunteers/claim \
 	-d '{"volunteer_id":"volunteer-aisha","session_id":"SIM-demo-001"}'
 ```
 
-The Redis sorted set prioritizes higher risk first and earlier enqueue times first within the same risk level. Claims use atomic Redis operations to remove and record an item. Simulated sessions are assigned without calling Twilio. For a live session, the current telephony adapter attempts to redirect its existing Twilio call to the volunteer; that requires an active Twilio Call SID and a configured real recipient number.
+The Redis sorted set prioritizes higher risk first and earlier enqueue times first within the same risk level. Claims use atomic Redis operations to remove and record an item. Durable PostgreSQL volunteer bindings now arbitrate claim, transfer, and resolve operations across API replicas; migration `0004_volunteer_assignments.sql` records the owner, risk, status, and timestamps. Simulated sessions are assigned without calling Twilio. For a live session, the current telephony adapter attempts to redirect its existing Twilio call to the volunteer; that requires an active Twilio Call SID and a configured real recipient number.
 
 ## Twilio Webhook Flow
 
@@ -524,7 +524,7 @@ The circuit breaker has three states:
 - `Open`: requests are rejected and the caller enters degraded handling
 - `HalfOpen`: a probe request is allowed after the cooldown
 
-The default background ticker checks breakers every five seconds. The breaker module has configurable states and adaptive thresholds, but API handlers do not yet record real inference success/failure measurements or call a concrete inference service.
+The breaker module now includes CB-01 sliding-window latency/error metrics and unit coverage. The CB-02 recovery-transition implementation is available on the remote `phase3-circuitbreaker` branch but is not yet merged into `main`. The default background ticker checks breakers every five seconds; API handlers use the configured inference provider when available and deterministic fallback behavior otherwise.
 
 ## Docker
 
@@ -690,7 +690,8 @@ The intended local arrangement keeps host PostgreSQL on `5432` or `5433` and pub
 
 ## Known Limitations
 
-- The Raft priority-queue command model and OpenRaft type configuration are implemented and unit-tested, but `AppState` still uses `RedisPriorityQueue`. Raft peer transport, cluster membership/bootstrap, leader forwarding, and runtime state-machine/log integration are not implemented yet; do not describe the running service as having a Raft-backed HA queue.
+- The OpenRaft queue command model and deterministic ordering are implemented and unit-tested, but `AppState` still uses `RedisPriorityQueue`. Peer transport, cluster membership/bootstrap, leader forwarding, and runtime state-machine/log integration remain before claiming a Raft-backed HA queue.
+- CB-01 sliding-window metrics are merged and tested; CB-02 closed/open/half-open recovery transitions and request permits remain on the remote `phase3-circuitbreaker` branch until merged.
 - Groq Chat Completions is the configured inference provider for supportive non-crisis replies. The Groq API key must be configured outside source control. Risk classification remains heuristic and local; high-risk turns bypass the model.
 - Twilio request-signature verification (`X-Twilio-Signature`) is not implemented.
 - The telephony adapter updates an existing call for redirects; outbound volunteer dispatch using `POST /Calls.json` and a dedicated outbound-connect TwiML route are not implemented.

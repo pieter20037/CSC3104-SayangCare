@@ -10,6 +10,7 @@ use sayangcare_core::CoreResult;
 use sayangcare_priority_queue::RedisPriorityQueue;
 use sayangcare_session_store::{
     OrphanedSessionSweeper, PostgresArchiveStore, RedisSessionStore, TieredSessionStore,
+    VolunteerBindingStore,
 };
 use sayangcare_telephony::TwilioProvider;
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,7 @@ pub struct AppState {
     pub tiered: Arc<TieredSessionStore>,
     pub breakers: Arc<BreakerRegistry>,
     pub queue: Arc<dyn PriorityQueue>,
+    pub volunteer_bindings: Arc<VolunteerBindingStore>,
     pub telephony: Arc<dyn TelephonyProvider>,
     pub inference: Option<Arc<dyn InferenceService>>,
     pub volunteers: Arc<RwLock<HashMap<String, Volunteer>>>,
@@ -77,6 +79,7 @@ impl AppState {
             .await
             .map_err(|e| sayangcare_core::CoreError::Storage(format!("migrate: {e}")))?;
         let archive = Arc::new(PostgresArchiveStore::new(pg_pool.clone()));
+        let volunteer_bindings = Arc::new(VolunteerBindingStore::new(pg_pool.clone()));
 
         let tiered = Arc::new(TieredSessionStore::new(hot.clone(), archive.clone()));
 
@@ -165,6 +168,7 @@ impl AppState {
             tiered,
             breakers,
             queue,
+            volunteer_bindings,
             telephony,
             inference,
             volunteers,

@@ -1,6 +1,6 @@
 # Phase 1: Session Lifecycle and Recovery
 
-This guide describes the phase-one session lifecycle work and how to verify it locally on Windows with PowerShell.
+This guide describes the implemented local session, risk, escalation, and volunteer workflow and how to verify it locally on Windows with PowerShell.
 
 ## What Changed
 
@@ -10,6 +10,11 @@ This guide describes the phase-one session lifecycle work and how to verify it l
 - Hangup/status completion commits the terminal state with CAS, archives the full session to PostgreSQL, and deletes the Redis entry only after the archive succeeds.
 - A Redis cache miss can restore a nonterminal session, including caller details, transcript, risk, sentiment, state, and version, from PostgreSQL without overwriting a newer Redis entry.
 - Migration `0002_add_session_recovery_fields.sql` adds caller display name and latest sentiment without editing the already-applied `0001` migration.
+- The JSON Call Lab dashboard creates deterministic simulated sessions, applies local risk triage, and exercises volunteer claiming, transfer, resolve, and acknowledgement without using a real phone call.
+- A configured Groq provider can generate supportive non-crisis replies; high-risk turns use the deterministic safety response and are escalated without depending on the LLM.
+- CB-01 sliding-window latency/error metrics are merged on `main`; CB-02 recovery transitions and request permits are currently on the remote `phase3-circuitbreaker` branch.
+- An orphaned-session sweeper is implemented for inactive Redis sessions; transactional flush retry work remains separate from the live Twilio integration milestone.
+- Volunteer claims, transfers, and resolves now create/update/close durable PostgreSQL bindings through `0004_volunteer_assignments.sql`, so assignment ownership is not only process-local.
 
 Redis Lua operations provide cross-process atomicity across API replicas. A process-local `Mutex` or `RwLock` would only coordinate requests within one process and would not protect the same session across Kubernetes pods.
 
@@ -50,7 +55,7 @@ After the API starts, verify both migrations:
 docker compose exec -T postgres psql -U sayangcare -d sayangcare -c "select version, description, success from _sqlx_migrations order by version;"
 ```
 
-Expected versions include `1 init` and `2 add session recovery fields`, both successful.
+Expected versions include `1 init`, `2 add session recovery fields`, `3 add volunteer handoff fields`, and `4 volunteer assignments`, all successful.
 
 ## Run the API
 
@@ -70,6 +75,27 @@ curl.exe -i http://localhost:8081/api/v1/ready
 ```
 
 Both should return HTTP `200`. These are HTTP endpoints, not HTTPS endpoints.
+
+## Exercise the Call Lab
+
+Open `http://localhost:8081/dashboard` in a browser. The dashboard is a local testing console, not a production call-centre UI.
+
+1. Use **Start call** to create a simulated `SIM-...` session.
+2. Use **Record turn** with a normal message and confirm the transcript and assistant reply update.
+3. Record a high-risk message such as `I want to end my life and need immediate help.` Confirm the deterministic safety reply, elevated risk, escalated state, and pending queue row.
+4. Select an on-shift volunteer, such as Aisha or Noor, and use **Claim** or **Claim next**.
+5. Open the assigned case, then test **Acknowledge**, **Transfer**, and **Resolve**. Confirm the assignment and alert panels update.
+6. Use **End call**, then inspect PostgreSQL as shown below. A high-risk simulation should remain `escalated`, not be forced to `completed`.
+
+The Call Lab uses transcript requests only. It does not use a microphone, place a real phone call, invoke Twilio, or perform a real volunteer handoff.
+
+After claiming a case, verify its durable binding:
+
+```powershell
+docker compose exec -T postgres psql -U sayangcare -d sayangcare -c "select session_id, volunteer_id, risk_level, status from volunteer_assignments order by assigned_at desc limit 5;"
+```
+
+The row should show the volunteer and `assigned` or `transferred` status. After **Resolve**, the status should become `resolved`.
 
 ## Exercise the Session Lifecycle
 
@@ -130,7 +156,7 @@ docker compose exec -T postgres psql -U sayangcare -d sayangcare -c "select id, 
 docker compose exec -T redis-master redis-cli EXISTS "session:$callSid"
 ```
 
-Expected: PostgreSQL shows the session still active in a high-risk escalated state (for the verified sample, `state = escalated`, `version = 3`, `turns = 2`), and Redis returns `0` for the deleted session key. In a real call, the exact end state depends on the detected risk and escalation rules; this project intentionally escalates high-risk sessions instead of immediately marking them as completed.
+Expected: PostgreSQL shows the session still active in a high-risk escalated state (for the verified sample, `state = escalated`, `version = 3`, `turns = 2`), and Redis returns `0` for the deleted session key. Lower-risk samples may end as `completed`; high-risk sessions intentionally retain `escalated` state for volunteer follow-up.
 
 ## Run Automated Checks
 
@@ -139,7 +165,16 @@ cargo test --workspace
 cargo check --workspace --all-targets
 ```
 
-This is the order used in the verified smoke pass. The phase-one tests cover stable session IDs, legal state transitions, version increments, full cold-store rehydration, archive-before-delete ordering, and preservation of active state when terminal CAS loses a race.
+This is the order used in the verified smoke pass. The phase-one tests cover stable session IDs, legal state transitions, version increments, full cold-store rehydration, archive-before-delete ordering, and preservation of active state when terminal CAS loses a race. The queue tests cover deterministic risk/FIFO ordering and idempotent command application; live Raft peer replication is not wired into the API yet.
+
+The Redis queue integration test is intentionally ignored by default because it requires a live Redis instance. With Docker Desktop running, execute it explicitly:
+
+```powershell
+docker compose up -d --wait redis-master
+cargo test -p sayangcare-priority-queue --lib -- --include-ignored
+```
+
+The workspace currently reports the circuit-breaker, core, priority-queue, session-store, and telephony tests separately. Warnings such as the Redis `get_async_connection` deprecation do not fail the build, but should be cleaned up before final submission.
 
 ## Twilio Status
 
