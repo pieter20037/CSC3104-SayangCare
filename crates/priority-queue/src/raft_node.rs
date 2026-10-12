@@ -121,6 +121,11 @@ impl RaftQueueNode {
         self.settings.token.as_deref()
     }
 
+    /// Every cluster member's base URL keyed by node id (empty for a single-node cluster).
+    pub fn peers(&self) -> &BTreeMap<u64, String> {
+        &self.settings.peers
+    }
+
     /// Initializes a brand-new cluster. Only the lowest node id bootstraps; every other node
     /// waits to be added by its replication stream. Safe to call on every startup.
     pub async fn bootstrap_if_needed(&self) -> CoreResult<()> {

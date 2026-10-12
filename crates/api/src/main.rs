@@ -84,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
                     .route("/ready", web::get().to(handlers::health::ready))
                     .route("/metrics", web::get().to(handlers::health::metrics))
                     .route("/queue/raft", web::get().to(handlers::raft::status))
+                    .route("/queue/raft/cluster", web::get().to(handlers::raft::cluster))
                     .route("/calls/incoming", web::post().to(handlers::calls::incoming))
                     .route("/calls/{sid}", web::get().to(handlers::calls::get_session))
                     .route("/calls/{sid}/turn", web::post().to(handlers::calls::turn))
@@ -150,6 +151,14 @@ async fn main() -> anyhow::Result<()> {
     .bind(&bind_addr)?;
 
     info!(%bind_addr, "HTTP server bound");
+    let display_host = match config.server.host.as_str() {
+        "0.0.0.0" | "::" => "localhost",
+        host => host,
+    };
+    info!(
+        "Dashboard: http://{display_host}:{}/dashboard",
+        config.server.port
+    );
 
     let handle = server.run();
 

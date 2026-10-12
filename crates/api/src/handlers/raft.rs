@@ -101,8 +101,12 @@ pub async fn status(state: State) -> HttpResponse {
     let Some(node) = state.raft.as_ref() else {
         return HttpResponse::Ok().json(serde_json::json!({ "backend": "redis" }));
     };
+    HttpResponse::Ok().json(local_status(node))
+}
+
+fn local_status(node: &RaftQueueNode) -> serde_json::Value {
     let metrics = node.raft().metrics().borrow().clone();
-    HttpResponse::Ok().json(serde_json::json!({
+    serde_json::json!({
         "backend": "raft",
         "node_id": metrics.id,
         "state": format!("{:?}", metrics.state),
@@ -110,5 +114,57 @@ pub async fn status(state: State) -> HttpResponse {
         "current_leader": metrics.current_leader,
         "last_log_index": metrics.last_log_index,
         "last_applied": metrics.last_applied.map(|id| id.index),
+    })
+}
+
+/// Read-only cluster view for the dashboard: this node's status plus every peer's, so a
+/// single page shows leader election and log replication across the whole cluster.
+pub async fn cluster(state: State) -> HttpResponse {
+    let Some(node) = state.raft.clone() else {
+        return HttpResponse::Ok().json(serde_json::json!({ "backend": "redis" }));
+    };
+    let local = local_status(&node);
+    let this_node = local["node_id"].as_u64().unwrap_or_default();
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(1500))
+        .build()
+        .unwrap_or_default();
+
+    let probes = node.peers().iter().map(|(id, url)| {
+        let client = client.clone();
+        let local = local.clone();
+        let (id, url) = (*id, url.clone());
+        async move {
+            let status = if id == this_node {
+                Some(local)
+            } else {
+                match client.get(format!("{url}/api/v1/queue/raft")).send().await {
+                    Ok(resp) => resp.json::<serde_json::Value>().await.ok(),
+                    Err(_) => None,
+                }
+            };
+            serde_json::json!({
+                "node_id": id,
+                "url": url,
+                "reachable": status.is_some(),
+                "status": status,
+            })
+        }
+    });
+    let mut nodes = futures::future::join_all(probes).await;
+    if nodes.is_empty() {
+        nodes.push(serde_json::json!({
+            "node_id": this_node,
+            "url": "",
+            "reachable": true,
+            "status": local,
+        }));
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "backend": "raft",
+        "this_node": this_node,
+        "nodes": nodes,
     }))
 }

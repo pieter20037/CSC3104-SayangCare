@@ -43,7 +43,15 @@ $env:SAYANGCARE__QUEUE__BACKEND="raft"; $env:SAYANGCARE__QUEUE__RAFT_PEERS="1=ht
 
 **Terminal 4 — leave free for the checks in steps 4–9.**
 
-Look out for: `HTTP server bound` and `Raft priority queue enabled` in each terminal. The first start applies migrations 1–7 automatically.
+Look out for: `HTTP server bound`, `Dashboard: http://localhost:<port>/dashboard` and `Raft priority queue enabled` in each terminal. The first start applies migrations 1–7 automatically.
+
+**Web dashboard.** Each node serves the dashboard at its own link (shown in its startup log):
+
+- Node 1: http://localhost:18081/dashboard
+- Node 2: http://localhost:18082/dashboard
+- Node 3: http://localhost:18083/dashboard
+
+The **Raft cluster** panel at the top shows every node's state (Leader / Follower / DOWN), term, current leader, log index and applied index, plus whether the cluster still has quorum. It refreshes every 3 seconds, so you can watch the steps below happen in the browser. The same data is available as JSON at `/api/v1/queue/raft/cluster`. If you kill the node you are viewing, the page shows "unreachable"; open another node's link. Restart the API (Ctrl+C, then re-run step 3) after pulling these changes so the new page is served.
 
 ## 4. Check the cluster (4th terminal)
 
