@@ -470,43 +470,9 @@ curl -X POST http://localhost:8081/api/v1/volunteers/claim \
 
 The Redis sorted set prioritizes higher risk first and earlier enqueue times first within the same risk level. Claims use atomic Redis operations to remove and record an item. Durable PostgreSQL volunteer bindings arbitrate claim, transfer, and resolve operations across API replicas; migrations `0005` and `0006` retain assignment history while enforcing one active owner per session. Simulated sessions are assigned without calling Twilio. For a live session, the current telephony adapter attempts to redirect its existing Twilio call to the volunteer; that requires an active Twilio Call SID and a configured real recipient number.
 
-## Raft Volunteer Queue (RAFT-01/02/03)
+## Raft Volunteer Queue
 
-The volunteer priority queue sits behind the `PriorityQueue` trait with two backends:
-
-| Backend          | Select with                       | Notes                                                           |
-| ---------------- | --------------------------------- | --------------------------------------------------------------- |
-| Redis (default)  | `SAYANGCARE__QUEUE__BACKEND=redis` | One shared Redis sorted set; no setup beyond Redis.             |
-| Raft (OpenRaft)  | `SAYANGCARE__QUEUE__BACKEND=raft`  | Queue replicated across API nodes via a Raft log; survives leader loss. |
-
-- **RAFT-01 (consensus engine):** `crates/priority-queue` contains the deterministic state machine (`raft_state.rs`), snapshot/persistent storage (`raft_storage.rs`), and HTTP peer transport, bootstrap, and follower-to-leader write forwarding (`raft_node.rs`). Peers talk over `/internal/raft/{append,vote,snapshot,write}`, protected by the `x-raft-token` shared secret.
-- **RAFT-02 (high-risk triage):** calls scored 4–5 are enqueued on the active backend, ordered by risk, then FIFO, then session ID.
-- **RAFT-03 (relational bindings):** claims, transfers, and resolves are recorded in PostgreSQL (migrations `0005`–`0007`), with a partial unique index guaranteeing one active owner per session and retaining history.
-
-Raft settings (environment variables, nested with `__`):
-
-| Variable                         | Meaning                                                                    |
-| -------------------------------- | -------------------------------------------------------------------------- |
-| `SAYANGCARE__QUEUE__BACKEND`     | `redis` (default) or `raft`                                                |
-| `SAYANGCARE__QUEUE__RAFT_NODE_ID`| This node's ID (default `1`)                                               |
-| `SAYANGCARE__QUEUE__RAFT_PEERS`  | `1=http://host-a:8081,2=http://host-b:8081,...`; empty = single-node cluster |
-| `SAYANGCARE__QUEUE__RAFT_TOKEN`  | Shared secret for peer requests (set it for any multi-node deployment)     |
-| `SAYANGCARE__QUEUE__RAFT_DATA_DIR`| Directory for persisted Raft state; in-memory when unset                  |
-
-Single node (no peers needed):
-
-```powershell
-$env:SAYANGCARE__QUEUE__BACKEND = "raft"
-cargo run -p sayangcare-api
-```
-
-Check a node's role with `GET /api/v1/queue/raft`. The lowest node ID bootstraps the cluster automatically. A three-node walkthrough (start nodes, escalate a call through a follower, kill the leader, claim after failover) is in [PHASE_1_TEST_GUIDE.md](PHASE_1_TEST_GUIDE.md). Run the automated Raft tests with:
-
-```bash
-cargo test -p sayangcare-priority-queue raft
-```
-
-Limitations: membership is fixed at startup, reads come from the local node's applied state, and `/internal/raft/*` should not be exposed publicly (use the token and network policy).
+Optional OpenRaft-replicated queue (`SAYANGCARE__QUEUE__BACKEND=raft`); Redis is the default. Step-by-step run commands are in [PHASE_2.md](PHASE_2.md).
 
 ## Twilio Webhook Flow
 
