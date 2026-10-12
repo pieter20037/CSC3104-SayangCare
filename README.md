@@ -690,7 +690,7 @@ The intended local arrangement keeps host PostgreSQL on `5432` or `5433` and pub
 
 ## Known Limitations
 
-- The OpenRaft queue command model and deterministic ordering are implemented and unit-tested, but `AppState` still uses `RedisPriorityQueue`. Peer transport, cluster membership/bootstrap, leader forwarding, and runtime state-machine/log integration remain before claiming a Raft-backed HA queue.
+- The OpenRaft queue command model and a three-node in-memory election/replication/failover test are implemented. `AppState` still uses `RedisPriorityQueue`; production peer transport, persistent Raft storage, cluster membership/bootstrap, leader forwarding, and API runtime integration remain before claiming a Raft-backed HA queue.
 - CB-01 sliding-window metrics are merged and tested; CB-02 closed/open/half-open recovery transitions and request permits remain on the remote `phase3-circuitbreaker` branch until merged.
 - Groq Chat Completions is the configured inference provider for supportive non-crisis replies. The Groq API key must be configured outside source control. Risk classification remains heuristic and local; high-risk turns bypass the model.
 - Twilio request-signature verification (`X-Twilio-Signature`) is not implemented.

@@ -165,7 +165,15 @@ cargo test --workspace
 cargo check --workspace --all-targets
 ```
 
-This is the order used in the verified smoke pass. The phase-one tests cover stable session IDs, legal state transitions, version increments, full cold-store rehydration, archive-before-delete ordering, and preservation of active state when terminal CAS loses a race. The queue tests cover deterministic risk/FIFO ordering and idempotent command application; live Raft peer replication is not wired into the API yet.
+This is the order used in the verified smoke pass. The phase-one tests cover stable session IDs, legal state transitions, version increments, full cold-store rehydration, archive-before-delete ordering, and preservation of active state when terminal CAS loses a race. The queue tests cover deterministic risk/FIFO ordering and idempotent command application.
+
+The RAFT-01 cluster test can be run directly without Docker:
+
+```powershell
+cargo test -p sayangcare-priority-queue raft_runtime::three_node_queue_replicates_and_survives_leader_loss -- --nocapture
+```
+
+It creates three in-memory OpenRaft nodes, elects a leader, replicates an enqueue to all nodes, removes the leader from the simulated network, waits for a new leader, and commits a claim after failover. This validates the consensus engine and queue state machine, but the API still selects Redis in `AppState` until production peer transport and membership configuration are added.
 
 The Redis queue integration test is intentionally ignored by default because it requires a live Redis instance. With Docker Desktop running, execute it explicitly:
 
