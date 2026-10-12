@@ -56,8 +56,9 @@ Look out for: all three report the same `current_leader`; exactly one has `"stat
 ## 5. Escalate a high-risk call through a follower
 
 ```powershell
-curl.exe -s -X POST http://127.0.0.1:18082/api/v1/calls/incoming -H "content-type: application/json" -d '{"call_sid":"RAFT-DEMO-1","from":"+6590000000","to":"+6560000000"}'
-curl.exe -s -X POST http://127.0.0.1:18082/api/v1/calls/RAFT-DEMO-1/turn -H "content-type: application/json" -d '{"transcript":"I want to kill myself tonight"}'
+curl.exe -s -X POST http://127.0.0.1:18082/api/v1/calls/incoming -H "content-type: application/json" -d '{\"call_sid\":\"RAFT-DEMO-1\",\"from\":\"+6590000000\",\"to\":\"+6560000000\"}'
+Set-Content -Path $env:TEMP\turn.json -Value '{"transcript":"I want to kill myself tonight"}'
+curl.exe -s -X POST http://127.0.0.1:18082/api/v1/calls/RAFT-DEMO-1/turn -H "content-type: application/json" --data-binary "@$env:TEMP\turn.json"
 foreach ($p in 18081,18082,18083) { curl.exe -s http://127.0.0.1:$p/api/v1/volunteers/queue; "" }
 ```
 
@@ -65,11 +66,15 @@ Look out for: the turn response has `"risk_level":5`; all three nodes list `RAFT
 
 ## 6. Kill the leader
 
-Find the leader's process ID (replace `18081` with the leader's port from step 4), then stop it:
+Find the leader's process ID (replace `18081` with the leader's port from step 4), then stop it. This simulates a crash.
+
+**Expected:** the leader's terminal (Terminal 1 if node 1 was the leader) will stop and return to a prompt. This is not a bug. `Stop-Process` kills the `cargo run` server running in that terminal, exactly like a real crash. That node stays down until you restart it in step 8.
+
+Run this in Terminal 4, and do not type `<PID>` literally. PowerShell treats `<` as a redirection operator, so use the `$leaderPid` variable instead:
 
 ```powershell
-(Get-NetTCPConnection -LocalPort 18081 -State Listen).OwningProcess
-Stop-Process -Id <PID>
+$leaderPid = (Get-NetTCPConnection -LocalPort 18081 -State Listen).OwningProcess
+Stop-Process -Id $leaderPid
 Start-Sleep 6
 curl.exe -s http://127.0.0.1:18082/api/v1/queue/raft; ""
 curl.exe -s http://127.0.0.1:18083/api/v1/queue/raft; ""
@@ -77,10 +82,17 @@ curl.exe -s http://127.0.0.1:18083/api/v1/queue/raft; ""
 
 Look out for: the two surviving nodes agree on a **new** leader and a higher `current_term`.
 
+**Which node did I kill?** The one that was `"state":"Leader"` in step 4. Its `node_id` tells you the terminal and port: node 1 is Terminal 1 / 18081, node 2 is Terminal 2 / 18082, node 3 is Terminal 3 / 18083. The leader is not always node 1, so use the port from your own step 4 output. You can confirm afterwards:
+
+- Its terminal stops logging and returns to a `PS C:\...>` prompt, while the other two keep running.
+- `curl.exe -s http://127.0.0.1:18081/api/v1/queue/raft` (using its port) returns nothing.
+
+Note which terminal it was, because you restart that one in step 8.
+
 ## 7. Claim after failover
 
 ```powershell
-curl.exe -s -X POST http://127.0.0.1:18083/api/v1/volunteers/claim -H "content-type: application/json" -d '{"volunteer_id":"volunteer-aisha"}'
+curl.exe -s -X POST http://127.0.0.1:18083/api/v1/volunteers/claim -H "content-type: application/json" -d '{\"volunteer_id\":\"volunteer-aisha\"}'
 foreach ($p in 18082,18083) { curl.exe -s http://127.0.0.1:$p/api/v1/volunteers/queue; curl.exe -s http://127.0.0.1:$p/api/v1/volunteers/volunteer-aisha/cases; "" }
 ```
 
@@ -88,14 +100,30 @@ Look out for: claim returns `"handoff_status":"assigned"`; `pending` is now empt
 
 ## 8. Restart the dead node
 
-Re-run the step 3 block in the stopped node's terminal, then:
+The node you killed in step 6 does not restart by itself, so queries to its port return nothing (empty output from `curl -s`) until you bring it back. Re-run the step 3 command for the node you killed, **in that node's own terminal**. Keep the same `RAFT_DATA_DIR`, so the node reloads its saved log and catches up from the current leader.
+
+| Killed node (port) | Terminal to use | Command to re-run |
+|---|---|---|
+| Node 1 (18081) | Terminal 1 | the **Terminal 1 — Node 1** block from step 3 |
+| Node 2 (18082) | Terminal 2 | the **Terminal 2 — Node 2** block from step 3 |
+| Node 3 (18083) | Terminal 3 | the **Terminal 3 — Node 3** block from step 3 |
+
+For example, if you killed node 1, paste this into **Terminal 1**:
+
+```powershell
+$env:SAYANGCARE__QUEUE__BACKEND="raft"; $env:SAYANGCARE__QUEUE__RAFT_PEERS="1=http://127.0.0.1:18081,2=http://127.0.0.1:18082,3=http://127.0.0.1:18083"; $env:SAYANGCARE__QUEUE__RAFT_TOKEN="demo-secret"; $env:SAYANGCARE__QUEUE__RAFT_NODE_ID="1"; $env:SAYANGCARE__SERVER__PORT="18081"; $env:SAYANGCARE__QUEUE__RAFT_DATA_DIR="$env:TEMP\raft\n1"; cargo run -p sayangcare-api
+```
+
+Leave that terminal running. Then run the checks below in **Terminal 4**. If you killed a different node, change the port in the checks to match.
+
+Wait for `HTTP server bound` (it may recompile first), then in Terminal 4:
 
 ```powershell
 curl.exe -s http://127.0.0.1:18081/api/v1/queue/raft; ""
 curl.exe -s http://127.0.0.1:18081/api/v1/volunteers/volunteer-aisha/cases
 ```
 
-Look out for: it comes back as `Follower` and `last_applied` catches up with the others; Aisha's case is still there.
+Look out for: it comes back as `Follower` with `current_leader` set to the new leader, and `last_applied` / `last_log_index` match the other nodes, higher than before the kill because of the step 7 claim. Aisha's case is still there. It does not take leadership back, because the cluster already has a leader.
 
 ## 9. Verify the database (RAFT-03)
 
@@ -118,7 +146,9 @@ Do not use `-v` unless you want to delete the database.
 ## Troubleshooting
 
 - `role "sayangcare" does not exist`: a stale `DATABASE_URL` points at another Postgres. Run `Remove-Item Env:DATABASE_URL`.
-- Port already in use: an old API is still running. Find it with `Get-NetTCPConnection -LocalPort <port> -State Listen`.
+- Port already in use: an old API is still running. Find it with `Get-NetTCPConnection -LocalPort 18081 -State Listen` (use the port in question).
+- Empty output from `curl.exe -s` on a node's port: that node is not running (for example, you killed it in step 6). Restart it as in step 8.
+- `The '<' operator is reserved for future use`: you pasted a `<placeholder>` literally. Use the `$leaderPid` form shown in step 6.
 - `current_leader` stays `null`: peers can't reach each other. Check all three nodes use the identical `RAFT_PEERS` and `RAFT_TOKEN`.
 - Old state confusing a fresh run: delete `$env:TEMP\raft` before starting the cluster.
 - Single-node, no Raft: skip steps 3–8, run `cargo run -p sayangcare-api` with `SAYANGCARE__QUEUE__BACKEND` unset (Redis) or set to `raft`.
