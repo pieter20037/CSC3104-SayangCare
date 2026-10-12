@@ -16,6 +16,9 @@ pub trait SessionStore: Send + Sync {
     /// Atomic compare-and-swap on version. Used for optimistic concurrency.
     async fn update_cas(&self, session: &Session, expected_version: u64) -> CoreResult<()>;
     async fn delete(&self, id: &SessionId) -> CoreResult<()>;
+    /// Atomically delete only when the stored session version matches.
+    /// Returns false if absent or updated.
+    async fn delete_if_version(&self, id: &SessionId, expected_version: u64) -> CoreResult<bool>;
 }
 
 /// Cold storage: durable transcript + audit log (PostgreSQL).

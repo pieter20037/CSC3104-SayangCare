@@ -3,7 +3,7 @@ use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use redis::sentinel::{Sentinel, SentinelNodeConnectionInfo};
 use redis::AsyncCommands;
 use redis::RedisConnectionInfo;
-use sayangcare_core::domain::{Session, SessionId};
+use sayangcare_core::domain::{Session, SessionId, SessionState};
 use sayangcare_core::ports::SessionStore;
 use sayangcare_core::{CoreError, CoreResult};
 use std::time::Duration;
@@ -60,8 +60,44 @@ impl RedisSessionStore {
         })
     }
 
+    fn is_terminal(state: &SessionState) -> bool {
+        matches!(
+            state,
+            SessionState::Completed
+                | SessionState::Failed
+                | SessionState::Escalated
+                | SessionState::Abandoned
+        )
+    }
+
     fn key(id: &SessionId) -> String {
         format!("session:{}", id.0)
+    }
+
+    /// Atomically delete only the version that was successfully archived.
+    pub async fn delete_if_version(
+        &self,
+        id: &SessionId,
+        expected_version: u64,
+    ) -> CoreResult<bool> {
+        let mut conn = self.client.clone();
+        let script = redis::Script::new(
+            r#"
+            local current = redis.call('GET', KEYS[1])
+            if not current then return 0 end
+            local decoded = cjson.decode(current)
+            if tonumber(decoded.version) ~= tonumber(ARGV[1]) then return 0 end
+            redis.call('DEL', KEYS[1])
+            return 1
+            "#,
+        );
+        let deleted: i32 = script
+            .key(Self::key(id))
+            .arg(expected_version)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| CoreError::Storage(format!("redis version-safe delete: {e}")))?;
+        Ok(deleted == 1)
     }
 
     /// Scan the hot session namespace. SCAN avoids blocking Redis as KEYS would.
@@ -127,7 +163,11 @@ impl SessionStore for RedisSessionStore {
         let script = redis::Script::new(
             r#"
             if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
-            redis.call('SETEX', KEYS[1], ARGV[1], ARGV[2])
+            if ARGV[3] == '1' then
+                redis.call('SET', KEYS[1], ARGV[2])
+            else
+                redis.call('SETEX', KEYS[1], ARGV[1], ARGV[2])
+            end
             return 1
             "#,
         );
@@ -135,6 +175,11 @@ impl SessionStore for RedisSessionStore {
             .key(Self::key(&session.id))
             .arg(self.ttl_secs)
             .arg(json)
+            .arg(if Self::is_terminal(&session.state) {
+                1
+            } else {
+                0
+            })
             .invoke_async(&mut conn)
             .await
             .map_err(|e| CoreError::Storage(format!("redis create: {e}")))?;
@@ -146,10 +191,17 @@ impl SessionStore for RedisSessionStore {
         let mut conn = self.client.clone();
         let json = serde_json::to_string(session)
             .map_err(|e| CoreError::Storage(format!("encode: {e}")))?;
-        let _: () = conn
-            .set_ex(Self::key(&session.id), json, self.ttl_secs)
-            .await
-            .map_err(|e| CoreError::Storage(format!("redis set: {e}")))?;
+        if Self::is_terminal(&session.state) {
+            let _: () = conn
+                .set(Self::key(&session.id), json)
+                .await
+                .map_err(|e| CoreError::Storage(format!("redis set terminal: {e}")))?;
+        } else {
+            let _: () = conn
+                .set_ex(Self::key(&session.id), json, self.ttl_secs)
+                .await
+                .map_err(|e| CoreError::Storage(format!("redis set: {e}")))?;
+        }
         Ok(())
     }
 
@@ -162,7 +214,11 @@ impl SessionStore for RedisSessionStore {
             if not current then return -1 end
             local decoded = cjson.decode(current)
             if tonumber(decoded.version) ~= tonumber(ARGV[1]) then return 0 end
-            redis.call('SETEX', KEYS[1], ARGV[2], ARGV[3])
+            if ARGV[4] == '1' then
+                redis.call('SET', KEYS[1], ARGV[3])
+            else
+                redis.call('SETEX', KEYS[1], ARGV[2], ARGV[3])
+            end
             return 1
             "#,
         );
@@ -174,6 +230,11 @@ impl SessionStore for RedisSessionStore {
             .arg(expected_version)
             .arg(self.ttl_secs)
             .arg(json)
+            .arg(if Self::is_terminal(&session.state) {
+                1
+            } else {
+                0
+            })
             .invoke_async(&mut conn)
             .await
             .map_err(|e| CoreError::Storage(format!("redis cas: {e}")))?;
@@ -186,6 +247,10 @@ impl SessionStore for RedisSessionStore {
             }),
             _ => Err(CoreError::SessionNotFound(session.id.0.clone())),
         }
+    }
+
+    async fn delete_if_version(&self, id: &SessionId, expected_version: u64) -> CoreResult<bool> {
+        RedisSessionStore::delete_if_version(self, id, expected_version).await
     }
 
     async fn delete(&self, id: &SessionId) -> CoreResult<()> {

@@ -25,22 +25,29 @@ impl OrphanedSessionSweeper {
         let mut archived = 0;
 
         for session in sessions {
-            if session.updated_at >= cutoff && session.state != SessionState::Abandoned {
-                continue;
-            }
-            match self
-                .tiered
-                .abandon_if_inactive(&session.id, cutoff)
-                .await
-            {
+            // A terminal session remaining in Redis needs its failed archive retried.
+            // Never reclassify Completed or Failed sessions as Abandoned.
+            let result = match session.state {
+                SessionState::Completed | SessionState::Failed | SessionState::Abandoned => {
+                    self.tiered.recover_terminal(&session.id).await
+                }
+                _ if session.updated_at < cutoff => {
+                    self.tiered.abandon_if_inactive(&session.id, cutoff).await
+                }
+                _ => continue,
+            };
+
+            match result {
                 Ok(true) => archived += 1,
                 Ok(false) => {}
-                Err(error) => warn!(session_id = %session.id, error = %error, "orphaned session sweep failed; session retained for retry"),
+                Err(error) => {
+                    warn!(session_id = %session.id, error = %error, "session recovery/sweep failed; retained for retry");
+                }
             }
         }
 
         if archived > 0 {
-            info!(archived, "orphaned sessions archived");
+            info!(archived, "sessions archived by sweeper/recovery");
         }
         Ok(archived)
     }
