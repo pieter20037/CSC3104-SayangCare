@@ -21,18 +21,27 @@ Look out for: every line says `test result: ok`, and no `FAILED`. One Redis test
 
 ## 3. Start a 3-node Raft cluster
 
-Open **three** PowerShell terminals. Run the block below in each, changing `NODE` (1, 2, 3) each time.
+Open **four** PowerShell terminals in the repo root. Copy each command into its own terminal. Start node 1 first.
+
+**Terminal 1 — Node 1**
 
 ```powershell
-$NODE = 1   # 2 in terminal 2, 3 in terminal 3
-$env:SAYANGCARE__QUEUE__BACKEND   = "raft"
-$env:SAYANGCARE__QUEUE__RAFT_PEERS = "1=http://127.0.0.1:18081,2=http://127.0.0.1:18082,3=http://127.0.0.1:18083"
-$env:SAYANGCARE__QUEUE__RAFT_TOKEN = "demo-secret"
-$env:SAYANGCARE__QUEUE__RAFT_NODE_ID = "$NODE"
-$env:SAYANGCARE__SERVER__PORT = "1808$NODE"
-$env:SAYANGCARE__QUEUE__RAFT_DATA_DIR = "$env:TEMP\raft\n$NODE"
-cargo run -p sayangcare-api
+$env:SAYANGCARE__QUEUE__BACKEND="raft"; $env:SAYANGCARE__QUEUE__RAFT_PEERS="1=http://127.0.0.1:18081,2=http://127.0.0.1:18082,3=http://127.0.0.1:18083"; $env:SAYANGCARE__QUEUE__RAFT_TOKEN="demo-secret"; $env:SAYANGCARE__QUEUE__RAFT_NODE_ID="1"; $env:SAYANGCARE__SERVER__PORT="18081"; $env:SAYANGCARE__QUEUE__RAFT_DATA_DIR="$env:TEMP\raft\n1"; cargo run -p sayangcare-api
 ```
+
+**Terminal 2 — Node 2**
+
+```powershell
+$env:SAYANGCARE__QUEUE__BACKEND="raft"; $env:SAYANGCARE__QUEUE__RAFT_PEERS="1=http://127.0.0.1:18081,2=http://127.0.0.1:18082,3=http://127.0.0.1:18083"; $env:SAYANGCARE__QUEUE__RAFT_TOKEN="demo-secret"; $env:SAYANGCARE__QUEUE__RAFT_NODE_ID="2"; $env:SAYANGCARE__SERVER__PORT="18082"; $env:SAYANGCARE__QUEUE__RAFT_DATA_DIR="$env:TEMP\raft\n2"; cargo run -p sayangcare-api
+```
+
+**Terminal 3 — Node 3**
+
+```powershell
+$env:SAYANGCARE__QUEUE__BACKEND="raft"; $env:SAYANGCARE__QUEUE__RAFT_PEERS="1=http://127.0.0.1:18081,2=http://127.0.0.1:18082,3=http://127.0.0.1:18083"; $env:SAYANGCARE__QUEUE__RAFT_TOKEN="demo-secret"; $env:SAYANGCARE__QUEUE__RAFT_NODE_ID="3"; $env:SAYANGCARE__SERVER__PORT="18083"; $env:SAYANGCARE__QUEUE__RAFT_DATA_DIR="$env:TEMP\raft\n3"; cargo run -p sayangcare-api
+```
+
+**Terminal 4 — leave free for the checks in steps 4–9.**
 
 Look out for: `HTTP server bound` and `Raft priority queue enabled` in each terminal. The first start applies migrations 1–7 automatically.
 
