@@ -52,6 +52,8 @@ pub enum SessionState {
     Escalated,
     /// Call ended cleanly.
     Completed,
+    /// Session exceeded the inactivity window without a clean call termination.
+    Abandoned,
     /// Failed and needs recovery.
     Failed,
 }
@@ -65,16 +67,20 @@ impl SessionState {
             (Initiated, Active)
                 | (Initiated, Completed)
                 | (Initiated, Failed)
+                | (Initiated, Abandoned)
                 | (Active, Degraded)
                 | (Active, Escalated)
                 | (Active, Completed)
                 | (Active, Failed)
+                | (Active, Abandoned)
                 | (Degraded, Active)
                 | (Degraded, Escalated)
                 | (Degraded, Completed)
                 | (Degraded, Failed)
+                | (Degraded, Abandoned)
                 | (Escalated, Completed)
                 | (Escalated, Failed)
+                | (Escalated, Abandoned)
         )
     }
 }

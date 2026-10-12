@@ -152,4 +152,62 @@ impl PriorityQueue for RedisPriorityQueue {
             .map_err(|e| CoreError::Storage(format!("claim session: {e}")))?;
         Ok(claimed == 1)
     }
+
+    async fn list_claimed(&self, volunteer_id: &str) -> CoreResult<Vec<SessionId>> {
+        let mut conn = self.client.clone();
+        let claims: std::collections::HashMap<String, String> = conn
+            .hgetall(&self.claim_prefix)
+            .await
+            .map_err(|e| CoreError::Storage(format!("list claims: {e}")))?;
+        Ok(claims
+            .into_iter()
+            .filter_map(|(session_id, assigned_to)| {
+                (assigned_to == volunteer_id).then_some(SessionId(session_id))
+            })
+            .collect())
+    }
+
+    async fn move_claim(
+        &self,
+        session_id: &SessionId,
+        from_volunteer_id: &str,
+        to_volunteer_id: &str,
+    ) -> CoreResult<bool> {
+        let mut conn = self.client.clone();
+        let script = redis::Script::new(
+            r#"
+            if redis.call('HGET', KEYS[1], ARGV[1]) ~= ARGV[2] then return 0 end
+            redis.call('HSET', KEYS[1], ARGV[1], ARGV[3])
+            return 1
+            "#,
+        );
+        let moved: i32 = script
+            .key(&self.claim_prefix)
+            .arg(&session_id.0)
+            .arg(from_volunteer_id)
+            .arg(to_volunteer_id)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| CoreError::Storage(format!("move claim: {e}")))?;
+        Ok(moved == 1)
+    }
+
+    async fn release_claim(&self, session_id: &SessionId, volunteer_id: &str) -> CoreResult<bool> {
+        let mut conn = self.client.clone();
+        let script = redis::Script::new(
+            r#"
+            if redis.call('HGET', KEYS[1], ARGV[1]) ~= ARGV[2] then return 0 end
+            redis.call('HDEL', KEYS[1], ARGV[1])
+            return 1
+            "#,
+        );
+        let released: i32 = script
+            .key(&self.claim_prefix)
+            .arg(&session_id.0)
+            .arg(volunteer_id)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| CoreError::Storage(format!("release claim: {e}")))?;
+        Ok(released == 1)
+    }
 }

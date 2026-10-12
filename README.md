@@ -51,7 +51,7 @@ SayangCare API (Actix Web) --> Twilio
 	|       |
 	|       +--> hot session state, CAS updates, escalation queue
 	|
-	+--> PostgreSQL --> durable completed sessions and transcripts
+	+--> PostgreSQL --> durable terminal sessions and transcripts
 	|
 	+--> adaptive circuit breaker --> degraded mode / escalation behavior
 ```
@@ -269,6 +269,10 @@ docker compose exec postgres psql -U sayangcare -d sayangcare -c '\dt'
 docker compose exec postgres psql -U sayangcare -d sayangcare \
 	-c 'select version, description, success, installed_on from _sqlx_migrations order by version;'
 
+# Verify an archived call after using End call in the dashboard
+docker compose exec -T postgres psql -U sayangcare -d sayangcare \
+	-c "SELECT id, state, handoff_status, assigned_volunteer_id, is_simulated, risk->'level' AS risk_level, jsonb_array_length(transcript->'turns') AS turns FROM sessions WHERE id = 'SIM-your-session-id';"
+
 # Check the migration CLI state
 unset DATABASE_URL SQLX_DATABASE_URL
 sqlx migrate info --source migrations
@@ -319,7 +323,7 @@ Important settings:
 | `SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN`          | test value locally                     | Twilio credential                                                   |
 | `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8081`                | Public URL used in TwiML actions                                    |
 | `SAYANGCARE__AI__API_KEY`                           | unset                                  | Optional Groq API key; keep it in ignored `.env`                    |
-| `SAYANGCARE__AI__MODEL`                             | `allam-2-7b`                            | Groq-hosted chat model                                              |
+| `SAYANGCARE__AI__MODEL`                             | `openai/gpt-oss-120b`                   | Groq-hosted chat model                                              |
 | `SAYANGCARE__AI__BASE_URL`                          | Groq Chat Completions URL              | OpenAI-compatible chat completions endpoint                         |
 | `SAYANGCARE__AI__TIMEOUT_SECS`                      | `12`                                   | Inference request timeout                                           |
 | `RUST_LOG`                                          | `info,sayangcare=debug,actix_web=info` | Log filter                                                          |
@@ -403,9 +407,9 @@ For the browser-based Call Lab, start the API and open `http://localhost:<api-po
 
 ### Call Lab simulator
 
-The **Simulate crisis call** action creates a `SIM-...` session, records a low-risk opening turn followed by the escalation statement entered in the form, and leaves an escalated case pending in the volunteer queue. With a Groq key configured, non-crisis turns receive a generated supportive reply; high-risk turns use the deterministic safety response and local heuristic classification. Without a key, all turns use deterministic fallback replies. These are test transcripts, not microphone or phone audio.
+The SID refresh control generates a new `SIM-...` ID. **Start call** creates a session with that ID in Redis; **Record turn** stores the caller and assistant turns there. The ID stays the same for the whole call. **End call** archives the session to PostgreSQL and removes its Redis copy only after the archive succeeds. If the call was escalated, its final state remains `escalated` when archived. With a Groq key configured, non-crisis turns receive a generated supportive reply; high-risk turns use the deterministic safety response and local heuristic classification. Without a key, turns use deterministic fallback replies. These are test transcripts, not microphone or phone audio.
 
-The queue's row-level **Claim** action claims that specific session for Aisha by default. A roster **Claim as <name>** action claims the highest-priority pending session for that volunteer. The default on-shift roster includes Aisha and Noor; Ibrahim is off shift. A claimed case appears under the volunteer's assigned cases. **Transfer** moves an assigned case to another on-shift volunteer (selected automatically); **Resolve** closes the volunteer handoff; **Acknowledge** records operator review. Simulated calls update SayangCare state only and never redirect a real phone call.
+Select an on-shift volunteer in **Working as** (Aisha is selected by default; Noor is also on shift; Ibrahim is off shift). A queue row's **Claim** action assigns that specific session to the selected volunteer. **Claim next** assigns the highest-priority pending session to that volunteer. The assignment appears under **Assigned cases** and in the session record. **View case details** loads the session and transcript. **Transfer** moves an assigned case to another on-shift volunteer (selected automatically); **Resolve** closes the volunteer handoff; **Acknowledge** records operator review. Simulated calls update SayangCare state only and never redirect a real phone call.
 
 The dashboard is a responsive operator/test workspace with the call form, pending queue, session transcript, roster, assignments, alerts, and request details. If several local API copies are running, open the URL for the copy built from the latest source and confirm its port in that process's startup log.
 
@@ -433,7 +437,7 @@ Complete a call:
 curl -X POST http://localhost:8081/api/v1/calls/CA-demo-001/hangup
 ```
 
-Turn batches increment the session version once and persist through Redis Lua compare-and-swap. Concurrent updates with a stale version return `409 Conflict`. Completion also uses CAS before archiving the full session to PostgreSQL; Redis state is deleted only after the durable archive succeeds. On a cache miss, nonterminal archived sessions are restored to Redis only if no concurrent request has already recreated them.
+Turn batches increment the session version once and persist through Redis Lua compare-and-swap. Concurrent updates with a stale version return `409 Conflict`. Ending a call uses CAS before archiving the full session to PostgreSQL; Redis state is deleted only after the durable archive succeeds. An escalated call retains its `escalated` state when ended. On a cache miss, archived sessions are restored to Redis only if no concurrent request has already recreated them.
 
 ### Volunteer queue
 
@@ -451,7 +455,7 @@ Claim the highest-priority queued session for a volunteer:
 ```bash
 curl -X POST http://localhost:8081/api/v1/volunteers/claim \
 	-H 'content-type: application/json' \
-	-d '{"volunteer_id":"volunteer-001"}'
+	-d '{"volunteer_id":"volunteer-aisha"}'
 ```
 
 To claim one particular pending session, include its ID:
@@ -506,11 +510,11 @@ Entries have a one-hour TTL. Updates use a Lua compare-and-swap operation based 
 
 ### Cold archive
 
-`PostgresArchiveStore` upserts completed sessions into `sessions`. It stores the transcript and risk assessment as JSONB and preserves timestamps and the monotonic version.
+`PostgresArchiveStore` upserts terminal sessions (`completed`, `escalated`, or `failed`) into `sessions`. It stores the transcript and risk assessment as JSONB, preserves timestamps, the monotonic version, handoff and volunteer assignment fields, and the simulated-call flag.
 
 ### Tiered storage
 
-`TieredSessionStore` reads Redis first, restores full nonterminal sessions from PostgreSQL on a cache miss, and archives completed sessions before deleting Redis state. Redis CAS and create-if-absent scripts serialize conflicting operations across API pods; process-local locks would not provide that guarantee.
+`TieredSessionStore` reads Redis first, restores archived sessions from PostgreSQL on a cache miss, and archives terminal sessions before deleting Redis state. Redis CAS and create-if-absent scripts serialize conflicting operations across API pods; process-local locks would not provide that guarantee.
 
 ### Circuit breaker
 
