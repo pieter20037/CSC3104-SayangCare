@@ -334,12 +334,14 @@ To enable Groq locally, put your Groq key in the ignored `.env` file as `SAYANGC
 
 ## Database and Migrations
 
-The migration in `migrations/0001_init.sql` creates:
+The initial migration in `migrations/0001_init.sql` creates:
 
 - `sessions`: durable session state and transcripts
 - `volunteers`: volunteer registry
 - `escalations`: auditable session-to-volunteer assignments
 - Indexes for caller, creation time, state, and open escalations
+
+Later migrations: `0002` session recovery fields, `0003` volunteer handoff fields, `0004` simulated-session flag, `0005` volunteer assignments (one active owner per session), `0006` assignment history and reclaims, `0007` allow hot-session assignments. Never edit an applied migration; add a new one.
 
 The API also runs embedded migrations during startup with `sqlx::migrate!`, so a running API expects the database to be reachable and migration-compatible.
 
@@ -466,7 +468,45 @@ curl -X POST http://localhost:8081/api/v1/volunteers/claim \
 	-d '{"volunteer_id":"volunteer-aisha","session_id":"SIM-demo-001"}'
 ```
 
-The Redis sorted set prioritizes higher risk first and earlier enqueue times first within the same risk level. Claims use atomic Redis operations to remove and record an item. Durable PostgreSQL volunteer bindings now arbitrate claim, transfer, and resolve operations across API replicas; migration `0004_volunteer_assignments.sql` records the owner, risk, status, and timestamps. Simulated sessions are assigned without calling Twilio. For a live session, the current telephony adapter attempts to redirect its existing Twilio call to the volunteer; that requires an active Twilio Call SID and a configured real recipient number.
+The Redis sorted set prioritizes higher risk first and earlier enqueue times first within the same risk level. Claims use atomic Redis operations to remove and record an item. Durable PostgreSQL volunteer bindings arbitrate claim, transfer, and resolve operations across API replicas; migrations `0005` and `0006` retain assignment history while enforcing one active owner per session. Simulated sessions are assigned without calling Twilio. For a live session, the current telephony adapter attempts to redirect its existing Twilio call to the volunteer; that requires an active Twilio Call SID and a configured real recipient number.
+
+## Raft Volunteer Queue (RAFT-01/02/03)
+
+The volunteer priority queue sits behind the `PriorityQueue` trait with two backends:
+
+| Backend          | Select with                       | Notes                                                           |
+| ---------------- | --------------------------------- | --------------------------------------------------------------- |
+| Redis (default)  | `SAYANGCARE__QUEUE__BACKEND=redis` | One shared Redis sorted set; no setup beyond Redis.             |
+| Raft (OpenRaft)  | `SAYANGCARE__QUEUE__BACKEND=raft`  | Queue replicated across API nodes via a Raft log; survives leader loss. |
+
+- **RAFT-01 (consensus engine):** `crates/priority-queue` contains the deterministic state machine (`raft_state.rs`), snapshot/persistent storage (`raft_storage.rs`), and HTTP peer transport, bootstrap, and follower-to-leader write forwarding (`raft_node.rs`). Peers talk over `/internal/raft/{append,vote,snapshot,write}`, protected by the `x-raft-token` shared secret.
+- **RAFT-02 (high-risk triage):** calls scored 4–5 are enqueued on the active backend, ordered by risk, then FIFO, then session ID.
+- **RAFT-03 (relational bindings):** claims, transfers, and resolves are recorded in PostgreSQL (migrations `0005`–`0007`), with a partial unique index guaranteeing one active owner per session and retaining history.
+
+Raft settings (environment variables, nested with `__`):
+
+| Variable                         | Meaning                                                                    |
+| -------------------------------- | -------------------------------------------------------------------------- |
+| `SAYANGCARE__QUEUE__BACKEND`     | `redis` (default) or `raft`                                                |
+| `SAYANGCARE__QUEUE__RAFT_NODE_ID`| This node's ID (default `1`)                                               |
+| `SAYANGCARE__QUEUE__RAFT_PEERS`  | `1=http://host-a:8081,2=http://host-b:8081,...`; empty = single-node cluster |
+| `SAYANGCARE__QUEUE__RAFT_TOKEN`  | Shared secret for peer requests (set it for any multi-node deployment)     |
+| `SAYANGCARE__QUEUE__RAFT_DATA_DIR`| Directory for persisted Raft state; in-memory when unset                  |
+
+Single node (no peers needed):
+
+```powershell
+$env:SAYANGCARE__QUEUE__BACKEND = "raft"
+cargo run -p sayangcare-api
+```
+
+Check a node's role with `GET /api/v1/queue/raft`. The lowest node ID bootstraps the cluster automatically. A three-node walkthrough (start nodes, escalate a call through a follower, kill the leader, claim after failover) is in [PHASE_1_TEST_GUIDE.md](PHASE_1_TEST_GUIDE.md). Run the automated Raft tests with:
+
+```bash
+cargo test -p sayangcare-priority-queue raft
+```
+
+Limitations: membership is fixed at startup, reads come from the local node's applied state, and `/internal/raft/*` should not be exposed publicly (use the token and network policy).
 
 ## Twilio Webhook Flow
 
@@ -690,12 +730,12 @@ The intended local arrangement keeps host PostgreSQL on `5432` or `5433` and pub
 
 ## Known Limitations
 
-- The OpenRaft queue command model and a three-node in-memory election/replication/failover test are implemented. `AppState` still uses `RedisPriorityQueue`; production peer transport, persistent Raft storage, cluster membership/bootstrap, leader forwarding, and API runtime integration remain before claiming a Raft-backed HA queue.
+- The Raft queue backend is opt-in (`SAYANGCARE__QUEUE__BACKEND=raft`); Redis remains the default. Raft cluster membership is static, there is no Kubernetes StatefulSet/headless-service manifest for it yet (Phase 4), and Raft state is only persisted when `RAFT_DATA_DIR` is set.
 - CB-01 sliding-window metrics are merged and tested; CB-02 closed/open/half-open recovery transitions and request permits remain on the remote `phase3-circuitbreaker` branch until merged.
 - Groq Chat Completions is the configured inference provider for supportive non-crisis replies. The Groq API key must be configured outside source control. Risk classification remains heuristic and local; high-risk turns bypass the model.
 - Twilio request-signature verification (`X-Twilio-Signature`) is not implemented.
 - The telephony adapter updates an existing call for redirects; outbound volunteer dispatch using `POST /Calls.json` and a dedicated outbound-connect TwiML route are not implemented.
-- Volunteer roster, assigned-case mapping, and operator alerts are currently process-local application state, not durable relational bindings shared across API replicas.
+- Volunteer roster and operator alerts are currently process-local application state. Assignment ownership/history is stored in PostgreSQL and is shared across API replicas.
 - The status callback route exists, but the incoming-call TwiML does not currently configure Twilio to invoke it.
 - The dashboard simulator tests transcript-based application behavior only; it does not test live microphone audio, Twilio speech recognition, or real phone handoff.
 - `/api/v1/ready` does not verify PostgreSQL or Redis connectivity.

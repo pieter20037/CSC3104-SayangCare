@@ -83,6 +83,7 @@ async fn main() -> anyhow::Result<()> {
                     .route("/health", web::get().to(handlers::health::health))
                     .route("/ready", web::get().to(handlers::health::ready))
                     .route("/metrics", web::get().to(handlers::health::metrics))
+                    .route("/queue/raft", web::get().to(handlers::raft::status))
                     .route("/calls/incoming", web::post().to(handlers::calls::incoming))
                     .route("/calls/{sid}", web::get().to(handlers::calls::get_session))
                     .route("/calls/{sid}/turn", web::post().to(handlers::calls::turn))
@@ -126,6 +127,15 @@ async fn main() -> anyhow::Result<()> {
                         "/operator/alerts",
                         web::get().to(handlers::volunteers::list_alerts),
                     ),
+            )
+            // Raft peer-to-peer traffic (token-protected; snapshots can exceed the default limit).
+            .service(
+                web::scope("/internal/raft")
+                    .app_data(web::JsonConfig::default().limit(16 * 1024 * 1024))
+                    .route("/append", web::post().to(handlers::raft::append))
+                    .route("/vote", web::post().to(handlers::raft::vote))
+                    .route("/snapshot", web::post().to(handlers::raft::snapshot))
+                    .route("/write", web::post().to(handlers::raft::write)),
             )
             // Twilio-facing webhook scope (returns TwiML, not JSON).
             .service(

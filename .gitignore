@@ -68,3 +68,5 @@ criterion/
 k8s/secrets.yaml
 k8s/*-secret.yaml
 kubeconfig
+# Local Raft node state
+data/

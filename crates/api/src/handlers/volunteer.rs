@@ -107,8 +107,15 @@ pub async fn list_assigned(
     volunteer_id: web::Path<String>,
 ) -> impl Responder {
     let volunteer_id = volunteer_id.into_inner();
-    let session_ids = match state.queue.list_claimed(&volunteer_id).await {
-        Ok(session_ids) => session_ids,
+    let session_ids = match state
+        .volunteer_bindings
+        .list_active_for_volunteer(&volunteer_id)
+        .await
+    {
+        Ok(session_ids) => session_ids
+            .into_iter()
+            .map(sayangcare_core::domain::SessionId)
+            .collect::<Vec<_>>(),
         Err(error) => {
             tracing::error!(error = %error, volunteer_id = %volunteer_id, "assigned case listing failed");
             return HttpResponse::InternalServerError().finish();
@@ -257,17 +264,6 @@ pub async fn claim(
                 }));
             }
 
-            {
-                let mut assigned_cases = state
-                    .assigned_cases
-                    .write()
-                    .expect("assigned cases lock poisoned");
-                let entries = assigned_cases.entry(body.volunteer_id.clone()).or_default();
-                if !entries.iter().any(|case_id| case_id == &sid.0) {
-                    entries.push(sid.0.clone());
-                }
-            }
-
             if assigned_session.is_simulated || sid.0.starts_with("SIM-") || body.simulate {
                 state.record_alert(
                     "assigned",
@@ -360,19 +356,7 @@ pub async fn resolve_case(
         .await
     {
         tracing::warn!(error = %error, session_id = %sid, volunteer_id = %volunteer_id, "failed to resolve durable volunteer binding");
-    }
-
-    {
-        let mut assigned_cases = state
-            .assigned_cases
-            .write()
-            .expect("assigned cases lock poisoned");
-        if let Some(cases) = assigned_cases.get_mut(&volunteer_id) {
-            cases.retain(|case_id| case_id != &session_id);
-            if cases.is_empty() {
-                assigned_cases.remove(&volunteer_id);
-            }
-        }
+        return HttpResponse::InternalServerError().finish();
     }
 
     if let Err(error) = state.queue.release_claim(&sid, &volunteer_id).await {
@@ -494,16 +478,22 @@ pub async fn transfer_case(
         }
     }
 
-    if !state
+    let binding_transferred = match state
         .volunteer_bindings
         .transfer(&session_id, &volunteer_id, &next_volunteer.id)
         .await
-        .map_err(|error| {
-            tracing::error!(error = %error, session_id = %sid, "failed to transfer durable volunteer binding");
-            error
-        })
-        .unwrap_or(false)
     {
+        Ok(transferred) => transferred,
+        Err(error) => {
+            tracing::error!(error = %error, session_id = %sid, "failed to transfer durable volunteer binding");
+            let _ = state
+                .queue
+                .move_claim(&sid, &next_volunteer.id, &volunteer_id)
+                .await;
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
+    if !binding_transferred {
         let _ = state
             .queue
             .move_claim(&sid, &next_volunteer.id, &volunteer_id)
@@ -525,23 +515,6 @@ pub async fn transfer_case(
             .transfer(&session_id, &next_volunteer.id, &volunteer_id)
             .await;
         return HttpResponse::Conflict().finish();
-    }
-
-    {
-        let mut assigned_cases = state
-            .assigned_cases
-            .write()
-            .expect("assigned cases lock poisoned");
-        if let Some(cases) = assigned_cases.get_mut(&volunteer_id) {
-            cases.retain(|case_id| case_id != &session_id);
-            if cases.is_empty() {
-                assigned_cases.remove(&volunteer_id);
-            }
-        }
-        assigned_cases
-            .entry(next_volunteer.id.clone())
-            .or_default()
-            .push(session_id.clone());
     }
 
     state.record_alert(

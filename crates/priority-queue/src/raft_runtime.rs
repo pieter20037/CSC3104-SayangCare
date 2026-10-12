@@ -1,190 +1,24 @@
-#![cfg(test)]
-
-use super::raft_state::{RaftQueueCommand, RaftQueueOutcome, RaftQueueState, RaftQueueTypeConfig};
-use openraft::error::{RPCError, RaftError};
+use super::raft_node::{QueueRaft, RaftPriorityQueue, RaftQueueNode, RaftQueueSettings};
+use super::raft_state::{RaftQueueCommand, RaftQueueOutcome, RaftQueueTypeConfig};
+use super::raft_storage::QueueStorage;
+use openraft::error::{InstallSnapshotError, RPCError, RaftError, Unreachable};
 use openraft::network::{RPCOption, RaftNetwork, RaftNetworkFactory};
 use openraft::raft::{
     AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
     VoteRequest, VoteResponse,
 };
-use openraft::storage::{RaftLogReader, RaftSnapshotBuilder, RaftStorage};
-use openraft::{
-    BasicNode, Config, Entry, EntryPayload, LogId, LogState, OptionalSend, Raft, Snapshot,
-    SnapshotMeta, StorageError, StorageIOError, StoredMembership, Vote,
-};
-use std::collections::{BTreeMap, HashMap};
-use std::fmt::Debug;
-use std::io::Cursor;
-use std::ops::RangeBounds;
+use openraft::{BasicNode, Config, Raft};
+use sayangcare_core::domain::SessionId;
+use sayangcare_core::ports::PriorityQueue;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
-
-#[derive(Clone, Default)]
-struct QueueStorage {
-    vote: Arc<RwLock<Option<Vote<u64>>>>,
-    log: Arc<RwLock<BTreeMap<u64, Entry<RaftQueueTypeConfig>>>>,
-    applied: Arc<RwLock<Option<LogId<u64>>>>,
-    membership: Arc<RwLock<StoredMembership<u64, BasicNode>>>,
-    state: Arc<RwLock<RaftQueueState>>,
-}
-
-fn storage_error<E: std::error::Error + 'static>(error: E) -> StorageError<u64> {
-    StorageIOError::read_state_machine(&error).into()
-}
-
-impl RaftLogReader<RaftQueueTypeConfig> for Arc<QueueStorage> {
-    async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + OptionalSend>(
-        &mut self,
-        range: RB,
-    ) -> Result<Vec<Entry<RaftQueueTypeConfig>>, StorageError<u64>> {
-        let log = self.log.read().await;
-        Ok(log.range(range).map(|(_, entry)| entry.clone()).collect())
-    }
-}
-
-struct SnapshotBuilder;
-
-impl RaftSnapshotBuilder<RaftQueueTypeConfig> for SnapshotBuilder {
-    async fn build_snapshot(&mut self) -> Result<Snapshot<RaftQueueTypeConfig>, StorageError<u64>> {
-        Err(storage_error(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "snapshots are not used in the in-memory test cluster",
-        )))
-    }
-}
-
-impl RaftStorage<RaftQueueTypeConfig> for Arc<QueueStorage> {
-    type LogReader = Self;
-    type SnapshotBuilder = SnapshotBuilder;
-
-    async fn save_vote(&mut self, vote: &Vote<u64>) -> Result<(), StorageError<u64>> {
-        *self.vote.write().await = Some(vote.clone());
-        Ok(())
-    }
-
-    async fn read_vote(&mut self) -> Result<Option<Vote<u64>>, StorageError<u64>> {
-        Ok(self.vote.read().await.clone())
-    }
-
-    async fn get_log_state(&mut self) -> Result<LogState<RaftQueueTypeConfig>, StorageError<u64>> {
-        let log = self.log.read().await;
-        Ok(LogState {
-            last_purged_log_id: None,
-            last_log_id: log.values().last().map(|entry| entry.log_id),
-        })
-    }
-
-    async fn get_log_reader(&mut self) -> Self::LogReader {
-        self.clone()
-    }
-
-    async fn append_to_log<I>(&mut self, entries: I) -> Result<(), StorageError<u64>>
-    where
-        I: IntoIterator<Item = Entry<RaftQueueTypeConfig>> + OptionalSend,
-    {
-        let mut log = self.log.write().await;
-        for entry in entries {
-            log.insert(entry.log_id.index, entry);
-        }
-        Ok(())
-    }
-
-    async fn delete_conflict_logs_since(
-        &mut self,
-        log_id: LogId<u64>,
-    ) -> Result<(), StorageError<u64>> {
-        self.log
-            .write()
-            .await
-            .retain(|index, _| *index < log_id.index);
-        Ok(())
-    }
-
-    async fn purge_logs_upto(&mut self, log_id: LogId<u64>) -> Result<(), StorageError<u64>> {
-        self.log
-            .write()
-            .await
-            .retain(|index, _| *index > log_id.index);
-        Ok(())
-    }
-
-    async fn last_applied_state(
-        &mut self,
-    ) -> Result<(Option<LogId<u64>>, StoredMembership<u64, BasicNode>), StorageError<u64>> {
-        Ok((
-            self.applied.read().await.clone(),
-            self.membership.read().await.clone(),
-        ))
-    }
-
-    async fn apply_to_state_machine(
-        &mut self,
-        entries: &[Entry<RaftQueueTypeConfig>],
-    ) -> Result<Vec<RaftQueueOutcome>, StorageError<u64>> {
-        let mut results = Vec::with_capacity(entries.len());
-        for entry in entries {
-            let result = match &entry.payload {
-                EntryPayload::Blank => RaftQueueOutcome::Claimed { session_id: None },
-                EntryPayload::Normal(command) => self.state.write().await.apply(command.clone()),
-                EntryPayload::Membership(membership) => {
-                    *self.membership.write().await =
-                        StoredMembership::new(Some(entry.log_id), membership.clone());
-                    RaftQueueOutcome::Claimed { session_id: None }
-                }
-            };
-            *self.applied.write().await = Some(entry.log_id);
-            results.push(result);
-        }
-        Ok(results)
-    }
-
-    async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
-        SnapshotBuilder
-    }
-
-    async fn begin_receiving_snapshot(
-        &mut self,
-    ) -> Result<Box<Cursor<Vec<u8>>>, StorageError<u64>> {
-        Ok(Box::new(Cursor::new(Vec::new())))
-    }
-
-    async fn install_snapshot(
-        &mut self,
-        _meta: &SnapshotMeta<u64, BasicNode>,
-        _snapshot: Box<Cursor<Vec<u8>>>,
-    ) -> Result<(), StorageError<u64>> {
-        Ok(())
-    }
-
-    async fn get_current_snapshot(
-        &mut self,
-    ) -> Result<Option<Snapshot<RaftQueueTypeConfig>>, StorageError<u64>> {
-        Ok(None)
-    }
-}
-
-type QueueRaft = Raft<RaftQueueTypeConfig>;
 
 #[derive(Clone, Default)]
 struct NetworkRegistry {
     nodes: Arc<Mutex<HashMap<u64, QueueRaft>>>,
-    active: Arc<Mutex<std::collections::HashSet<u64>>>,
-}
-
-impl NetworkRegistry {
-    fn for_node(&self, source: u64) -> NodeNetworkFactory {
-        NodeNetworkFactory {
-            registry: self.clone(),
-            source,
-        }
-    }
-}
-
-#[derive(Clone)]
-struct NodeNetworkFactory {
-    registry: NetworkRegistry,
-    source: u64,
+    active: Arc<Mutex<HashSet<u64>>>,
 }
 
 #[derive(Clone)]
@@ -194,7 +28,37 @@ struct InMemoryNetwork {
     target: u64,
 }
 
-impl RaftNetworkFactory<RaftQueueTypeConfig> for NodeNetworkFactory {
+impl InMemoryNetwork {
+    async fn target<E: std::error::Error>(
+        &self,
+    ) -> Result<QueueRaft, RPCError<u64, BasicNode, RaftError<u64, E>>> {
+        let unreachable = |reason: &str| {
+            RPCError::Unreachable(Unreachable::new(&std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                reason.to_string(),
+            )))
+        };
+        let active = self.registry.active.lock().await;
+        if !active.contains(&self.source) || !active.contains(&self.target) {
+            return Err(unreachable("node unavailable"));
+        }
+        drop(active);
+        self.registry
+            .nodes
+            .lock()
+            .await
+            .get(&self.target)
+            .cloned()
+            .ok_or_else(|| unreachable("target missing"))
+    }
+}
+
+struct Factory {
+    registry: NetworkRegistry,
+    source: u64,
+}
+
+impl RaftNetworkFactory<RaftQueueTypeConfig> for Factory {
     type Network = InMemoryNetwork;
 
     async fn new_client(&mut self, target: u64, _node: &BasicNode) -> Self::Network {
@@ -212,26 +76,11 @@ impl RaftNetwork<RaftQueueTypeConfig> for InMemoryNetwork {
         rpc: AppendEntriesRequest<RaftQueueTypeConfig>,
         _option: RPCOption,
     ) -> Result<AppendEntriesResponse<u64>, RPCError<u64, BasicNode, RaftError<u64>>> {
-        let active = self.registry.active.lock().await;
-        if !active.contains(&self.source) || !active.contains(&self.target) {
-            return Err(RPCError::Unreachable(openraft::error::Unreachable::new(
-                &std::io::Error::new(std::io::ErrorKind::NotConnected, "node unavailable"),
-            )));
-        }
-        drop(active);
-        let target = self.registry.nodes.lock().await.get(&self.target).cloned();
-        target
-            .ok_or_else(|| {
-                RPCError::Unreachable(openraft::error::Unreachable::new(&std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "target missing",
-                )))
-            })?
+        self.target()
+            .await?
             .append_entries(rpc)
             .await
-            .map_err(|error| {
-                RPCError::RemoteError(openraft::error::RemoteError::new(self.target, error))
-            })
+            .map_err(|e| RPCError::RemoteError(openraft::error::RemoteError::new(self.target, e)))
     }
 
     async fn install_snapshot(
@@ -240,28 +89,13 @@ impl RaftNetwork<RaftQueueTypeConfig> for InMemoryNetwork {
         _option: RPCOption,
     ) -> Result<
         InstallSnapshotResponse<u64>,
-        RPCError<u64, BasicNode, RaftError<u64, openraft::error::InstallSnapshotError>>,
+        RPCError<u64, BasicNode, RaftError<u64, InstallSnapshotError>>,
     > {
-        let active = self.registry.active.lock().await;
-        if !active.contains(&self.source) || !active.contains(&self.target) {
-            return Err(RPCError::Unreachable(openraft::error::Unreachable::new(
-                &std::io::Error::new(std::io::ErrorKind::NotConnected, "node unavailable"),
-            )));
-        }
-        drop(active);
-        let target = self.registry.nodes.lock().await.get(&self.target).cloned();
-        target
-            .ok_or_else(|| {
-                RPCError::Unreachable(openraft::error::Unreachable::new(&std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "target missing",
-                )))
-            })?
+        self.target()
+            .await?
             .install_snapshot(rpc)
             .await
-            .map_err(|error| {
-                RPCError::RemoteError(openraft::error::RemoteError::new(self.target, error))
-            })
+            .map_err(|e| RPCError::RemoteError(openraft::error::RemoteError::new(self.target, e)))
     }
 
     async fn vote(
@@ -269,31 +103,16 @@ impl RaftNetwork<RaftQueueTypeConfig> for InMemoryNetwork {
         rpc: VoteRequest<u64>,
         _option: RPCOption,
     ) -> Result<VoteResponse<u64>, RPCError<u64, BasicNode, RaftError<u64>>> {
-        let active = self.registry.active.lock().await;
-        if !active.contains(&self.source) || !active.contains(&self.target) {
-            return Err(RPCError::Unreachable(openraft::error::Unreachable::new(
-                &std::io::Error::new(std::io::ErrorKind::NotConnected, "node unavailable"),
-            )));
-        }
-        drop(active);
-        let target = self.registry.nodes.lock().await.get(&self.target).cloned();
-        target
-            .ok_or_else(|| {
-                RPCError::Unreachable(openraft::error::Unreachable::new(&std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "target missing",
-                )))
-            })?
+        self.target()
+            .await?
             .vote(rpc)
             .await
-            .map_err(|error| {
-                RPCError::RemoteError(openraft::error::RemoteError::new(self.target, error))
-            })
+            .map_err(|e| RPCError::RemoteError(openraft::error::RemoteError::new(self.target, e)))
     }
 }
 
 async fn new_node(id: u64, registry: NetworkRegistry) -> (QueueRaft, Arc<QueueStorage>) {
-    let storage = Arc::new(QueueStorage::default());
+    let storage = QueueStorage::open(None).unwrap();
     let (log_store, state_machine) = openraft::storage::Adaptor::new(storage.clone());
     let config = Arc::new(
         Config {
@@ -305,10 +124,28 @@ async fn new_node(id: u64, registry: NetworkRegistry) -> (QueueRaft, Arc<QueueSt
         .validate()
         .unwrap(),
     );
-    let raft = Raft::new(id, config, registry.for_node(id), log_store, state_machine)
+    let factory = Factory {
+        registry,
+        source: id,
+    };
+    let raft = Raft::new(id, config, factory, log_store, state_machine)
         .await
         .unwrap();
     (raft, storage)
+}
+
+async fn wait_for_leader(nodes: &[&QueueRaft], allowed: &[u64]) -> u64 {
+    for _ in 0..60 {
+        for node in nodes {
+            if let Some(leader) = node.current_leader().await {
+                if allowed.contains(&leader) {
+                    return leader;
+                }
+            }
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
+    panic!("no leader elected among {allowed:?}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -330,12 +167,11 @@ async fn three_node_queue_replicates_and_survives_leader_loss() {
         (3, BasicNode::new("node-3")),
     ]);
     node1.initialize(members).await.unwrap();
-    sleep(Duration::from_millis(700)).await;
-    assert_eq!(node1.current_leader().await, Some(1));
+    assert_eq!(wait_for_leader(&[&node1], &[1]).await, 1);
 
     let enqueue = RaftQueueCommand::Enqueue {
         request_id: "enqueue-1".to_string(),
-        session_id: sayangcare_core::domain::SessionId("SIM-raft-1".to_string()),
+        session_id: SessionId("SIM-raft-1".to_string()),
         risk: 5,
         enqueued_at: chrono::Utc::now(),
     };
@@ -344,42 +180,96 @@ async fn three_node_queue_replicates_and_survives_leader_loss() {
         .await
         .unwrap();
     sleep(Duration::from_millis(250)).await;
-    assert_eq!(
-        state1.state.read().await.peek_highest(),
-        state2.state.read().await.peek_highest()
-    );
-    assert_eq!(
-        state2.state.read().await.peek_highest(),
-        state3.state.read().await.peek_highest()
-    );
+    for state in [&state1, &state2, &state3] {
+        assert_eq!(
+            state.inner.read().await.state.peek_highest(),
+            Some(SessionId("SIM-raft-1".to_string()))
+        );
+    }
 
     registry.active.lock().await.remove(&1);
-    let mut new_leader = None;
-    for _ in 0..40 {
-        new_leader = node2
-            .current_leader()
-            .await
-            .or(node3.current_leader().await);
-        if matches!(new_leader, Some(2) | Some(3)) {
-            break;
-        }
-        sleep(Duration::from_millis(100)).await;
-    }
-    assert!(matches!(new_leader, Some(2) | Some(3)));
-
-    let leader = if node2.current_leader().await == Some(2) {
-        node2
-    } else {
-        node3
-    };
-    leader
+    let new_leader = wait_for_leader(&[&node2, &node3], &[2, 3]).await;
+    let leader = if new_leader == 2 { &node2 } else { &node3 };
+    let claim = leader
         .client_write::<tokio::sync::oneshot::error::RecvError>(RaftQueueCommand::ClaimHighest {
             request_id: "claim-1".to_string(),
             volunteer_id: "volunteer-aisha".to_string(),
         })
         .await
         .unwrap();
+    assert_eq!(
+        claim.data,
+        RaftQueueOutcome::Claimed {
+            session_id: Some(SessionId("SIM-raft-1".to_string()))
+        }
+    );
     sleep(Duration::from_millis(250)).await;
-    assert_eq!(state2.state.read().await.peek_highest(), None);
-    assert_eq!(state3.state.read().await.peek_highest(), None);
+    assert_eq!(state2.inner.read().await.state.peek_highest(), None);
+    assert_eq!(state3.inner.read().await.state.peek_highest(), None);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn single_node_raft_queue_implements_full_priority_queue_contract() {
+    let node = RaftQueueNode::start(RaftQueueSettings {
+        node_id: 1,
+        peers: BTreeMap::new(),
+        data_file: None,
+        token: None,
+    })
+    .await
+    .unwrap();
+    node.bootstrap_if_needed().await.unwrap();
+    let queue = RaftPriorityQueue::new(node);
+    let now = chrono::Utc::now();
+    let id = |value: &str| SessionId(value.to_string());
+
+    queue.enqueue(id("low"), 4, now).await.unwrap();
+    queue.enqueue(id("high"), 5, now).await.unwrap();
+    assert_eq!(
+        queue.list_pending().await.unwrap(),
+        vec![id("high"), id("low")]
+    );
+    assert_eq!(queue.peek_highest().await.unwrap(), Some(id("high")));
+
+    assert!(queue.claim_session(&id("low"), "aisha").await.unwrap());
+    assert!(!queue.claim_session(&id("low"), "noor").await.unwrap());
+    assert_eq!(queue.claim("noor").await.unwrap(), Some(id("high")));
+    assert_eq!(queue.claim("noor").await.unwrap(), None);
+    assert_eq!(queue.list_claimed("aisha").await.unwrap(), vec![id("low")]);
+
+    assert!(queue.move_claim(&id("low"), "aisha", "noor").await.unwrap());
+    assert!(!queue.release_claim(&id("low"), "aisha").await.unwrap());
+    assert!(queue.release_claim(&id("low"), "noor").await.unwrap());
+    queue.enqueue(id("low"), 4, now).await.unwrap();
+    assert_eq!(queue.peek_highest().await.unwrap(), Some(id("low")));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn raft_state_survives_node_restart() {
+    let path = std::env::temp_dir().join(format!("raft-restart-{}.json", uuid::Uuid::new_v4()));
+    let settings = RaftQueueSettings {
+        node_id: 1,
+        peers: BTreeMap::new(),
+        data_file: Some(path.clone()),
+        token: None,
+    };
+    {
+        let node = RaftQueueNode::start(settings.clone()).await.unwrap();
+        node.bootstrap_if_needed().await.unwrap();
+        let queue = RaftPriorityQueue::new(node.clone());
+        queue
+            .enqueue(SessionId("durable".to_string()), 5, chrono::Utc::now())
+            .await
+            .unwrap();
+        node.raft().shutdown().await.unwrap();
+    }
+
+    let node = RaftQueueNode::start(settings).await.unwrap();
+    node.bootstrap_if_needed().await.unwrap();
+    let queue = RaftPriorityQueue::new(node);
+    assert_eq!(
+        queue.peek_highest().await.unwrap(),
+        Some(SessionId("durable".to_string()))
+    );
+    let _ = std::fs::remove_file(path);
 }

@@ -2707,6 +2707,7 @@ dependencies = [
  "config",
  "dotenvy",
  "futures",
+ "openraft",
  "redis",
  "reqwest",
  "sayangcare-circuit-breaker",
@@ -2760,10 +2761,13 @@ dependencies = [
  "chrono",
  "openraft",
  "redis",
+ "reqwest",
  "sayangcare-core",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

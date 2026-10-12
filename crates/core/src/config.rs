@@ -9,6 +9,34 @@ pub struct AppConfig {
     pub telephony: TelephonyConfig,
     #[serde(default)]
     pub ai: AiConfig,
+    #[serde(default)]
+    pub queue: QueueConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct QueueConfig {
+    /// `redis` (default, single shared Redis sorted set) or `raft` (replicated OpenRaft cluster).
+    pub backend: String,
+    pub raft_node_id: u64,
+    /// Cluster members as `1=http://host-a:8081,2=http://host-b:8081`. Empty = single node.
+    pub raft_peers: String,
+    /// Directory for this node's persisted Raft state; in-memory when unset.
+    pub raft_data_dir: Option<String>,
+    /// Shared secret required on `/internal/raft/*` peer requests.
+    pub raft_token: Option<String>,
+}
+
+impl Default for QueueConfig {
+    fn default() -> Self {
+        Self {
+            backend: "redis".to_string(),
+            raft_node_id: 1,
+            raft_peers: String::new(),
+            raft_data_dir: None,
+            raft_token: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

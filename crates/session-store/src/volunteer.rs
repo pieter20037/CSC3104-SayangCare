@@ -1,11 +1,11 @@
+use chrono::{DateTime, Utc};
 use sayangcare_core::{CoreError, CoreResult};
 use sqlx::PgPool;
 
 /// Durable volunteer/session bindings shared by every API replica.
 ///
-/// The session primary key makes claims idempotent and PostgreSQL's unique row
-/// arbitration prevents two volunteers from owning the same session. Each
-/// operation is one indexed SQL statement: O(1) average with the primary key.
+/// A partial unique index arbitrates active ownership while resolved assignments
+/// remain as audit history. Each operation is indexed and executes transactionally.
 pub struct VolunteerBindingStore {
     pool: PgPool,
 }
@@ -26,7 +26,7 @@ impl VolunteerBindingStore {
             INSERT INTO volunteer_assignments
                 (session_id, volunteer_id, risk_level, status)
             VALUES ($1, $2, $3, 'assigned')
-            ON CONFLICT (session_id) DO NOTHING
+            ON CONFLICT DO NOTHING
             RETURNING session_id
             "#,
         )
@@ -46,24 +46,53 @@ impl VolunteerBindingStore {
         from_volunteer_id: &str,
         to_volunteer_id: &str,
     ) -> CoreResult<bool> {
-        let updated = sqlx::query_scalar::<_, String>(
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| CoreError::Storage(format!("begin volunteer transfer: {e}")))?;
+        let risk_level = sqlx::query_scalar::<_, i16>(
             r#"
             UPDATE volunteer_assignments
-            SET volunteer_id = $3, status = 'transferred', updated_at = now()
+            SET status = 'transferred', resolved_at = now(), updated_at = now()
             WHERE session_id = $1
               AND volunteer_id = $2
               AND status IN ('assigned', 'transferred')
-            RETURNING session_id
+              AND resolved_at IS NULL
+            RETURNING risk_level
             "#,
         )
         .bind(session_id)
         .bind(from_volunteer_id)
-        .bind(to_volunteer_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| CoreError::Storage(format!("transfer volunteer binding: {e}")))?;
 
-        Ok(updated.is_some())
+        let Some(risk_level) = risk_level else {
+            tx.rollback()
+                .await
+                .map_err(|e| CoreError::Storage(format!("rollback volunteer transfer: {e}")))?;
+            return Ok(false);
+        };
+
+        sqlx::query(
+            r#"
+            INSERT INTO volunteer_assignments
+                (session_id, volunteer_id, risk_level, status)
+            VALUES ($1, $2, $3, 'assigned')
+            "#,
+        )
+        .bind(session_id)
+        .bind(to_volunteer_id)
+        .bind(risk_level)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| CoreError::Storage(format!("insert transferred volunteer binding: {e}")))?;
+        tx.commit()
+            .await
+            .map_err(|e| CoreError::Storage(format!("commit volunteer transfer: {e}")))?;
+
+        Ok(true)
     }
 
     pub async fn release(&self, session_id: &str, volunteer_id: &str) -> CoreResult<bool> {
@@ -71,9 +100,10 @@ impl VolunteerBindingStore {
             r#"
             UPDATE volunteer_assignments
             SET status = 'resolved', resolved_at = now(), updated_at = now()
-            WHERE session_id = $1
+                        WHERE session_id = $1
               AND volunteer_id = $2
               AND status IN ('assigned', 'transferred')
+                            AND resolved_at IS NULL
             RETURNING session_id
             "#,
         )
@@ -84,5 +114,42 @@ impl VolunteerBindingStore {
         .map_err(|e| CoreError::Storage(format!("release volunteer binding: {e}")))?;
 
         Ok(updated.is_some())
+    }
+
+    pub async fn list_active_for_volunteer(&self, volunteer_id: &str) -> CoreResult<Vec<String>> {
+        sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT session_id
+            FROM volunteer_assignments
+            WHERE volunteer_id = $1
+              AND status IN ('assigned', 'transferred')
+              AND resolved_at IS NULL
+            ORDER BY assigned_at, session_id
+            "#,
+        )
+        .bind(volunteer_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| CoreError::Storage(format!("list volunteer bindings: {e}")))
+    }
+
+    pub async fn list_stale_before(
+        &self,
+        cutoff: DateTime<Utc>,
+    ) -> CoreResult<Vec<(String, String)>> {
+        sqlx::query_as::<_, (String, String)>(
+            r#"
+            SELECT session_id, volunteer_id
+            FROM volunteer_assignments
+            WHERE status IN ('assigned', 'transferred')
+              AND resolved_at IS NULL
+              AND updated_at <= $1
+            ORDER BY updated_at, session_id
+            "#,
+        )
+        .bind(cutoff)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| CoreError::Storage(format!("list stale volunteer bindings: {e}")))
     }
 }

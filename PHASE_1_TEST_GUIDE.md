@@ -14,7 +14,9 @@ This guide describes the implemented local session, risk, escalation, and volunt
 - A configured Groq provider can generate supportive non-crisis replies; high-risk turns use the deterministic safety response and are escalated without depending on the LLM.
 - CB-01 sliding-window latency/error metrics are merged on `main`; CB-02 recovery transitions and request permits are currently on the remote `phase3-circuitbreaker` branch.
 - An orphaned-session sweeper is implemented for inactive Redis sessions; transactional flush retry work remains separate from the live Twilio integration milestone.
-- Volunteer claims, transfers, and resolves now create/update/close durable PostgreSQL bindings through `0004_volunteer_assignments.sql`, so assignment ownership is not only process-local.
+- Volunteer claims, transfers, and resolves are stored as durable PostgreSQL assignment records through migrations `0005`, `0006`, and `0007`. A partial unique index permits one active owner per session while retaining resolved assignment history (RAFT-03).
+- The volunteer priority queue has two interchangeable backends behind the `PriorityQueue` trait: Redis (default) and an OpenRaft-replicated cluster (RAFT-01) selected with `SAYANGCARE__QUEUE__BACKEND=raft`. Risk 4–5 calls are enqueued on whichever backend is active (RAFT-02).
+- The Raft backend has HTTP peer transport (`/internal/raft/*`, shared-secret protected), snapshots, optional on-disk persistence, automatic bootstrap, follower-to-leader write forwarding, and idempotent request IDs.
 
 Redis Lua operations provide cross-process atomicity across API replicas. A process-local `Mutex` or `RwLock` would only coordinate requests within one process and would not protect the same session across Kubernetes pods.
 
@@ -55,7 +57,7 @@ After the API starts, verify both migrations:
 docker compose exec -T postgres psql -U sayangcare -d sayangcare -c "select version, description, success from _sqlx_migrations order by version;"
 ```
 
-Expected versions include `1 init`, `2 add session recovery fields`, `3 add volunteer handoff fields`, and `4 volunteer assignments`, all successful.
+Expected versions include `1 init`, `2 add session recovery fields`, `3 add volunteer handoff fields`, `4 add simulated session flag`, `5 volunteer assignments`, `6 assignment history and reclaims`, and `7 allow hot session assignments`, all successful.
 
 ## Run the API
 
@@ -95,7 +97,13 @@ After claiming a case, verify its durable binding:
 docker compose exec -T postgres psql -U sayangcare -d sayangcare -c "select session_id, volunteer_id, risk_level, status from volunteer_assignments order by assigned_at desc limit 5;"
 ```
 
-The row should show the volunteer and `assigned` or `transferred` status. After **Resolve**, the status should become `resolved`.
+Inspect current and historical assignments:
+
+```powershell
+docker compose exec -T postgres psql -U sayangcare -d sayangcare -c "select assignment_id, session_id, volunteer_id, risk_level, status, assigned_at, resolved_at from volunteer_assignments order by assignment_id desc limit 10;"
+```
+
+The active owner should have `assigned` status and no `resolved_at`. A transfer closes the prior row and creates a new active row for the next volunteer. **Resolve** closes the active row. A resolved session can later be claimed again, creating a new history row.
 
 ## Exercise the Session Lifecycle
 
@@ -167,13 +175,46 @@ cargo check --workspace --all-targets
 
 This is the order used in the verified smoke pass. The phase-one tests cover stable session IDs, legal state transitions, version increments, full cold-store rehydration, archive-before-delete ordering, and preservation of active state when terminal CAS loses a race. The queue tests cover deterministic risk/FIFO ordering and idempotent command application.
 
-The RAFT-01 cluster test can be run directly without Docker:
+The Raft queue tests run without Docker:
 
 ```powershell
-cargo test -p sayangcare-priority-queue raft_runtime::three_node_queue_replicates_and_survives_leader_loss -- --nocapture
+cargo test -p sayangcare-priority-queue raft -- --nocapture
 ```
 
-It creates three in-memory OpenRaft nodes, elects a leader, replicates an enqueue to all nodes, removes the leader from the simulated network, waits for a new leader, and commits a claim after failover. This validates the consensus engine and queue state machine, but the API still selects Redis in `AppState` until production peer transport and membership configuration are added.
+They cover: the state machine (risk/FIFO ordering, idempotent retries, claim/move/release ownership), a three-node cluster that replicates and survives leader loss, the full `PriorityQueue` contract on a single Raft node, and restart recovery from on-disk state.
+
+### Run a live three-node Raft cluster (RAFT-01/02)
+
+With Docker dependencies running, start three API processes (use three terminals or `Start-Process`); each needs its own port and node ID, the same peer list and token:
+
+```powershell
+$env:SAYANGCARE__QUEUE__BACKEND = "raft"
+$env:SAYANGCARE__QUEUE__RAFT_PEERS = "1=http://127.0.0.1:18081,2=http://127.0.0.1:18082,3=http://127.0.0.1:18083"
+$env:SAYANGCARE__QUEUE__RAFT_TOKEN = "demo-secret"
+$env:SAYANGCARE__QUEUE__RAFT_NODE_ID = "1"            # 2 and 3 in the other terminals
+$env:SAYANGCARE__SERVER__PORT = "18081"                # 18082 and 18083
+$env:SAYANGCARE__QUEUE__RAFT_DATA_DIR = "$env:TEMP\raft\n1"   # optional persistence; n2, n3
+cargo run -p sayangcare-api
+```
+
+Check roles, then escalate a call through a follower and confirm every node sees it:
+
+```powershell
+foreach ($p in 18081,18082,18083) { curl.exe -s http://127.0.0.1:$p/api/v1/queue/raft; "" }
+curl.exe -s -X POST http://127.0.0.1:18082/api/v1/calls/incoming -H "content-type: application/json" -d '{"call_sid":"RAFT-DEMO-1","from":"+6590000000","to":"+6560000000"}'
+curl.exe -s -X POST http://127.0.0.1:18082/api/v1/calls/RAFT-DEMO-1/turn -H "content-type: application/json" -d '{"transcript":"I want to kill myself tonight"}'
+foreach ($p in 18081,18082,18083) { curl.exe -s http://127.0.0.1:$p/api/v1/volunteers/queue; "" }
+```
+
+Stop the leader process (`Stop-Process -Id <pid>`), wait about six seconds, and claim through a surviving node; the queue and the volunteer's cases stay consistent on all live nodes, and a restarted node catches up:
+
+```powershell
+curl.exe -s -X POST http://127.0.0.1:18083/api/v1/volunteers/claim -H "content-type: application/json" -d '{"volunteer_id":"volunteer-aisha"}'
+```
+
+This flow was verified end-to-end: cluster formation, enqueue via a follower, replication to all nodes, leader kill and re-election, claim after failover, and rejoin of the restarted node.
+
+Raft state is stored in memory unless `RAFT_DATA_DIR` is set. Reads are served from the local node's applied state (a write waits for local application, so a node always sees its own writes). Membership is fixed at startup from `RAFT_PEERS`.
 
 The Redis queue integration test is intentionally ignored by default because it requires a live Redis instance. With Docker Desktop running, execute it explicitly:
 
