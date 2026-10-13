@@ -48,6 +48,14 @@ pub trait TelephonyProvider: Send + Sync {
     async fn play_audio(&self, call_sid: &str, audio_url: &str) -> CoreResult<()>;
     async fn hangup(&self, call_sid: &str) -> CoreResult<()>;
     async fn redirect_to_human(&self, call_sid: &str, volunteer_id: &str) -> CoreResult<()>;
+    async fn register_status_callback(&self, call_sid: &str, callback_url: &str) -> CoreResult<()>;
+    async fn move_call_to_conference(&self, call_sid: &str, conference: &str) -> CoreResult<()>;
+    async fn create_outbound_call(
+        &self,
+        to_number: &str,
+        from_number: &str,
+        twiml_url: &str,
+    ) -> CoreResult<String>;
 }
 
 /// Priority queue for high-risk escalation.

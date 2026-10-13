@@ -126,6 +126,9 @@ pub async fn turn(
         .map(|turn| sayangcare_core::domain::RiskAssessment::from_text(&turn.text))
         .max_by_key(|assessment| assessment.level);
     let current_assessment = sayangcare_core::domain::RiskAssessment::from_text(transcript);
+    let current_turn_is_high_risk = current_assessment
+        .level
+        .requires_immediate_escalation();
     let assessment = prior_assessment
         .filter(|prior| prior.level > current_assessment.level)
         .unwrap_or(current_assessment);
@@ -139,8 +142,8 @@ pub async fn turn(
     } else {
         assessment
     };
-    let escalated = session.state == sayangcare_core::domain::SessionState::Escalated
-        || session.risk.level.requires_immediate_escalation();
+    let was_escalated = session.state == sayangcare_core::domain::SessionState::Escalated;
+    let escalated = was_escalated || session.risk.level.requires_immediate_escalation();
 
     let now = chrono::Utc::now();
     let caller_turn = Turn {
@@ -211,38 +214,25 @@ pub async fn turn(
     }
 
     if escalated {
-        let is_repeat_escalation = session.state
-            == sayangcare_core::domain::SessionState::Escalated
-            || session.escalation_count > 0;
-
-        if is_repeat_escalation {
-            session.record_repeated_risk();
-            state.record_alert(
-                "repeated_risk",
-                &session.id.0,
-                None,
-                format!(
-                    "Repeated high-risk language on session {} increased the escalation counter to {} and requires operator acknowledgment.",
-                    session.id.0,
-                    session.escalation_count
-                ),
-            );
-        } else if let Err(e) = session.transition(sayangcare_core::domain::SessionState::Escalated)
-        {
-            tracing::warn!(error = %e, session_id = %session.id, "failed to escalate session");
-            return HttpResponse::Conflict().finish();
-        }
-
-        let queue_priority = session.risk.level.0.min(5);
-        if let Err(e) = state
-            .queue
-            .enqueue(session.id.clone(), queue_priority, chrono::Utc::now())
-            .await
-        {
-            tracing::warn!(error = %e, session_id = %session.id, "failed to queue escalated session");
-        }
-
-        if !is_repeat_escalation {
+        if was_escalated {
+            if current_turn_is_high_risk {
+                session.record_repeated_risk();
+                state.record_alert(
+                    "repeated_risk",
+                    &session.id.0,
+                    None,
+                    format!(
+                        "Repeated high-risk language on session {} increased the escalation counter to {} and requires operator acknowledgment.",
+                        session.id.0,
+                        session.escalation_count
+                    ),
+                );
+            }
+        } else {
+            if let Err(e) = session.transition(sayangcare_core::domain::SessionState::Escalated) {
+                tracing::warn!(error = %e, session_id = %session.id, "failed to escalate session");
+                return HttpResponse::Conflict().finish();
+            }
             state.record_alert(
                 "escalated",
                 &session.id.0,
@@ -253,6 +243,17 @@ pub async fn turn(
                     session.risk.level.0
                 ),
             );
+        }
+
+        if !was_escalated || current_turn_is_high_risk {
+            let queue_priority = session.risk.level.0.min(5);
+            if let Err(e) = state
+                .queue
+                .enqueue(session.id.clone(), queue_priority, chrono::Utc::now())
+                .await
+            {
+                tracing::warn!(error = %e, session_id = %session.id, "failed to queue escalated session");
+            }
         }
     }
 

@@ -143,7 +143,11 @@ async fn main() -> anyhow::Result<()> {
                 web::scope("/twilio")
                     .route("/voice", web::post().to(handlers::twilio::voice))
                     .route("/gather", web::post().to(handlers::twilio::gather))
-                    .route("/status", web::post().to(handlers::twilio::status_callback)),
+                    .route("/status", web::post().to(handlers::twilio::status_callback))
+                    .route(
+                        "/outbound-connect",
+                        web::post().to(handlers::twilio::outbound_connect),
+                    ),
             )
     })
     .workers(config.server.workers)
