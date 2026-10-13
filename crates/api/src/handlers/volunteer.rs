@@ -24,6 +24,7 @@ pub struct QueueItem {
     pub risk: u8,
     pub handoff_status: String,
     pub assigned_volunteer_id: Option<String>,
+    pub state: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -85,11 +86,17 @@ pub async fn list_pending(state: web::Data<Arc<AppState>>) -> impl Responder {
             let mut pending = Vec::new();
             for sid in sids {
                 if let Ok(Some(session)) = state.sessions.get(&sid).await {
+                    if session.state != sayangcare_core::domain::SessionState::Escalated
+                        || session.handoff_status != sayangcare_core::domain::HandoffStatus::Pending
+                    {
+                        continue;
+                    }
                     pending.push(QueueItem {
                         session_id: sid.0,
                         risk: session.risk.level.0,
                         handoff_status: format!("{:?}", session.handoff_status).to_lowercase(),
                         assigned_volunteer_id: session.assigned_volunteer_id,
+                        state: format!("{:?}", session.state).to_lowercase(),
                     });
                 }
             }
@@ -209,11 +216,14 @@ pub async fn claim(
                 }
             };
 
-            if assigned_session.handoff_status != sayangcare_core::domain::HandoffStatus::Pending {
+            if assigned_session.state != sayangcare_core::domain::SessionState::Escalated
+                || assigned_session.handoff_status != sayangcare_core::domain::HandoffStatus::Pending
+            {
                 let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
                 return HttpResponse::Conflict().json(serde_json::json!({
-                    "error": "case is no longer pending",
+                    "error": "case is no longer pending or claimable",
                     "session_id": sid.0,
+                    "state": format!("{:?}", assigned_session.state).to_lowercase(),
                     "handoff_status": format!("{:?}", assigned_session.handoff_status).to_lowercase(),
                 }));
             }

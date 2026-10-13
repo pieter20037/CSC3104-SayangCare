@@ -146,6 +146,7 @@ impl ArchiveStore for PostgresArchiveStore {
                     "assigned" => sayangcare_core::domain::HandoffStatus::Assigned,
                     "transferred" => sayangcare_core::domain::HandoffStatus::Transferred,
                     "resolved" => sayangcare_core::domain::HandoffStatus::Resolved,
+                    "abandoned" => sayangcare_core::domain::HandoffStatus::Abandoned,
                     _ => sayangcare_core::domain::HandoffStatus::NotRequired,
                 };
                 let assigned_volunteer_id: Option<String> = r.try_get("assigned_volunteer_id").ok();
