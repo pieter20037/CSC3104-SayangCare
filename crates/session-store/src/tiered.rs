@@ -3,6 +3,7 @@ use sayangcare_core::domain::{Session, SessionId, SessionState};
 use sayangcare_core::ports::{ArchiveStore, SessionStore};
 use sayangcare_core::{CoreError, CoreResult};
 use std::sync::Arc;
+use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
 
 /// Combines Redis (hot) + Postgres (cold).
@@ -22,21 +23,77 @@ impl TieredSessionStore {
     /// Flush a completed session to cold storage without blocking the caller.
     /// Called from the session completion path.
     pub async fn flush_to_cold(&self, session: &Session) -> CoreResult<()> {
-        if let Err(e) = self.cold.archive(session).await {
-            warn!(session_id = %session.id, error = %e, "cold archive failed");
-            return Err(e);
+        const MAX_ATTEMPTS: u32 = 5;
+        const BASE_DELAY_MS: u64 = 200;
+        const MAX_DELAY_MS: u64 = 2000;
+
+        for attempt in 1..=MAX_ATTEMPTS {
+            match self.cold.archive(session).await {
+                Ok(()) => {
+                    info!(
+                        session_id = %session.id,
+                        attempt,
+                        version = session.version,
+                        "PostgreSQL archive successful"
+                    );
+
+                    // Archive first; atomically delete only the archived version.
+                    // A concurrent update must remain in Redis for the next recovery scan.
+                    let deleted = self
+                        .hot
+                        .delete_if_version(&session.id, session.version)
+                        .await?;
+                    if deleted {
+                        info!(
+                            session_id = %session.id,
+                            version = session.version,
+                            "Redis session cleanup successful"
+                        );
+                    } else {
+                        warn!(
+                            session_id = %session.id,
+                            archived_version = session.version,
+                            "Redis cleanup skipped: session missing or version changed"
+                        );
+                    }
+
+                    return Ok(());
+                }
+
+                Err(error) => {
+                    let retryable = matches!(&error, CoreError::StorageTransient(_));
+
+                    warn!(
+                        session_id = %session.id,
+                        attempt,
+                        retryable,
+                        error = %error,
+                        "PostgreSQL archive attempt failed"
+                    );
+
+                    if !retryable || attempt == MAX_ATTEMPTS {
+                        return Err(error);
+                    }
+
+                    let delay_ms =
+                        (BASE_DELAY_MS.saturating_mul(2_u64.pow(attempt - 1))).min(MAX_DELAY_MS);
+
+                    sleep(Duration::from_millis(delay_ms)).await;
+                }
+            }
         }
-        info!(session_id = %session.id, "session archived");
-        // Only delete hot state after successful archive.
-        self.hot.delete(&session.id).await?;
-        Ok(())
+
+        unreachable!("archive retry loop must return")
     }
 
     /// CAS-commits a terminal transition before archive/delete, so a concurrent turn cannot be lost.
     pub async fn finish(&self, id: &SessionId, terminal_state: SessionState) -> CoreResult<bool> {
         if !matches!(
             terminal_state,
-            SessionState::Completed | SessionState::Failed | SessionState::Escalated | SessionState::Abandoned
+            SessionState::Completed
+                | SessionState::Failed
+                | SessionState::Escalated
+                | SessionState::Abandoned
         ) {
             return Err(CoreError::Internal(anyhow::anyhow!(
                 "finish requires a terminal state"
@@ -49,11 +106,32 @@ impl TieredSessionStore {
 
         if !matches!(
             session.state,
-            SessionState::Completed | SessionState::Failed | SessionState::Escalated | SessionState::Abandoned
+            SessionState::Completed
+                | SessionState::Failed
+                | SessionState::Escalated
+                | SessionState::Abandoned
         ) {
             let expected_version = session.version;
             session.transition(terminal_state)?;
             self.hot.update_cas(&session, expected_version).await?;
+        }
+
+        self.flush_to_cold(&session).await?;
+        Ok(true)
+    }
+
+    /// Retry archival of a terminal session left in Redis after a failed flush.
+    /// Read from hot storage only: the cold fallback must not rehydrate a session.
+    pub async fn recover_terminal(&self, id: &SessionId) -> CoreResult<bool> {
+        let Some(session) = self.hot.get(id).await? else {
+            return Ok(false);
+        };
+
+        if !matches!(
+            session.state,
+            SessionState::Completed | SessionState::Failed | SessionState::Abandoned
+        ) {
+            return Ok(false);
         }
 
         self.flush_to_cold(&session).await?;
@@ -73,7 +151,10 @@ impl TieredSessionStore {
         if session.state != SessionState::Abandoned && session.updated_at >= cutoff {
             return Ok(false);
         }
-        if matches!(session.state, SessionState::Completed | SessionState::Failed) {
+        if matches!(
+            session.state,
+            SessionState::Completed | SessionState::Failed
+        ) {
             return Ok(false);
         }
 
@@ -124,6 +205,10 @@ impl SessionStore for TieredSessionStore {
         self.hot.update_cas(session, expected_version).await
     }
 
+    async fn delete_if_version(&self, id: &SessionId, expected_version: u64) -> CoreResult<bool> {
+        self.hot.delete_if_version(id, expected_version).await
+    }
+
     async fn delete(&self, id: &SessionId) -> CoreResult<()> {
         self.hot.delete(id).await
     }
@@ -138,9 +223,193 @@ mod tests {
     use sayangcare_core::ports::{ArchiveStore, SessionStore};
     use sayangcare_core::{CoreError, CoreResult};
     use std::collections::HashMap;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use tokio::sync::Mutex;
+
+    struct FlakyArchive {
+        sessions: Mutex<HashMap<SessionId, Session>>,
+        failures_remaining: AtomicUsize,
+        attempts: AtomicUsize,
+    }
+
+    impl FlakyArchive {
+        fn new(failures: usize) -> Self {
+            Self {
+                sessions: Mutex::new(HashMap::new()),
+                failures_remaining: AtomicUsize::new(failures),
+                attempts: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ArchiveStore for FlakyArchive {
+        async fn archive(&self, session: &Session) -> CoreResult<()> {
+            self.attempts.fetch_add(1, Ordering::SeqCst);
+
+            let remaining = self.failures_remaining.load(Ordering::SeqCst);
+
+            if remaining > 0 {
+                self.failures_remaining.fetch_sub(1, Ordering::SeqCst);
+
+                return Err(CoreError::StorageTransient(
+                    "simulated PostgreSQL outage".to_string(),
+                ));
+            }
+
+            self.sessions
+                .lock()
+                .await
+                .insert(session.id.clone(), session.clone());
+
+            Ok(())
+        }
+
+        async fn fetch_session(&self, id: &SessionId) -> CoreResult<Option<Session>> {
+            Ok(self.sessions.lock().await.get(id).cloned())
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_archive_does_not_delete_newer_hot_version() {
+        let hot = Arc::new(MemoryHot::default());
+        let cold = Arc::new(MemoryArchive::default());
+        let tiered = TieredSessionStore::new(hot.clone(), cold.clone());
+
+        // Create both snapshots from an active session. Completed sessions
+        // cannot accept new turns, so the newer snapshot must be built before
+        // transitioning to a terminal state.
+        let mut active = session("CA-version-safe");
+        active.transition(SessionState::Active).unwrap();
+
+        let mut older = active.clone();
+        older.transition(SessionState::Completed).unwrap();
+        hot.put(&older).await.unwrap();
+
+        let mut newer = active;
+        newer
+            .record_turns([Turn {
+                speaker: Speaker::Caller,
+                text: "Newer turn must survive".to_string(),
+                timestamp: Utc::now(),
+            }])
+            .unwrap();
+        newer.transition(SessionState::Completed).unwrap();
+        assert!(newer.version > older.version);
+        hot.update_cas(&newer, older.version).await.unwrap();
+
+        // Flush an older snapshot after a newer version is already in Redis.
+        tiered.flush_to_cold(&older).await.unwrap();
+        let retained = hot
+            .get(&older.id)
+            .await
+            .unwrap()
+            .expect("newer version retained");
+        assert_eq!(retained.version, newer.version);
+        assert_eq!(retained.transcript.turns[0].text, "Newer turn must survive");
+
+        // The recovery path can then archive the newer snapshot and clean up.
+        assert!(tiered.recover_terminal(&older.id).await.unwrap());
+        assert!(hot.get(&older.id).await.unwrap().is_none());
+        let archived = cold.fetch_session(&older.id).await.unwrap().unwrap();
+        assert_eq!(archived.version, newer.version);
+    }
+
+    #[tokio::test]
+    async fn retry_succeeds_after_temporary_failures() {
+        let hot = Arc::new(MemoryHot::default());
+        let cold = Arc::new(FlakyArchive::new(2));
+
+        let tiered = TieredSessionStore::new(hot.clone(), cold.clone());
+
+        let mut active = session("CA-retry-success");
+        active.transition(SessionState::Active).unwrap();
+
+        hot.put(&active).await.unwrap();
+
+        let result = tiered.finish(&active.id, SessionState::Completed).await;
+
+        assert!(result.is_ok());
+        assert_eq!(cold.attempts.load(Ordering::SeqCst), 3);
+        assert!(hot.get(&active.id).await.unwrap().is_none());
+        assert!(cold.fetch_session(&active.id).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn retry_exhaustion_preserves_hot_session() {
+        let hot = Arc::new(MemoryHot::default());
+        let cold = Arc::new(FlakyArchive::new(10));
+
+        let tiered = TieredSessionStore::new(hot.clone(), cold.clone());
+
+        let mut active = session("CA-retry-failure");
+        active.transition(SessionState::Active).unwrap();
+
+        hot.put(&active).await.unwrap();
+
+        let result = tiered.finish(&active.id, SessionState::Completed).await;
+
+        assert!(result.is_err());
+        assert_eq!(cold.attempts.load(Ordering::SeqCst), 5);
+
+        let retained = hot.get(&active.id).await.unwrap();
+        assert!(retained.is_some());
+        assert_eq!(retained.unwrap().state, SessionState::Completed);
+
+        assert!(cold.fetch_session(&active.id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn background_recovery_archives_completed_session_after_failure() {
+        let hot = Arc::new(MemoryHot::default());
+        let cold = Arc::new(FlakyArchive::new(5));
+        let tiered = TieredSessionStore::new(hot.clone(), cold.clone());
+        let mut active = session("CA-background-recovery");
+        active.transition(SessionState::Active).unwrap();
+        hot.put(&active).await.unwrap();
+
+        assert!(tiered
+            .finish(&active.id, SessionState::Completed)
+            .await
+            .is_err());
+        assert_eq!(
+            hot.get(&active.id).await.unwrap().unwrap().state,
+            SessionState::Completed
+        );
+
+        assert!(tiered.recover_terminal(&active.id).await.unwrap());
+        assert!(hot.get(&active.id).await.unwrap().is_none());
+        assert_eq!(
+            cold.fetch_session(&active.id).await.unwrap().unwrap().state,
+            SessionState::Completed
+        );
+    }
+
+    #[tokio::test]
+    async fn archive_recovers_on_later_request() {
+        let hot = Arc::new(MemoryHot::default());
+        let cold = Arc::new(FlakyArchive::new(5));
+
+        let tiered = TieredSessionStore::new(hot.clone(), cold.clone());
+
+        let mut active = session("CA-recovery");
+        active.transition(SessionState::Active).unwrap();
+
+        hot.put(&active).await.unwrap();
+
+        let first = tiered.finish(&active.id, SessionState::Completed).await;
+
+        assert!(first.is_err());
+        assert!(hot.get(&active.id).await.unwrap().is_some());
+
+        let second = tiered.finish(&active.id, SessionState::Completed).await;
+
+        assert!(second.is_ok());
+        assert!(hot.get(&active.id).await.unwrap().is_none());
+        assert!(cold.fetch_session(&active.id).await.unwrap().is_some());
+    }
 
     #[derive(Default)]
     struct MemoryHot {
@@ -191,6 +460,23 @@ mod tests {
             }
             sessions.insert(session.id.clone(), session.clone());
             Ok(())
+        }
+
+        async fn delete_if_version(
+            &self,
+            id: &SessionId,
+            expected_version: u64,
+        ) -> CoreResult<bool> {
+            let mut sessions = self.sessions.lock().await;
+            if sessions
+                .get(id)
+                .is_some_and(|current| current.version == expected_version)
+            {
+                sessions.remove(id);
+                Ok(true)
+            } else {
+                Ok(false)
+            }
         }
 
         async fn delete(&self, id: &SessionId) -> CoreResult<()> {

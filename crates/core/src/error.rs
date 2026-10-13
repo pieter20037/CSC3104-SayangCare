@@ -23,6 +23,9 @@ pub enum CoreError {
     #[error("Storage error: {0}")]
     Storage(String),
 
+    #[error("Transient storage error: {0}")]
+    StorageTransient(String),
+
     #[error("Telephony provider error: {0}")]
     Telephony(String),
 

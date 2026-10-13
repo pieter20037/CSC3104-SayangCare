@@ -9,6 +9,36 @@ fn archive_decode_error(error: impl Display) -> CoreError {
     CoreError::Storage(format!("decode archived session: {error}"))
 }
 
+fn archive_sqlx_error(error: sqlx::Error) -> CoreError {
+    let retryable = match &error {
+        sqlx::Error::Io(_)
+        | sqlx::Error::PoolTimedOut
+        | sqlx::Error::PoolClosed
+        | sqlx::Error::Tls(_) => true,
+
+        sqlx::Error::Database(db) => {
+            matches!(
+                db.code().as_deref(),
+                Some("40001") // Serialization failure
+                    | Some("40P01") // Deadlock detected
+                    | Some("55P03") // Lock not available
+                    | Some("53300") // Too many connections
+                    | Some("57P01") // Admin shutdown
+                    | Some("57P02") // Crash shutdown
+                    | Some("57P03") // Cannot connect now
+            )
+        }
+
+        _ => false,
+    };
+
+    if retryable {
+        CoreError::StorageTransient(format!("pg archive: {error}"))
+    } else {
+        CoreError::Storage(format!("pg archive: {error}"))
+    }
+}
+
 pub struct PostgresArchiveStore {
     pool: PgPool,
 }
@@ -54,6 +84,7 @@ impl ArchiveStore for PostgresArchiveStore {
                 operator_acknowledged = EXCLUDED.operator_acknowledged,
                 updated_at = EXCLUDED.updated_at,
                 version = EXCLUDED.version
+                WHERE sessions.version <= EXCLUDED.version
             "#,
         )
         .bind(&session.id.0)
@@ -73,7 +104,7 @@ impl ArchiveStore for PostgresArchiveStore {
         .bind(session.version as i64)
         .execute(&self.pool)
         .await
-        .map_err(|e| CoreError::Storage(format!("pg archive: {e}")))?;
+        .map_err(archive_sqlx_error)?;
 
         Ok(())
     }
