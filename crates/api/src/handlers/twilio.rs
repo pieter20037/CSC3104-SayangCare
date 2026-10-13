@@ -155,24 +155,45 @@ pub async fn gather(
         "Thank you for telling me. I'm sorry you're going through this. I want to help keep you safe, and I'm alerting a human volunteer now. Are you in immediate danger right now?".to_string()
     } else if let Some(inference) = state.inference.as_ref() {
         let breaker = state.breakers.get("llm-inference").await;
-        if breaker.acquire().is_err() {
-            "I'm here with you. Please tell me a little more about what is happening.".to_string()
-        } else {
-            let mut context = session.transcript.clone();
-            context.push(caller_turn.clone());
-            let started = Instant::now();
-            match inference.generate_reply(&context).await {
-                Ok(reply) => {
-                    breaker.record_success(started.elapsed().as_millis() as u64);
-                    reply
-                }
-                Err(error) => {
-                    breaker
-                        .record_failure(started.elapsed().as_millis() as u64, 0.25)
-                        .await;
-                    warn!(error = %error, call_sid = %form.call_sid, "Groq reply failed; using deterministic fallback");
-                    "I'm here with you. Please tell me a little more about what is happening."
-                        .to_string()
+
+        match breaker.acquire_with_permit() {
+            Err(_) => {
+                // Circuit is Open, or another recovery probe is running.
+                "I'm here with you. Please tell me a little more about what is happening."
+                    .to_string()
+            }
+
+            Ok(permit) => {
+                let mut context = session.transcript.clone();
+                context.push(caller_turn.clone());
+
+                let started = Instant::now();
+
+                match inference.generate_reply(&context).await {
+                    Ok(reply) => {
+                        let latency = started.elapsed().as_millis() as u64;
+
+                        breaker.record_success_with_permit(permit, latency);
+
+                        reply
+                    }
+
+                    Err(error) => {
+                        let latency = started.elapsed().as_millis() as u64;
+
+                        breaker
+                            .record_failure_with_permit(permit, latency, 0.25)
+                            .await;
+
+                        warn!(
+                            error = %error,
+                            call_sid = %form.call_sid,
+                            "Groq reply failed; using deterministic fallback"
+                        );
+
+                        "I'm here with you. Please tell me a little more about what is happening."
+                            .to_string()
+                    }
                 }
             }
         }

@@ -152,22 +152,43 @@ pub async fn turn(
         response_for_risk(session.risk.level.0).to_string()
     } else if let Some(inference) = state.inference.as_ref() {
         let breaker = state.breakers.get("llm-inference").await;
-        if breaker.acquire().is_err() {
-            response_for_risk(session.risk.level.0).to_string()
-        } else {
-            let mut context = session.transcript.clone();
-            context.push(caller_turn.clone());
-            let started = Instant::now();
-            match inference.generate_reply(&context).await {
-                Ok(reply) => {
-                    breaker.record_success(started.elapsed().as_millis() as u64);
-                    reply
-                }
-                Err(error) => {
-                    let latency = started.elapsed().as_millis() as u64;
-                    breaker.record_failure(latency, 0.25).await;
-                    tracing::warn!(error = %error, session_id = %session.id, "Groq reply failed; using deterministic fallback");
-                    response_for_risk(session.risk.level.0).to_string()
+
+        match breaker.acquire_with_permit() {
+            Err(_) => {
+                // Circuit is Open, or another recovery probe is running.
+                response_for_risk(session.risk.level.0).to_string()
+            }
+
+            Ok(permit) => {
+                let mut context = session.transcript.clone();
+                context.push(caller_turn.clone());
+
+                let started = Instant::now();
+
+                match inference.generate_reply(&context).await {
+                    Ok(reply) => {
+                        let latency = started.elapsed().as_millis() as u64;
+
+                        breaker.record_success_with_permit(permit, latency);
+
+                        reply
+                    }
+
+                    Err(error) => {
+                        let latency = started.elapsed().as_millis() as u64;
+
+                        breaker
+                            .record_failure_with_permit(permit, latency, 0.25)
+                            .await;
+
+                        tracing::warn!(
+                            error = %error,
+                            session_id = %session.id,
+                            "Groq reply failed; using deterministic fallback"
+                        );
+
+                        response_for_risk(session.risk.level.0).to_string()
+                    }
                 }
             }
         }
