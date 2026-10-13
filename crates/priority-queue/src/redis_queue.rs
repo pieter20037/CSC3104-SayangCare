@@ -46,9 +46,10 @@ mod tests {
     use sayangcare_core::ports::PriorityQueue;
 
     #[tokio::test]
+    #[ignore = "requires Redis at 127.0.0.1:6379; run with --include-ignored after docker compose up"]
     async fn list_pending_returns_sorted_sessions() {
         let client = Client::open("redis://127.0.0.1:6379/").unwrap();
-        let mut conn = client.get_async_connection().await.unwrap();
+        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
         let queue = RedisPriorityQueue::new(
             redis::aio::ConnectionManager::new(client).await.unwrap(),
             "test:queue",

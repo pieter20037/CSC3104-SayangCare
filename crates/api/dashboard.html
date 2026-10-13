@@ -126,6 +126,10 @@
     .layout.role-operator .alerts-panel { grid-column: span 6; order: 3; }
     .layout.role-operator .activity-panel { grid-column: span 6; order: 4; }
     .layout.role-operator .response-panel { grid-column: 1 / -1; order: 5; }
+    .layout .raft-panel { grid-column: 1 / -1; order: 0; }
+    .raft-panel .panel-body { padding: 0; }
+    .raft-panel .microcopy { padding: 0 19px 14px; }
+    .raft-panel a.microcopy { display: block; padding: 0; word-break: break-all; }
     .panel[hidden] { display: none; }
     .panel:nth-child(2) { animation-delay: 60ms; }
     .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 19px; border-bottom: 1px solid var(--line); }
@@ -302,6 +306,16 @@
 
     <div class="layout role-caller" id="role-layout">
       <div class="stack">
+        <section class="panel raft-panel" data-roles="caller volunteer operator">
+          <div class="panel-header">
+            <div class="subhead-row" style="width:100%"><h2 class="panel-title">Raft cluster</h2><span class="panel-kicker" id="raft-meta">Checking…</span></div>
+          </div>
+          <div class="panel-body">
+            <div class="activity-list" id="raft-list"><div class="empty-activity">Loading cluster status…</div></div>
+            <p class="microcopy">Auto-refreshes every 3s. Kill the leader's process and watch a new leader get elected here. Open another node's dashboard from its link; the queue is the same on every node.</p>
+          </div>
+        </section>
+
         <section class="panel test-panel" data-roles="caller">
           <div class="panel-header"><h2 class="panel-title">Test call</h2><span class="panel-kicker">JSON API</span></div>
           <div class="panel-body">
@@ -919,6 +933,67 @@
       await loadAssignedCases(selectedVolunteerId());
     }
 
+    function renderRaft(data) {
+      const list = $("raft-list");
+      list.replaceChildren();
+      if (data.backend !== "raft") {
+        $("raft-meta").textContent = "Raft not enabled";
+        list.innerHTML = '<div class="empty-activity">This node uses the Redis queue backend. Start with <code>SAYANGCARE__QUEUE__BACKEND=raft</code> to see the cluster.</div>';
+        return;
+      }
+      const nodes = data.nodes || [];
+      const leaders = nodes.filter((n) => n.reachable && n.status?.state === "Leader");
+      const up = nodes.filter((n) => n.reachable).length;
+      const quorum = Math.floor(nodes.length / 2) + 1;
+      $("raft-meta").textContent = `${up}/${nodes.length} up · ${leaders.length ? `leader: node ${leaders[0].node_id}` : "no leader"} · viewing node ${data.this_node}`;
+      nodes.forEach((n) => {
+        const s = n.status || {};
+        const row = document.createElement("div");
+        row.className = "activity-item";
+        const top = document.createElement("div");
+        top.className = "activity-top";
+        const label = document.createElement("strong");
+        label.style.fontSize = "12px";
+        label.textContent = `Node ${n.node_id}${n.node_id === data.this_node ? " (this page)" : ""}`;
+        const badge = document.createElement("span");
+        badge.className = `http-badge${n.reachable ? "" : " error"}`;
+        badge.textContent = n.reachable ? String(s.state || "Unknown") : "DOWN";
+        top.append(label, badge);
+        const meta = document.createElement("div");
+        meta.className = "microcopy";
+        meta.textContent = n.reachable
+          ? `term ${s.current_term} · leader ${s.current_leader ?? "none"} · log ${s.last_log_index ?? "—"} · applied ${s.last_applied ?? "—"}`
+          : "Not responding";
+        row.append(top, meta);
+        if (n.url) {
+          const link = document.createElement("a");
+          link.href = `${n.url}/dashboard`;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = `${n.url}/dashboard`;
+          link.className = "microcopy";
+          row.append(link);
+        }
+        list.append(row);
+      });
+      const summary = document.createElement("p");
+      summary.className = "microcopy";
+      summary.textContent = up >= quorum
+        ? `Quorum OK (${up} of ${nodes.length}, need ${quorum}). Writes are accepted.`
+        : `Quorum lost (${up} of ${nodes.length}, need ${quorum}). Writes will fail until a node returns.`;
+      list.append(summary);
+    }
+
+    async function pollRaft() {
+      try {
+        const response = await fetch(`${api}/queue/raft/cluster`, { signal: AbortSignal.timeout(4000) });
+        renderRaft(await response.json());
+      } catch {
+        $("raft-meta").textContent = "This node is unreachable";
+        $("raft-list").innerHTML = '<div class="empty-activity">Cannot reach this node. If you killed it, open another node\'s dashboard link.</div>';
+      }
+    }
+
     async function checkHealth() {
       const data = await request("Health check", "GET", `${api}/health`);
       $("api-dot").className = "status-dot online";
@@ -1004,6 +1079,8 @@
 
     setRole("caller");
     freshCallId();
+    pollRaft();
+    setInterval(pollRaft, 3000);
     withBusy(async () => {
       await checkHealth();
       await loadAlerts();

@@ -32,3 +32,4 @@ chrono.workspace = true
 sqlx.workspace = true
 redis.workspace = true
 tokio-util.workspace = true
+openraft.workspace = true

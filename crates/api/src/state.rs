@@ -7,9 +7,12 @@ use sayangcare_core::ports::{
     ArchiveStore, InferenceService, PriorityQueue, SessionStore, TelephonyProvider,
 };
 use sayangcare_core::CoreResult;
-use sayangcare_priority_queue::RedisPriorityQueue;
+use sayangcare_priority_queue::{
+    RaftPriorityQueue, RaftQueueNode, RaftQueueSettings, RedisPriorityQueue,
+};
 use sayangcare_session_store::{
     OrphanedSessionSweeper, PostgresArchiveStore, RedisSessionStore, TieredSessionStore,
+    VolunteerBindingStore,
 };
 use sayangcare_telephony::TwilioProvider;
 use serde::{Deserialize, Serialize};
@@ -46,10 +49,11 @@ pub struct AppState {
     pub tiered: Arc<TieredSessionStore>,
     pub breakers: Arc<BreakerRegistry>,
     pub queue: Arc<dyn PriorityQueue>,
+    pub raft: Option<Arc<RaftQueueNode>>,
+    pub volunteer_bindings: Arc<VolunteerBindingStore>,
     pub telephony: Arc<dyn TelephonyProvider>,
     pub inference: Option<Arc<dyn InferenceService>>,
     pub volunteers: Arc<RwLock<HashMap<String, Volunteer>>>,
-    pub assigned_cases: Arc<RwLock<HashMap<String, Vec<String>>>>,
     pub alerts: Arc<RwLock<Vec<OperatorAlert>>>,
     pub config: AppConfig,
 }
@@ -77,6 +81,7 @@ impl AppState {
             .await
             .map_err(|e| sayangcare_core::CoreError::Storage(format!("migrate: {e}")))?;
         let archive = Arc::new(PostgresArchiveStore::new(pg_pool.clone()));
+        let volunteer_bindings = Arc::new(VolunteerBindingStore::new(pg_pool.clone()));
 
         let tiered = Arc::new(TieredSessionStore::new(hot.clone(), archive.clone()));
 
@@ -97,19 +102,55 @@ impl AppState {
             },
         ));
 
-        // --- Priority queue (reuses Redis) ---
-        let queue_url = config
-            .redis
-            .queue_url
-            .as_deref()
-            .or(config.redis.master_url.as_deref())
-            .unwrap_or("redis://127.0.0.1:6379/");
-        let redis_client = redis::Client::open(queue_url)
-            .map_err(|e| sayangcare_core::CoreError::Storage(format!("redis: {e}")))?;
-        let redis_mgr = redis::aio::ConnectionManager::new(redis_client)
-            .await
-            .map_err(|e| sayangcare_core::CoreError::Storage(format!("redis mgr: {e}")))?;
-        let queue = Arc::new(RedisPriorityQueue::new(redis_mgr, "escalation:queue"));
+        // --- Priority queue: Redis sorted set (default) or Raft-replicated cluster ---
+        let (queue, raft): (Arc<dyn PriorityQueue>, Option<Arc<RaftQueueNode>>) =
+            match config.queue.backend.to_ascii_lowercase().as_str() {
+                "raft" => {
+                    let peers = RaftQueueSettings::parse_peers(&config.queue.raft_peers)
+                        .map_err(sayangcare_core::CoreError::Storage)?;
+                    let node_id = config.queue.raft_node_id;
+                    if !peers.is_empty() && !peers.contains_key(&node_id) {
+                        return Err(sayangcare_core::CoreError::Storage(format!(
+                            "raft node id {node_id} is not listed in raft_peers"
+                        )));
+                    }
+                    let node = RaftQueueNode::start(RaftQueueSettings {
+                        node_id,
+                        peers,
+                        data_file: config.queue.raft_data_dir.as_ref().map(|dir| {
+                            std::path::Path::new(dir).join(format!("raft-node-{node_id}.json"))
+                        }),
+                        token: config.queue.raft_token.clone().filter(|t| !t.is_empty()),
+                    })
+                    .await?;
+                    info!(node_id, "Raft priority queue enabled");
+                    (Arc::new(RaftPriorityQueue::new(node.clone())), Some(node))
+                }
+                "redis" => {
+                    let queue_url = config
+                        .redis
+                        .queue_url
+                        .as_deref()
+                        .or(config.redis.master_url.as_deref())
+                        .unwrap_or("redis://127.0.0.1:6379/");
+                    let redis_client = redis::Client::open(queue_url)
+                        .map_err(|e| sayangcare_core::CoreError::Storage(format!("redis: {e}")))?;
+                    let redis_mgr = redis::aio::ConnectionManager::new(redis_client)
+                        .await
+                        .map_err(|e| {
+                            sayangcare_core::CoreError::Storage(format!("redis mgr: {e}"))
+                        })?;
+                    (
+                        Arc::new(RedisPriorityQueue::new(redis_mgr, "escalation:queue")),
+                        None,
+                    )
+                }
+                other => {
+                    return Err(sayangcare_core::CoreError::Storage(format!(
+                        "unknown queue backend '{other}'; use 'redis' or 'raft'"
+                    )))
+                }
+            };
 
         // --- Telephony ---
         let telephony = Arc::new(TwilioProvider::new(
@@ -155,7 +196,6 @@ impl AppState {
             ),
         ])));
 
-        let assigned_cases = Arc::new(RwLock::new(HashMap::new()));
         let alerts = Arc::new(RwLock::new(Vec::new()));
 
         Ok(Self {
@@ -165,10 +205,11 @@ impl AppState {
             tiered,
             breakers,
             queue,
+            raft,
+            volunteer_bindings,
             telephony,
             inference,
             volunteers,
-            assigned_cases,
             alerts,
             config,
         })
@@ -245,44 +286,67 @@ impl AppState {
             }
         });
 
+        if let Some(node) = self.raft.clone() {
+            let cancel_raft = cancel.clone();
+            tokio::spawn(async move {
+                for _ in 0..30 {
+                    match node.bootstrap_if_needed().await {
+                        Ok(()) => break,
+                        Err(err) => tracing::warn!(error = %err, "raft bootstrap failed; retrying"),
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                        _ = cancel_raft.cancelled() => return,
+                    }
+                }
+                cancel_raft.cancelled().await;
+                let _ = node.raft().shutdown().await;
+            });
+        }
+
         info!("background tasks started");
     }
 
     async fn requeue_stale_handoffs(&self) -> CoreResult<()> {
         const HANDOFF_TIMEOUT: chrono::Duration = chrono::Duration::minutes(5);
 
-        let stale_ids = {
-            let mapping = self
-                .assigned_cases
-                .read()
-                .expect("assigned cases lock poisoned");
-            let mut stale = Vec::new();
-
-            for (volunteer_id, session_ids) in mapping.iter() {
-                for session_id in session_ids {
-                    stale.push((volunteer_id.clone(), session_id.clone()));
-                }
-            }
-
-            stale
-        };
+        let stale_ids = self
+            .volunteer_bindings
+            .list_stale_before(Utc::now() - HANDOFF_TIMEOUT)
+            .await?;
 
         for (volunteer_id, session_id) in stale_ids {
             let sid = SessionId(session_id.clone());
             match self.sessions.get(&sid).await {
-                Ok(Some(session)) if session.is_handoff_stale(HANDOFF_TIMEOUT) => {
-                    let expected = session.version;
-                    let mut session = session;
-                    session.assigned_volunteer_id = None;
-                    session.handoff_status = HandoffStatus::Pending;
-                    session.updated_at = Utc::now();
-                    session.version += 1;
+                Ok(Some(mut session)) => {
+                    if session.is_handoff_stale(HANDOFF_TIMEOUT) {
+                        let expected = session.version;
+                        session.assigned_volunteer_id = None;
+                        session.handoff_status = HandoffStatus::Pending;
+                        session.updated_at = Utc::now();
+                        session.version += 1;
 
-                    if let Err(err) = self.sessions.update_cas(&session, expected).await {
-                        tracing::warn!(error = %err, session_id = %sid, volunteer_id = %volunteer_id, "failed to clear stale assignment");
+                        if let Err(err) = self.sessions.update_cas(&session, expected).await {
+                            tracing::warn!(error = %err, session_id = %sid, volunteer_id = %volunteer_id, "failed to clear stale assignment");
+                            continue;
+                        }
+
+                        self.record_alert(
+                            "requeued",
+                            &session_id,
+                            Some(&volunteer_id),
+                            format!("Stale assignment expired for session {} and was returned to the volunteer queue.", session_id),
+                        );
+                    } else if session.handoff_status != HandoffStatus::Pending
+                        || session.assigned_volunteer_id.is_some()
+                    {
                         continue;
                     }
 
+                    if let Err(err) = self.queue.release_claim(&sid, &volunteer_id).await {
+                        tracing::warn!(error = %err, session_id = %sid, volunteer_id = %volunteer_id, "failed to release stale Redis queue claim");
+                        continue;
+                    }
                     if let Err(err) = self
                         .queue
                         .enqueue(sid.clone(), session.risk.level.0, Utc::now())
@@ -291,28 +355,22 @@ impl AppState {
                         tracing::warn!(error = %err, session_id = %sid, volunteer_id = %volunteer_id, "failed to requeue stale session");
                         continue;
                     }
-
-                    self.record_alert(
-                        "requeued",
-                        &session_id,
-                        Some(&volunteer_id),
-                        format!("Stale assignment expired for session {} and was returned to the volunteer queue.", session_id),
-                    );
-
-                    let mut assigned_cases = self
-                        .assigned_cases
-                        .write()
-                        .expect("assigned cases lock poisoned");
-                    if let Some(cases) = assigned_cases.get_mut(&volunteer_id) {
-                        cases.retain(|case_id| case_id != &session_id);
-                        if cases.is_empty() {
-                            assigned_cases.remove(&volunteer_id);
-                        }
+                    if let Err(err) = self
+                        .volunteer_bindings
+                        .release(&session_id, &volunteer_id)
+                        .await
+                    {
+                        tracing::warn!(error = %err, session_id = %sid, volunteer_id = %volunteer_id, "failed to close stale durable binding");
+                        continue;
                     }
-
                     info!(session_id = %sid, volunteer_id = %volunteer_id, "stale handoff requeued for reassignment");
                 }
-                Ok(Some(_)) | Ok(None) => {}
+                Ok(None) => {
+                    let _ = self.queue.release_claim(&sid, &volunteer_id).await;
+                    self.volunteer_bindings
+                        .release(&session_id, &volunteer_id)
+                        .await?;
+                }
                 Err(err) => {
                     tracing::warn!(error = %err, session_id = %sid, volunteer_id = %volunteer_id, "stale handoff requeue aborted");
                 }
