@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 use tracing_actix_web::TracingLogger;
 
+mod fallback;
 mod handlers;
 mod inference;
 mod middleware;
@@ -78,13 +79,17 @@ async fn main() -> anyhow::Result<()> {
             .wrap(Compress::default())
             .wrap(middleware::RequestId::default())
             .route("/dashboard", web::get().to(handlers::dashboard::index))
+            .route(fallback::AUDIO_PATH, web::get().to(fallback::audio))
             .service(
                 web::scope("/api/v1")
                     .route("/health", web::get().to(handlers::health::health))
                     .route("/ready", web::get().to(handlers::health::ready))
                     .route("/metrics", web::get().to(handlers::health::metrics))
                     .route("/queue/raft", web::get().to(handlers::raft::status))
-                    .route("/queue/raft/cluster", web::get().to(handlers::raft::cluster))
+                    .route(
+                        "/queue/raft/cluster",
+                        web::get().to(handlers::raft::cluster),
+                    )
                     .route("/calls/incoming", web::post().to(handlers::calls::incoming))
                     .route("/calls/{sid}", web::get().to(handlers::calls::get_session))
                     .route("/calls/{sid}/turn", web::post().to(handlers::calls::turn))

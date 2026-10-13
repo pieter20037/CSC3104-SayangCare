@@ -694,6 +694,38 @@ lsof -nP -iTCP:8080 -sTCP:LISTEN
 
 The intended local arrangement keeps host PostgreSQL on `5432` or `5433` and publishes Docker PostgreSQL on `5434`.
 
+## CB-03 Cached Audio Fallback
+
+Twilio remains the phone gateway. When the `llm-inference` breaker rejects a
+request (Open, or a Half-Open probe is already running), `/twilio/gather` returns
+a fixed spoken explanation followed by `<Play>` for a bundled six-second chime.
+It then gathers speech again, so the next turn can reassess risk and attempt
+recovery. The session and transcript are persisted as usual, with state
+`degraded`. A successful permitted reply returns the session to `active`.
+New calls to `/twilio/voice` also receive this fallback immediately when the
+breaker is Open and inference is configured. The greeting checks state without
+reserving a Half-Open recovery probe. Retried voice webhooks preserve the stored
+session and do not repeat the degraded-state transcript mutation.
+High-risk and already escalated calls retain their safety response and volunteer
+queue workflow rather than entering audio fallback. Missing AI credentials and
+individual failed inference requests retain the existing text fallback; after a
+failure opens the breaker, subsequent rejected turns use cached audio.
+
+The Call Lab turn endpoint adds `fallback_audio_url` (a URL during audio fallback,
+otherwise `null`) and reports `state: "degraded"`. The dashboard does not
+automatically play the audio. The embedded file is available at
+`GET /audio/holding-v1.wav`, with `audio/wav` and immutable cache headers; see
+[the audio asset notes](crates/api/assets/README.md).
+
+For live calls, `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL` must be your public HTTPS
+origin and both `/twilio/*` and `/audio/*` must be reachable by Twilio. No new
+credentials, audio service, database migration, or runtime asset copy is needed.
+Listen locally at `http://localhost:8081/audio/holding-v1.wav` after starting the
+API. Automated checks: `cargo test --workspace` and
+`cargo check --workspace --all-targets`. Live phone playback still needs Twilio
+validation. This change does not alter CB-01/CB-02 threshold logic: slow
+successful replies alone still do not open the breaker.
+
 ## Known Limitations
 
 - The Raft queue backend is opt-in (`SAYANGCARE__QUEUE__BACKEND=raft`); Redis remains the default. Raft cluster membership is static, there is no Kubernetes StatefulSet/headless-service manifest for it yet (Phase 4), and Raft state is only persisted when `RAFT_DATA_DIR` is set.

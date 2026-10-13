@@ -148,6 +148,7 @@ pub async fn turn(
         text: transcript.to_string(),
         timestamp: now,
     };
+    let mut use_audio = false;
     let assistant_response = if escalated {
         response_for_risk(session.risk.level.0).to_string()
     } else if let Some(inference) = state.inference.as_ref() {
@@ -156,7 +157,8 @@ pub async fn turn(
         match breaker.acquire_with_permit() {
             Err(_) => {
                 // Circuit is Open, or another recovery probe is running.
-                response_for_risk(session.risk.level.0).to_string()
+                use_audio = true;
+                crate::fallback::HOLDING_MESSAGE.to_string()
             }
 
             Ok(permit) => {
@@ -207,6 +209,10 @@ pub async fn turn(
         ])
         .is_err()
     {
+        return HttpResponse::Conflict().finish();
+    }
+
+    if crate::fallback::mark_degraded(&mut session, use_audio).is_err() {
         return HttpResponse::Conflict().finish();
     }
 
@@ -271,6 +277,7 @@ pub async fn turn(
         "risk_level": session.risk.level.0,
         "risk_rationale": session.risk.rationale,
         "assistant_response": assistant_response,
+        "fallback_audio_url": use_audio.then(|| crate::fallback::audio_url(&state.config.telephony.public_base_url)),
     }))
 }
 
