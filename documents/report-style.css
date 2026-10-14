@@ -1,0 +1,65 @@
+@page {
+  size: letter;
+  margin: 0.55in 0.62in;
+}
+
+body {
+  color: #111;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 10pt;
+  line-height: 1.02;
+  margin: 0;
+}
+
+h1.title {
+  font-size: 15pt;
+  line-height: 1.05;
+  margin: 0 0 6pt;
+  text-align: center;
+}
+
+p.author,
+p.date {
+  font-size: 8pt;
+  margin: 0 0 3pt;
+  text-align: center;
+}
+
+p {
+  margin: 0 0 4pt;
+  text-align: justify;
+  orphans: 2;
+  widows: 2;
+}
+
+.twocol {
+  column-count: 2;
+  column-gap: 0.22in;
+  column-fill: balance;
+}
+
+h2 {
+  break-after: avoid;
+  font-size: 9.5pt;
+  line-height: 1.05;
+  margin: 6pt 0 2pt;
+}
+
+h3 {
+  break-after: avoid;
+  font-size: 9pt;
+  margin: 4pt 0 2pt;
+}
+
+pre {
+  break-inside: avoid;
+  font-size: 6.5pt;
+  line-height: 1.05;
+  margin: 3pt 0 5pt;
+  white-space: pre-wrap;
+}
+
+code {
+  font-family: "Courier New", monospace;
+  font-size: 0.9em;
+}
