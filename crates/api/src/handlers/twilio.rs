@@ -200,7 +200,7 @@ pub async fn gather(
     let escalated = was_escalated || session.risk.level.requires_immediate_escalation();
     let mut use_audio = false;
     let assistant_reply = if escalated {
-        "Thank you for telling me. I'm sorry you're going through this. I want to help keep you safe, and I'm alerting a human volunteer now. Are you in immediate danger right now?".to_string()
+        "Thank you for telling me. Don't worry, I've alerted a human volunteer. They'll speak with you as soon as one is available. Please stay with me while we connect you.".to_string()
     } else if let Some(inference) = state.inference.as_ref() {
         let breaker = state.breakers.get("llm-inference").await;
         match breaker.acquire_with_permit() {

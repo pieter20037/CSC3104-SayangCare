@@ -8,6 +8,7 @@ Two major features have been successfully implemented, tested, and merged to mai
 2. **PostgreSQL Retry & Data Loss Prevention (DATA-05)** - Ensures session data durability
 
 ### Key Metrics
+
 - ✅ **48 tests passing** (16 circuit-breaker + 9 session-store + others)
 - ✅ **0 data loss scenarios** (version-safe deletion, atomic operations)
 - ✅ **100% recovery** from PostgreSQL outages (retry + sweeper)
@@ -18,10 +19,12 @@ Two major features have been successfully implemented, tested, and merged to mai
 ## Quick Start
 
 ### Run All Tests
+
 ```powershell
 cd "c:\Users\darre\CSC3104-SayangCare Project\CSC3104-SayangCare"
 cargo test --workspace
 ```
+
 **Expected: 48 tests passed, 1 ignored (normal)**
 
 ---
@@ -35,12 +38,13 @@ cargo test --workspace
 **Solution**: Automatic request rejection when error rate or latency exceeds thresholds.
 
 **State Machine**:
+
 ```
-Closed (normal) 
+Closed (normal)
   ↓ [error/latency threshold]
-Open (reject all) 
+Open (reject all)
   ↓ [cooldown elapsed]
-Half-Open (test 1 request) 
+Half-Open (test 1 request)
   ↓ [test succeeds]
 Closed ✅
   OR
@@ -49,6 +53,7 @@ Open (restart cooldown)
 ```
 
 **Key Features**:
+
 - ✅ Sentiment-aware thresholds (distressed callers get stricter protection)
 - ✅ P95 latency metric (tail latency matters)
 - ✅ Generation tracking (prevents stale requests from interfering)
@@ -66,6 +71,7 @@ Open (restart cooldown)
 **Solution**: Retry with exponential backoff, keep session in Redis if archive fails.
 
 **Write Path**:
+
 ```
 Session completes
   ↓
@@ -74,13 +80,14 @@ CAS update to terminal state (Atomic)
 Retry archival (5 attempts, exponential backoff)
   ├─ Success → Version-safe deletion from Redis
   └─ Failure after 5 attempts → Keep in Redis (data preserved!)
-  
+
 Background sweeper (every 30s)
   ├─ Detects terminal sessions in Redis
   └─ Retries archival automatically
 ```
 
 **Key Features**:
+
 - ✅ **5 retry attempts** with exponential backoff (200ms → 2s)
 - ✅ **Retryable error classification** (transient vs. permanent)
 - ✅ **Version-safe deletion** (atomic CAS, protects concurrent updates)
@@ -105,12 +112,12 @@ Redis (Hot)           PostgreSQL (Cold)
 
 ### Error Handling Strategy
 
-| Error Type | Example | Action | Retry? |
-|-----------|---------|--------|--------|
-| Transient | Connection timeout | Retry with backoff | ✅ 5 attempts |
-| Deadlock | PG deadlock | Retry with backoff | ✅ 5 attempts |
-| Overload | Too many connections | Retry with backoff | ✅ 5 attempts |
-| Permanent | Table not found | Return error | ❌ No retry |
+| Error Type | Example              | Action             | Retry?        |
+| ---------- | -------------------- | ------------------ | ------------- |
+| Transient  | Connection timeout   | Retry with backoff | ✅ 5 attempts |
+| Deadlock   | PG deadlock          | Retry with backoff | ✅ 5 attempts |
+| Overload   | Too many connections | Retry with backoff | ✅ 5 attempts |
+| Permanent  | Table not found      | Return error       | ❌ No retry   |
 
 ### Concurrency Safety
 
@@ -118,7 +125,7 @@ Redis (Hot)           PostgreSQL (Cold)
 Scenario: Session completes while new turn arrives
 
 Time 0: finish() fetches session v=1
-Time 1: new turn arrives, session becomes v=2  
+Time 1: new turn arrives, session becomes v=2
 Time 2: finish() archives v=1
 Time 3: delete_if_version(&id, v1)
         ├─ Current version = 2
@@ -135,8 +142,9 @@ Time 3: delete_if_version(&id, v1)
 All 16 tests passing ✅
 
 **Test Categories**:
+
 - State transitions (4 tests)
-- Metrics calculation (3 tests)  
+- Metrics calculation (3 tests)
 - Generation isolation (5 tests)
 - Recovery & permits (4 tests)
 
@@ -145,6 +153,7 @@ All 16 tests passing ✅
 All 9 tests passing ✅
 
 **Test Categories**:
+
 - Retry mechanism (3 tests)
 - Version-safe deletion (2 tests)
 - Recovery paths (2 tests)
@@ -170,17 +179,21 @@ TIME: ~2 minutes (Rust compilation)
 ## How to Review
 
 ### Option 1: Quick Review (15 min)
+
 1. Read this summary
 2. Run: `cargo test --workspace`
 3. Verify all tests pass
 4. Check: [`TEST_EXECUTION_QUICK_REFERENCE.md`](./TEST_EXECUTION_QUICK_REFERENCE.md)
 
 ### Option 2: Detailed Review (1 hour)
+
 1. Read: [`MERGED_IMPLEMENTATIONS_GUIDE.md`](./MERGED_IMPLEMENTATIONS_GUIDE.md)
 2. Review flows: [`FLOW_DIAGRAMS.md`](./FLOW_DIAGRAMS.md)
 3. Examine code:
-   - Circuit breaker: [`crates/circuit-breaker/src/breaker.rs`](./crates/circuit-breaker/src/breaker.rs)
-   - Session store: [`crates/session-store/src/tiered.rs`](./crates/session-store/src/tiered.rs)
+
+- Circuit breaker: [`crates/circuit-breaker/src/breaker.rs`](../crates/circuit-breaker/src/breaker.rs)
+- Session store: [`crates/session-store/src/tiered.rs`](../crates/session-store/src/tiered.rs)
+
 4. Run targeted tests:
    ```powershell
    cargo test -p sayangcare-circuit-breaker
@@ -188,6 +201,7 @@ TIME: ~2 minutes (Rust compilation)
    ```
 
 ### Option 3: Deep Dive (2-3 hours)
+
 1. Complete detailed review (Option 2)
 2. Study atomic operations:
    - Generation packing: `pack_state()`, `unpack_state()`
@@ -290,12 +304,14 @@ INFO: sessions archived by sweeper (archived=15)
 ## Future Enhancements
 
 ### Circuit Breaker
+
 - [ ] Metrics export (Prometheus)
 - [ ] Dashboard visualization
 - [ ] Adaptive cooldown duration (shorter for temporary blips)
 - [ ] Weighted metrics (favor recent requests)
 
 ### Session Store
+
 - [ ] Compression for PostgreSQL archives
 - [ ] Sharded archival (parallel PostgreSQL inserts)
 - [ ] Warm standby for PostgreSQL (HA)
@@ -305,12 +321,12 @@ INFO: sessions archived by sweeper (archived=15)
 
 ## Files Created for This Review
 
-| File | Purpose |
-|------|---------|
-| [`MERGED_IMPLEMENTATIONS_GUIDE.md`](./MERGED_IMPLEMENTATIONS_GUIDE.md) | Complete technical guide with code examples |
-| [`TEST_EXECUTION_QUICK_REFERENCE.md`](./TEST_EXECUTION_QUICK_REFERENCE.md) | Quick reference for running tests |
-| [`FLOW_DIAGRAMS.md`](./FLOW_DIAGRAMS.md) | ASCII diagrams of all flows |
-| [`IMPLEMENTATION_SUMMARY.md`](./IMPLEMENTATION_SUMMARY.md) | This file |
+| File                                                                       | Purpose                                     |
+| -------------------------------------------------------------------------- | ------------------------------------------- |
+| [`MERGED_IMPLEMENTATIONS_GUIDE.md`](./MERGED_IMPLEMENTATIONS_GUIDE.md)     | Complete technical guide with code examples |
+| [`TEST_EXECUTION_QUICK_REFERENCE.md`](./TEST_EXECUTION_QUICK_REFERENCE.md) | Quick reference for running tests           |
+| [`FLOW_DIAGRAMS.md`](./FLOW_DIAGRAMS.md)                                   | ASCII diagrams of all flows                 |
+| [`IMPLEMENTATION_SUMMARY.md`](./IMPLEMENTATION_SUMMARY.md)                 | This file                                   |
 
 ---
 
@@ -336,15 +352,18 @@ A: Session stays in Redis. On restart, sweeper detects it and retries archival. 
 ## Contact & References
 
 **Implementers**:
+
 - Circuit Breaker (CB-01, CB-02): Yi Xuan (merged to main)
 - Session Store (DATA-05): Lucas (merged to main)
 
 **Code References**:
-- Circuit breaker: [`crates/circuit-breaker/`](./crates/circuit-breaker/)
-- Session store: [`crates/session-store/`](./crates/session-store/)
-- Core domain: [`crates/core/`](./crates/core/)
+
+- Circuit breaker: [`crates/circuit-breaker/`](../crates/circuit-breaker/)
+- Session store: [`crates/session-store/`](../crates/session-store/)
+- Core domain: [`crates/core/`](../crates/core/)
 
 **Testing**:
+
 - Run: `cargo test --workspace`
 - Filter: `cargo test -p <crate-name>`
 - Verbose: `cargo test -- --nocapture`

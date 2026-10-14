@@ -22,9 +22,10 @@ cargo test --workspace
 ```
 
 **Expected Output Summary**:
+
 - ✅ API tests: 1 passed
 - ✅ Circuit breaker tests: 16 passed
-- ✅ Core domain tests: 13 passed  
+- ✅ Core domain tests: 13 passed
 - ✅ Priority queue tests: 8 passed; 1 ignored (Redis-dependent, normal)
 - ✅ Session store tests: 9 passed
 - ✅ Telephony tests: 2 passed
@@ -103,16 +104,19 @@ Shows all println! output and panics.
 ### Circuit Breaker Tests (16)
 
 **State Transitions** (3 tests):
+
 - ✅ `half_open_allows_only_one_recovery_probe` → Only 1 request allowed in Half-Open
 - ✅ `successful_recovery_probe_closes_circuit` → Half-Open + success → Closed
 - ✅ `failed_recovery_probe_reopens_circuit` → Half-Open + failure → Open
 
 **Metrics & Thresholds** (3 tests):
+
 - ✅ `sliding_window_discards_old_requests` → Metrics window respects capacity
 - ✅ `error_rate_updates_when_window_slides` → Error rate recalculated correctly
 - ✅ `p95_is_not_average_latency` → P95 calculation is correct
 
 **Generation Isolation** (5 tests):
+
 - ✅ `packed_state_preserves_generation_and_state` → State format correct
 - ✅ `outdated_recovery_probe_cannot_close_new_generation` → Old recovery blocked
 - ✅ `old_normal_request_must_not_close_half_open_circuit` → Old normal blocked
@@ -120,6 +124,7 @@ Shows all println! output and panics.
 - ✅ `old_normal_failure_must_not_reopen_half_open_circuit` → Old failure blocked
 
 **Recovery & Permits** (4 tests):
+
 - ✅ `acquire_returns_correct_request_permit` → Permit type matches state
 - ✅ `valid_recovery_probe_closes_circuit_with_permit` → Permit-based close works
 - ✅ `failed_recovery_allows_another_probe_after_cooldown` → Retry after cooldown
@@ -131,19 +136,23 @@ Shows all println! output and panics.
 ### Session Store Tests (9)
 
 **Data Loss Prevention** (2 tests):
+
 - ✅ `retry_exhaustion_preserves_hot_session` → Session stays in Redis after 5 failures
 - ✅ `stale_archive_does_not_delete_newer_hot_version` → Newer versions protected
 
 **Retry Mechanism** (3 tests):
+
 - ✅ `retry_succeeds_after_temporary_failures` → Retries 2 failures, succeeds on 3rd
 - ✅ `archive_recovers_on_later_request` → Deferred retry on next request
 - ✅ `background_recovery_archives_completed_session_after_failure` → Sweeper recovery
 
 **Concurrent Safety** (2 tests):
+
 - ✅ `finish_cas_conflict_does_not_archive_or_delete_session` → Concurrent update safe
 - ✅ `finish_commits_archive_before_removing_hot_session` → Archive-then-delete order
 
 **State Preservation** (2 tests):
+
 - ✅ `finish_preserves_escalated_state_for_high_risk_calls` → Terminal state saved
 - ✅ `cold_read_rehydrates_full_session_into_hot_store` → Fallback mechanism works
 
@@ -152,18 +161,22 @@ Shows all println! output and panics.
 ## Failure Scenarios to Expect
 
 ### "Thread 'main' panicked"
+
 → A test assertion failed (data integrity issue)
 → Check the assertion message above the panic
 
 ### "StorageTransient" errors in logs
+
 → Simulated PostgreSQL outage (intentional in tests)
 → Retry mechanism should handle these
 
 ### "VersionConflict" errors
+
 → Concurrent update detected (correct behavior)
 → System should preserve newer version
 
 ### 1 ignored test in priority-queue
+
 → Requires Redis at 127.0.0.1:6379
 → Normal and expected; Docker provides this
 
@@ -200,13 +213,13 @@ test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured
 
 ## Common Issues & Fixes
 
-| Issue | Cause | Fix |
-|-------|-------|-----|
-| `error: could not find crate` | Missing dependencies | Run `cargo fetch` |
-| `docker: command not found` | Docker not installed | Install Docker Desktop |
-| `connection refused` | Docker containers not running | `docker compose up -d` |
-| `FAILED [1 passed, 1 failed]` | Test assertion failed | Check test code/implementation |
-| `1 ignored` in priority-queue | Redis test skipped | Expected; Docker provides Redis |
+| Issue                         | Cause                         | Fix                             |
+| ----------------------------- | ----------------------------- | ------------------------------- |
+| `error: could not find crate` | Missing dependencies          | Run `cargo fetch`               |
+| `docker: command not found`   | Docker not installed          | Install Docker Desktop          |
+| `connection refused`          | Docker containers not running | `docker compose up -d`          |
+| `FAILED [1 passed, 1 failed]` | Test assertion failed         | Check test code/implementation  |
+| `1 ignored` in priority-queue | Redis test skipped            | Expected; Docker provides Redis |
 
 ---
 
@@ -216,8 +229,8 @@ test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured
    - See full guide: [`MERGED_IMPLEMENTATIONS_GUIDE.md`](./MERGED_IMPLEMENTATIONS_GUIDE.md)
 
 2. **Check code**:
-   - Circuit breaker: [`crates/circuit-breaker/src/breaker.rs`](./crates/circuit-breaker/src/breaker.rs)
-   - Session store: [`crates/session-store/src/tiered.rs`](./crates/session-store/src/tiered.rs)
+   - Circuit breaker: [`crates/circuit-breaker/src/breaker.rs`](../crates/circuit-breaker/src/breaker.rs)
+   - Session store: [`crates/session-store/src/tiered.rs`](../crates/session-store/src/tiered.rs)
 
 3. **Run the app** (if you want to see it in action):
    - Follow: [`PHASE_2.md`](./PHASE_2.md) for running Raft cluster

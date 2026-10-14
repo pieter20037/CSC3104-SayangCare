@@ -1,6 +1,7 @@
 # Merged Implementations Review Guide
 
 This guide covers two merged pull requests:
+
 - **CB-01 & CB-02**: Circuit Breaker Implementation (merged to main by Yi Xuan)
 - **DATA-05**: PostgreSQL Retry Mechanism & Session Data Loss Prevention (merged to main by Lucas)
 
@@ -8,7 +9,7 @@ This guide covers two merged pull requests:
 
 ### CB-01 & CB-02: Circuit Breaker Pattern
 
-**Location**: [`crates/circuit-breaker/src/`](./crates/circuit-breaker/src/)
+**Location**: [`crates/circuit-breaker/src/`](../crates/circuit-breaker/src/)
 
 The circuit breaker protects the LLM API from cascading failures when the backend is degraded or unavailable. It implements the classic state machine:
 
@@ -18,6 +19,7 @@ Closed → Open → Half-Open → Closed
 ```
 
 **Key Features:**
+
 - **State Transitions**: Automated transitions based on error rate and P95 latency thresholds
 - **Adaptive Thresholds**: Thresholds scale based on caller distress severity (sentiment-aware)
 - **Generation Tracking**: Atomic state + generation prevents stale requests from interfering with recovery
@@ -69,6 +71,7 @@ Closed → Open → Half-Open → Closed
 #### Key Concepts
 
 **RequestPermit Enum**:
+
 ```rust
 pub enum RequestPermit {
     Normal { generation: u64 },         // Normal request in Closed state
@@ -77,11 +80,13 @@ pub enum RequestPermit {
 ```
 
 **Generation Tracking**:
+
 - Each time the circuit opens, generation increments
 - Normal requests only count toward metrics if their generation matches current generation
 - Prevents old requests from affecting new recovery attempts
 
 **Packed State**:
+
 ```rust
 // 64-bit value: [generation (62 bits) | state (2 bits)]
 fn pack_state(generation: u64, state: u8) -> u64 {
@@ -123,24 +128,24 @@ test result: ok. 16 passed; 0 failed; 0 ignored
 
 ### Test Breakdown
 
-| Test Name | What It Tests | Why It Matters |
-|-----------|---------------|----------------|
-| `sliding_window_discards_old_requests` | Metrics window respects capacity | Ensures old metrics don't skew current health |
-| `empty_window_returns_zero_metrics` | Edge case: no requests yet | Prevents division by zero / panic |
-| `p95_is_not_average_latency` | P95 calculation correctness | Tail latency matters more for circuit breaking |
-| `error_rate_updates_when_window_slides` | Error rate recalculation | Sliding window must update error statistics |
-| `half_open_allows_only_one_recovery_probe` | Concurrency control in Half-Open | Prevents race conditions during recovery |
-| `successful_recovery_probe_closes_circuit` | Recovery path (success) | Circuit can heal after outage |
-| `failed_recovery_probe_reopens_circuit` | Recovery path (failure) | Circuit remains protected if service still broken |
-| `failed_recovery_allows_another_probe_after_cooldown` | Retry mechanism | Service gets multiple chances to recover |
-| `acquire_returns_correct_request_permit` | Permit logic | Callers know if they have recovery slot or normal slot |
-| `concurrent_half_open_requests_allow_only_one_probe` | Concurrency safety | Only one thread gets recovery probe |
-| `outdated_recovery_probe_cannot_close_new_generation` | Generation isolation | Old recovery attempt can't close new generation |
-| `valid_recovery_probe_closes_circuit_with_permit` | Permit-based state change | Recovery probe correctly closes circuit |
-| `old_normal_request_must_not_close_half_open_circuit` | Generation isolation | Stale requests don't interfere with recovery |
-| `old_normal_failure_must_not_reopen_half_open_circuit` | Generation isolation | Stale failures don't interfere with recovery |
-| `outdated_failure_cannot_trip_new_generation` | Generation isolation | Stale failures don't trip new generation |
-| `packed_state_preserves_generation_and_state` | Atomic packing/unpacking | State representation is correct |
+| Test Name                                              | What It Tests                    | Why It Matters                                         |
+| ------------------------------------------------------ | -------------------------------- | ------------------------------------------------------ |
+| `sliding_window_discards_old_requests`                 | Metrics window respects capacity | Ensures old metrics don't skew current health          |
+| `empty_window_returns_zero_metrics`                    | Edge case: no requests yet       | Prevents division by zero / panic                      |
+| `p95_is_not_average_latency`                           | P95 calculation correctness      | Tail latency matters more for circuit breaking         |
+| `error_rate_updates_when_window_slides`                | Error rate recalculation         | Sliding window must update error statistics            |
+| `half_open_allows_only_one_recovery_probe`             | Concurrency control in Half-Open | Prevents race conditions during recovery               |
+| `successful_recovery_probe_closes_circuit`             | Recovery path (success)          | Circuit can heal after outage                          |
+| `failed_recovery_probe_reopens_circuit`                | Recovery path (failure)          | Circuit remains protected if service still broken      |
+| `failed_recovery_allows_another_probe_after_cooldown`  | Retry mechanism                  | Service gets multiple chances to recover               |
+| `acquire_returns_correct_request_permit`               | Permit logic                     | Callers know if they have recovery slot or normal slot |
+| `concurrent_half_open_requests_allow_only_one_probe`   | Concurrency safety               | Only one thread gets recovery probe                    |
+| `outdated_recovery_probe_cannot_close_new_generation`  | Generation isolation             | Old recovery attempt can't close new generation        |
+| `valid_recovery_probe_closes_circuit_with_permit`      | Permit-based state change        | Recovery probe correctly closes circuit                |
+| `old_normal_request_must_not_close_half_open_circuit`  | Generation isolation             | Stale requests don't interfere with recovery           |
+| `old_normal_failure_must_not_reopen_half_open_circuit` | Generation isolation             | Stale failures don't interfere with recovery           |
+| `outdated_failure_cannot_trip_new_generation`          | Generation isolation             | Stale failures don't trip new generation               |
+| `packed_state_preserves_generation_and_state`          | Atomic packing/unpacking         | State representation is correct                        |
 
 ### Integration Points
 
@@ -174,7 +179,7 @@ Similar integration pattern for webhook processing.
 
 ## DATA-05: PostgreSQL Retry Mechanism & Data Loss Prevention
 
-**Location**: [`crates/session-store/src/`](./crates/session-store/src/)
+**Location**: [`crates/session-store/src/`](../crates/session-store/src/)
 
 This feature ensures that sessions never get lost when PostgreSQL archival fails. It combines retry logic with atomic deletion and background recovery.
 
@@ -308,17 +313,17 @@ test result: ok. 9 passed; 0 failed; 0 ignored
 
 ### Test Breakdown
 
-| Test Name | What It Tests | Why It Matters |
-|-----------|---------------|----------------|
-| `retry_succeeds_after_temporary_failures` | Retry mechanism | Session survives 2 failures, succeeds on 3rd attempt |
-| `retry_exhaustion_preserves_hot_session` | Data loss prevention | After 5 failed attempts, session stays in Redis (not deleted!) |
-| `background_recovery_archives_completed_session_after_failure` | Sweeper recovery | Failed terminal archival retried by background task |
-| `archive_recovers_on_later_request` | Deferred recovery | If first finish() fails, retry on second finish() succeeds |
-| `stale_archive_does_not_delete_newer_hot_version` | Version-safe deletion | Older version doesn't delete newer concurrent update |
-| `finish_commits_archive_before_removing_hot_session` | CAS semantics | Archive succeeds before Redis cleanup |
-| `finish_cas_conflict_does_not_archive_or_delete_session` | Concurrency safety | Concurrent update prevents stale archival |
-| `finish_preserves_escalated_state_for_high_risk_calls` | State preservation | Terminal state is correctly persisted |
-| `cold_read_rehydrates_full_session_into_hot_store` | Fallback mechanism | Can reconstruct session from PostgreSQL if Redis lost |
+| Test Name                                                      | What It Tests         | Why It Matters                                                 |
+| -------------------------------------------------------------- | --------------------- | -------------------------------------------------------------- |
+| `retry_succeeds_after_temporary_failures`                      | Retry mechanism       | Session survives 2 failures, succeeds on 3rd attempt           |
+| `retry_exhaustion_preserves_hot_session`                       | Data loss prevention  | After 5 failed attempts, session stays in Redis (not deleted!) |
+| `background_recovery_archives_completed_session_after_failure` | Sweeper recovery      | Failed terminal archival retried by background task            |
+| `archive_recovers_on_later_request`                            | Deferred recovery     | If first finish() fails, retry on second finish() succeeds     |
+| `stale_archive_does_not_delete_newer_hot_version`              | Version-safe deletion | Older version doesn't delete newer concurrent update           |
+| `finish_commits_archive_before_removing_hot_session`           | CAS semantics         | Archive succeeds before Redis cleanup                          |
+| `finish_cas_conflict_does_not_archive_or_delete_session`       | Concurrency safety    | Concurrent update prevents stale archival                      |
+| `finish_preserves_escalated_state_for_high_risk_calls`         | State preservation    | Terminal state is correctly persisted                          |
+| `cold_read_rehydrates_full_session_into_hot_store`             | Fallback mechanism    | Can reconstruct session from PostgreSQL if Redis lost          |
 
 ### Key Data Loss Prevention Techniques
 
@@ -380,13 +385,13 @@ for attempt in 1..=MAX_ATTEMPTS {
 
 ### Integration with Sweeper
 
-**File**: [`crates/session-store/src/sweeper.rs`](./crates/session-store/src/sweeper.rs)
+**File**: [`crates/session-store/src/sweeper.rs`](../crates/session-store/src/sweeper.rs)
 
 ```rust
 pub async fn sweep_once(&self) -> Result<usize, CoreError> {
     const INACTIVITY: ChronoDuration = ChronoDuration::minutes(5);
     let cutoff = Utc::now() - INACTIVITY;
-    
+
     for session in self.hot.scan_sessions().await? {
         let result = match session.state {
             // Recovery path: retry archival of terminal sessions
@@ -399,7 +404,7 @@ pub async fn sweep_once(&self) -> Result<usize, CoreError> {
             }
             _ => continue,
         };
-        
+
         match result {
             Ok(true) => archived += 1,
             Ok(false) => {},
@@ -426,6 +431,7 @@ docker compose ps
 ```
 
 **Check for**:
+
 - `postgres` status: `healthy`
 - Ports available: `5434` (PostgreSQL), `6379` (Redis), `26379` (Sentinel)
 
@@ -471,24 +477,24 @@ cargo test --workspace -- --nocapture
 
 ### Circuit Breaker
 
-| Decision | Rationale |
-|----------|-----------|
-| **Atomic generation + state in u64** | Prevents ABA problem; stale requests can't interfere |
-| **Sentiment-aware thresholds** | Distressed callers get stricter thresholds (faster protection) |
-| **P95 latency metric** | Tail latency matters more than average for UX |
-| **Sliding window metrics** | Simple, O(1) space, fast evaluation |
-| **Only one recovery probe** | Prevents thundering herd; ensures controlled recovery testing |
+| Decision                             | Rationale                                                      |
+| ------------------------------------ | -------------------------------------------------------------- |
+| **Atomic generation + state in u64** | Prevents ABA problem; stale requests can't interfere           |
+| **Sentiment-aware thresholds**       | Distressed callers get stricter thresholds (faster protection) |
+| **P95 latency metric**               | Tail latency matters more than average for UX                  |
+| **Sliding window metrics**           | Simple, O(1) space, fast evaluation                            |
+| **Only one recovery probe**          | Prevents thundering herd; ensures controlled recovery testing  |
 
 ### Session Storage
 
-| Decision | Rationale |
-|----------|-----------|
-| **Retry with exponential backoff** | Allows temporary PostgreSQL blips to resolve naturally |
-| **Archive-then-delete pattern** | Never delete before confirming durability |
-| **Version-safe CAS deletion** | Prevents concurrent updates from being lost |
-| **Terminal session TTL protection** | Survives extended outages (72 hours) |
-| **Background sweeper recovery** | Catches failures that occur between requests |
-| **Retryable error classification** | Distinguishes transient vs. permanent failures |
+| Decision                            | Rationale                                              |
+| ----------------------------------- | ------------------------------------------------------ |
+| **Retry with exponential backoff**  | Allows temporary PostgreSQL blips to resolve naturally |
+| **Archive-then-delete pattern**     | Never delete before confirming durability              |
+| **Version-safe CAS deletion**       | Prevents concurrent updates from being lost            |
+| **Terminal session TTL protection** | Survives extended outages (72 hours)                   |
+| **Background sweeper recovery**     | Catches failures that occur between requests           |
+| **Retryable error classification**  | Distinguishes transient vs. permanent failures         |
 
 ---
 
@@ -510,6 +516,7 @@ pub struct BreakerSnapshot {
 ```
 
 Access with:
+
 ```rust
 let snapshot = breaker.snapshot();
 println!("Circuit state: {:?}", snapshot.state);
@@ -563,6 +570,7 @@ INFO: sessions archived by sweeper (archived=15)
 ### Version Conflict Errors?
 
 This is **expected and correct**. It means:
+
 - A concurrent turn arrived while archiving was in progress
 - The system correctly preserved the newer update
 - Next recovery attempt will archive the newer version
@@ -571,12 +579,12 @@ This is **expected and correct**. It means:
 
 ## Summary
 
-| Component | What It Does | Status |
-|-----------|-------------|--------|
-| **Circuit Breaker** | Protects LLM API from cascading failures | ✅ Merged (16 tests) |
-| **Retry Mechanism** | Survives temporary PostgreSQL outages | ✅ Merged (9 tests) |
-| **Data Loss Prevention** | Never deletes sessions prematurely | ✅ Merged (version-safe deletion) |
-| **Background Recovery** | Recovers from crashes and extended outages | ✅ Merged (sweeper task) |
-| **TTL Protection** | Terminal sessions survive prolonged outages | ✅ Merged (72-hour TTL) |
+| Component                | What It Does                                | Status                            |
+| ------------------------ | ------------------------------------------- | --------------------------------- |
+| **Circuit Breaker**      | Protects LLM API from cascading failures    | ✅ Merged (16 tests)              |
+| **Retry Mechanism**      | Survives temporary PostgreSQL outages       | ✅ Merged (9 tests)               |
+| **Data Loss Prevention** | Never deletes sessions prematurely          | ✅ Merged (version-safe deletion) |
+| **Background Recovery**  | Recovers from crashes and extended outages  | ✅ Merged (sweeper task)          |
+| **TTL Protection**       | Terminal sessions survive prolonged outages | ✅ Merged (72-hour TTL)           |
 
 All implementations are tested, merged to main, and ready for production use.

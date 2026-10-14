@@ -60,6 +60,7 @@ impl RiskAssessment {
             ("overwhelmed", 2),
             ("i feel trapped", 3),
             ("i don't want to live", 4),
+            ("do not want to live", 4),
         ];
         let moderate = [
             ("anxious", 2),
@@ -82,28 +83,30 @@ impl RiskAssessment {
             }
         }
 
-        let mut level = RiskLevel::LOW;
-        let mut rationale = "no acute distress markers detected".to_string();
-
-        if score >= 9
-            || immediate
-                .iter()
-                .any(|(marker, _)| normalized.contains(marker))
-        {
-            level = RiskLevel::CRISIS;
-            rationale = "immediate safety risk detected; urgent escalation required".to_string();
-        } else if score >= 5 || high.iter().any(|(marker, _)| normalized.contains(marker)) {
-            level = RiskLevel::HIGH;
-            rationale = "high-risk distress markers detected; human review recommended".to_string();
-        } else if score >= 2
-            || moderate
-                .iter()
-                .any(|(marker, _)| normalized.contains(marker))
-        {
-            level = RiskLevel::MODERATE;
-            rationale =
-                "moderate distress markers detected; monitor and continue support".to_string();
+        let immediate_risk = immediate
+            .iter()
+            .any(|(marker, _)| normalized.contains(marker));
+        let level = if immediate_risk || score >= 9 {
+            RiskLevel::CRISIS
+        } else if score >= 4 {
+            RiskLevel::HIGH
+        } else if score >= 2 {
+            RiskLevel::MODERATE
+        } else if score > 0 {
+            RiskLevel::ELEVATED
+        } else {
+            RiskLevel::LOW
+        };
+        let mut rationale = match level {
+            RiskLevel::CRISIS => "immediate safety risk detected; urgent escalation required",
+            RiskLevel::HIGH => {
+                "multiple or strong distress cues detected; human review recommended"
+            }
+            RiskLevel::MODERATE => "distress cues detected; monitor and continue support",
+            RiskLevel::ELEVATED => "mild distress cue detected; continue supportive check-in",
+            _ => "no acute distress markers detected",
         }
+        .to_string();
 
         if !evidence.is_empty() && level == RiskLevel::LOW {
             let sample = evidence
@@ -152,5 +155,25 @@ mod tests {
 
         assert_eq!(assessment.level, RiskLevel::HIGH);
         assert!(assessment.rationale.to_lowercase().contains("human review"));
+    }
+
+    #[test]
+    fn weighted_distress_cues_use_intermediate_levels() {
+        assert_eq!(
+            RiskAssessment::from_text("I feel sad.").level,
+            RiskLevel::ELEVATED
+        );
+        assert_eq!(
+            RiskAssessment::from_text("I have been anxious.").level,
+            RiskLevel::MODERATE
+        );
+        assert_eq!(
+            RiskAssessment::from_text("I do not want to live.").level,
+            RiskLevel::HIGH
+        );
+        assert_eq!(
+            RiskAssessment::from_text("I want to kill myself.").level,
+            RiskLevel::CRISIS
+        );
     }
 }

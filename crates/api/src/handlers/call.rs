@@ -25,7 +25,26 @@ pub async fn get_session(
 ) -> impl Responder {
     let sid = SessionId(path.into_inner());
     match state.sessions.get(&sid).await {
-        Ok(Some(session)) => HttpResponse::Ok().json(session),
+        Ok(Some(session)) => {
+            let sentiment_distress_severity = session
+                .latest_sentiment
+                .as_ref()
+                .map(|sentiment| sentiment.distress_severity());
+            let mut payload = match serde_json::to_value(&session) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    tracing::error!(error = %error, "failed to serialize session response");
+                    return HttpResponse::InternalServerError().finish();
+                }
+            };
+            if let Some(payload) = payload.as_object_mut() {
+                payload.insert(
+                    "sentiment_distress_severity".to_string(),
+                    serde_json::json!(sentiment_distress_severity),
+                );
+            }
+            HttpResponse::Ok().json(payload)
+        }
         Ok(None) => HttpResponse::NotFound().finish(),
         Err(e) => {
             tracing::error!(error = %e, "failed to load session");
@@ -88,7 +107,7 @@ pub struct TurnRequest {
 
 fn response_for_risk(level: u8) -> &'static str {
     match level {
-        4..=u8::MAX => "Thank you for telling me. I'm sorry you're going through this. I want to help keep you safe, and I'm alerting a human volunteer now. Are you in immediate danger right now?",
+        4..=u8::MAX => "Thank you for telling me. Don't worry, I've alerted a human volunteer. They'll speak with you as soon as one is available. Please stay with me while we connect you.",
         2..=3 => "I'm glad you told me. That sounds difficult to carry. What feels most important for me to understand right now?",
         _ => "Thank you for sharing that with me. What has been weighing on you most today?",
     }

@@ -60,6 +60,20 @@ impl RedisSessionStore {
         })
     }
 
+    pub async fn ping(&self) -> CoreResult<()> {
+        let mut conn = self.client.clone();
+        let response: String = redis::cmd("PING")
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| CoreError::Storage(format!("redis health check: {e}")))?;
+        if response != "PONG" {
+            return Err(CoreError::Storage(format!(
+                "redis health check returned unexpected response: {response}"
+            )));
+        }
+        Ok(())
+    }
+
     fn is_terminal(state: &SessionState) -> bool {
         matches!(
             state,

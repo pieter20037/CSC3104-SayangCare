@@ -3,6 +3,7 @@
 ## 📚 Complete Documentation Package for CB-01, CB-02 & DATA-05
 
 This index guides you through the complete review of two merged implementations:
+
 - **CB-01 & CB-02**: Circuit Breaker (Yi Xuan)
 - **DATA-05**: PostgreSQL Retry & Data Loss Prevention (Lucas)
 
@@ -11,12 +12,14 @@ This index guides you through the complete review of two merged implementations:
 ## 🚀 Quick Start (Choose Your Path)
 
 ### ⚡ 15-Minute Quick Review
+
 1. Read: [`IMPLEMENTATION_SUMMARY.md`](./IMPLEMENTATION_SUMMARY.md)
 2. Run: `cargo test --workspace`
 3. Check: [`TEST_EXECUTION_QUICK_REFERENCE.md`](./TEST_EXECUTION_QUICK_REFERENCE.md)
 4. **Done!** You now understand the implementations
 
 ### 🔍 1-Hour Detailed Review
+
 1. Read: [`IMPLEMENTATION_SUMMARY.md`](./IMPLEMENTATION_SUMMARY.md) (5 min)
 2. Read: [`MERGED_IMPLEMENTATIONS_GUIDE.md`](./MERGED_IMPLEMENTATIONS_GUIDE.md) - Sections on CB overview & DATA-05 overview (20 min)
 3. Study: [`FLOW_DIAGRAMS.md`](./FLOW_DIAGRAMS.md) (15 min)
@@ -24,13 +27,16 @@ This index guides you through the complete review of two merged implementations:
 5. Review test breakdown: [`TEST_EXECUTION_QUICK_REFERENCE.md`](./TEST_EXECUTION_QUICK_REFERENCE.md) (10 min)
 
 ### 🎓 2-3 Hour Deep Technical Dive
+
 1. Complete 1-hour detailed review (above)
 2. Read: [`MERGED_IMPLEMENTATIONS_GUIDE.md`](./MERGED_IMPLEMENTATIONS_GUIDE.md) - Full document (45 min)
 3. Study: [`COMPARISON_TABLE.md`](./COMPARISON_TABLE.md) (20 min)
 4. Review source code:
-   - [`crates/circuit-breaker/src/breaker.rs`](./crates/circuit-breaker/src/breaker.rs)
-   - [`crates/session-store/src/tiered.rs`](./crates/session-store/src/tiered.rs)
-   - [`crates/session-store/src/sweeper.rs`](./crates/session-store/src/sweeper.rs)
+
+- [`crates/circuit-breaker/src/breaker.rs`](../crates/circuit-breaker/src/breaker.rs)
+- [`crates/session-store/src/tiered.rs`](../crates/session-store/src/tiered.rs)
+- [`crates/session-store/src/sweeper.rs`](../crates/session-store/src/sweeper.rs)
+
 5. Run: `cargo test -- --nocapture` (verbose output)
 6. Trace through test code to understand patterns
 
@@ -39,9 +45,11 @@ This index guides you through the complete review of two merged implementations:
 ## 📖 Documentation Files
 
 ### File 1: [`IMPLEMENTATION_SUMMARY.md`](./IMPLEMENTATION_SUMMARY.md)
+
 **Type**: Executive Summary | **Length**: 4 pages | **Time**: 5-10 min
 
 **Contains**:
+
 - Quick overview of both features
 - Test results and status
 - Architecture overview
@@ -56,9 +64,11 @@ This index guides you through the complete review of two merged implementations:
 ---
 
 ### File 2: [`MERGED_IMPLEMENTATIONS_GUIDE.md`](./MERGED_IMPLEMENTATIONS_GUIDE.md)
+
 **Type**: Complete Technical Guide | **Length**: 22 pages | **Time**: 30-45 min
 
 **Contains**:
+
 - Detailed Circuit Breaker explanation
   - State machine diagram
   - State transitions (Closed → Open → Half-Open → Closed)
@@ -84,9 +94,11 @@ This index guides you through the complete review of two merged implementations:
 ---
 
 ### File 3: [`TEST_EXECUTION_QUICK_REFERENCE.md`](./TEST_EXECUTION_QUICK_REFERENCE.md)
+
 **Type**: Quick Reference | **Length**: 8 pages | **Time**: 5-15 min
 
 **Contains**:
+
 - Setup instructions (Docker)
 - Test execution commands
   - All tests
@@ -106,9 +118,11 @@ This index guides you through the complete review of two merged implementations:
 ---
 
 ### File 4: [`FLOW_DIAGRAMS.md`](./FLOW_DIAGRAMS.md)
+
 **Type**: Visual Diagrams | **Length**: 14 pages | **Time**: 15-20 min
 
 **Contains**:
+
 - Circuit breaker state machine (ASCII diagram)
 - Request lifecycle with generation tracking
 - Session storage write path (complete flow)
@@ -124,9 +138,11 @@ This index guides you through the complete review of two merged implementations:
 ---
 
 ### File 5: [`COMPARISON_TABLE.md`](./COMPARISON_TABLE.md)
+
 **Type**: Reference Tables | **Length**: 11 pages | **Time**: 15-20 min
 
 **Contains**:
+
 - Problem → Solution comparison
 - Key mechanisms comparison
 - Test coverage breakdown
@@ -148,23 +164,27 @@ This index guides you through the complete review of two merged implementations:
 ### Circuit Breaker: 16 Tests ✅
 
 **Category 1: Basic State Transitions (4 tests)**
+
 - Closed + threshold → Open
 - Open + cooldown → Half-Open
 - Half-Open + success → Closed
 - Half-Open + failure → Open
 
 **Category 2: Metrics (3 tests)**
+
 - Sliding window capacity
 - Error rate updates
 - P95 latency calculation
 
 **Category 3: Generation Isolation (5 tests)**
+
 - Stale recovery probe isolated
 - Stale normal request isolated
 - Stale failure isolated (2 variants)
 - Generation packing correct
 
 **Category 4: Concurrency (4 tests)**
+
 - Only one recovery probe
 - Recovery probe closes circuit
 - Failed recovery retry
@@ -173,19 +193,23 @@ This index guides you through the complete review of two merged implementations:
 ### Session Store: 9 Tests ✅
 
 **Category 1: Retry Mechanism (3 tests)**
+
 - Retry succeeds after failures
 - Retry exhaustion (keep in Redis)
 - Later request retries
 
 **Category 2: Version-Safe Deletion (2 tests)**
+
 - Stale archive doesn't delete newer
 - CAS conflict protection
 
 **Category 3: Recovery Paths (2 tests)**
+
 - Sweeper recovers terminal
 - Later request recovers
 
 **Category 4: State Preservation (2 tests)**
+
 - Terminal state persisted
 - Cold store rehydration
 
@@ -245,16 +269,16 @@ Success? → Data persisted, Redis cleaned
 
 ```
 Repository Root:
-C:\Users\darre\CSC3104-SayangCare Project\CSC3104-SayangCare\
-
-Documentation:
-├─ REVIEW_INDEX.md ⭐ (this file)
-├─ IMPLEMENTATION_SUMMARY.md ⭐ (start here)
-├─ MERGED_IMPLEMENTATIONS_GUIDE.md
-├─ TEST_EXECUTION_QUICK_REFERENCE.md
-├─ FLOW_DIAGRAMS.md
-├─ COMPARISON_TABLE.md
-├─ PHASE_2.md (existing, for context)
+├─ README.md
+├─ docs/
+│  ├─ README.md (documentation index)
+│  ├─ REVIEW_INDEX.md (this file)
+│  ├─ IMPLEMENTATION_SUMMARY.md (start here)
+│  ├─ MERGED_IMPLEMENTATIONS_GUIDE.md
+│  ├─ TEST_EXECUTION_QUICK_REFERENCE.md
+│  ├─ FLOW_DIAGRAMS.md
+│  ├─ COMPARISON_TABLE.md
+│  └─ PHASE_2.md
 
 Source Code:
 ├─ crates/circuit-breaker/src/
@@ -291,17 +315,21 @@ After review, verify:
 ## 🔑 Key Takeaways
 
 ### Circuit Breaker (CB-01, CB-02)
-**Problem**: LLM API failures cascade | 
-**Solution**: Automatic request rejection + recovery probe | 
+
+**Problem**: LLM API failures cascade |
+**Solution**: Automatic request rejection + recovery probe |
 **Result**: Protected API, no thundering herd
 
 ### Session Store (DATA-05)
-**Problem**: PostgreSQL outage = data loss | 
-**Solution**: Retry + keep in Redis + background recovery | 
+
+**Problem**: PostgreSQL outage = data loss |
+**Solution**: Retry + keep in Redis + background recovery |
 **Result**: Data survives 72-hour outages
 
 ### Combined
+
 **Benefit**: Resilient system that can handle:
+
 - Cascading API failures ✅
 - Database outages ✅
 - Concurrent request conflicts ✅
@@ -312,12 +340,14 @@ After review, verify:
 ## 🎯 Status & Next Steps
 
 **Current Status**:
+
 - ✅ Implemented and tested
 - ✅ Merged to main (Yi Xuan & Lucas)
 - ✅ Production ready
 - ✅ Documentation complete
 
 **Next Steps**:
+
 1. Choose review path (Quick / Detailed / Deep)
 2. Follow reading order
 3. Run tests to verify
@@ -329,6 +359,7 @@ After review, verify:
 ## 📞 Support
 
 For questions about:
+
 - **Circuit Breaker**: See MERGED_IMPLEMENTATIONS_GUIDE.md Section 1
 - **Session Store**: See MERGED_IMPLEMENTATIONS_GUIDE.md Section 2
 - **Testing**: See TEST_EXECUTION_QUICK_REFERENCE.md
@@ -339,14 +370,14 @@ For questions about:
 
 ## 📅 Timeline
 
-| Date | Event | Status |
-|------|-------|--------|
-| (Earlier) | CB-01 implemented | ✅ Done |
-| (Earlier) | CB-02 implemented | ✅ Done |
-| (Earlier) | DATA-05 implemented | ✅ Done |
-| (Today) | Merged to main | ✅ Done |
-| (Today) | Review documentation created | ✅ You are here |
-| (Next) | Production deployment | ⏳ Ready |
+| Date      | Event                        | Status          |
+| --------- | ---------------------------- | --------------- |
+| (Earlier) | CB-01 implemented            | ✅ Done         |
+| (Earlier) | CB-02 implemented            | ✅ Done         |
+| (Earlier) | DATA-05 implemented          | ✅ Done         |
+| (Today)   | Merged to main               | ✅ Done         |
+| (Today)   | Review documentation created | ✅ You are here |
+| (Next)    | Production deployment        | ⏳ Ready        |
 
 ---
 

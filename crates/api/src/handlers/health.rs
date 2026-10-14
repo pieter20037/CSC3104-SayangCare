@@ -1,5 +1,8 @@
 use actix_web::{web, HttpResponse, Responder};
+use crate::state::AppState;
 use serde::Serialize;
+use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Serialize)]
 struct Health {
@@ -17,11 +20,39 @@ pub async fn health() -> impl Responder {
     })
 }
 
-/// Readiness probe — could be extended to check Redis/Postgres reachability.
-/// For now, mirrors liveness so k8s can route traffic immediately.
-pub async fn ready() -> impl Responder {
-    // TODO: ping Redis + Postgres and return 503 if either is down.
-    HttpResponse::Ok().json(serde_json::json!({ "ready": true }))
+/// Readiness probe — don't route traffic when either backing store is unavailable.
+pub async fn ready(state: web::Data<Arc<AppState>>) -> impl Responder {
+    let (redis_result, postgres_result) = tokio::join!(
+        tokio::time::timeout(Duration::from_secs(2), state.hot_sessions.ping()),
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            sqlx::query("SELECT 1").execute(&state.postgres),
+        ),
+    );
+    let redis_ready = matches!(redis_result, Ok(Ok(())));
+    let postgres_ready = matches!(postgres_result, Ok(Ok(_)));
+    let ready = redis_ready && postgres_ready;
+
+    if !redis_ready || !postgres_ready {
+        tracing::warn!(redis_ready, postgres_ready, "readiness check failed");
+    }
+
+    let mut response = HttpResponse::build(readiness_status(redis_ready, postgres_ready));
+    response.json(serde_json::json!({
+        "ready": ready,
+        "dependencies": {
+            "redis": if redis_ready { "ok" } else { "unavailable" },
+            "postgres": if postgres_ready { "ok" } else { "unavailable" },
+        }
+    }))
+}
+
+fn readiness_status(redis_ready: bool, postgres_ready: bool) -> actix_web::http::StatusCode {
+    if redis_ready && postgres_ready {
+        actix_web::http::StatusCode::OK
+    } else {
+        actix_web::http::StatusCode::SERVICE_UNAVAILABLE
+    }
 }
 
 /// Prometheus scrape endpoint.
@@ -49,4 +80,27 @@ pub fn internal_error<E: std::fmt::Display>(e: E) -> HttpResponse {
 
 pub fn _use_web() -> web::Json<()> {
     unreachable!()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::readiness_status;
+    use actix_web::http::StatusCode;
+
+    #[test]
+    fn readiness_requires_both_backing_stores() {
+        assert_eq!(readiness_status(true, true), StatusCode::OK);
+        assert_eq!(
+            readiness_status(false, true),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            readiness_status(true, false),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            readiness_status(false, false),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
 }

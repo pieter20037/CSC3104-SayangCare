@@ -197,6 +197,7 @@
 
     .workflow-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }
     .workflow-buttons .button { width: 100%; }
+    .voice-status { align-self: center; margin: 0; }
     .divider { height: 1px; margin: 17px 0 13px; background: var(--line); }
     .microcopy { margin: 11px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 
@@ -211,6 +212,7 @@
     .stat:last-child { border-top: 1px solid var(--line); }
     .stat-label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
     .stat-value { display: block; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+    .stat-value.sentiment-value { overflow: visible; font-size: 11px; line-height: 1.45; white-space: normal; overflow-wrap: anywhere; }
 
     .transcript { display: grid; gap: 10px; max-height: 330px; overflow: auto; padding: 17px; }
     .empty-state { display: grid; min-height: 132px; place-items: center; padding: 20px; color: var(--muted); text-align: center; font: 16px/1.45 Georgia, "Times New Roman", serif; }
@@ -345,6 +347,10 @@
               <button class="button" id="turn-button" type="button"><span class="arrow" aria-hidden="true">↗</span> Record turn</button>
               <button class="button danger" id="hangup-button" type="button"><span class="arrow" aria-hidden="true">■</span> End call</button>
             </div>
+            <div class="button-row">
+              <button class="button accent" id="voice-start-button" type="button"><span class="arrow" aria-hidden="true">◉</span> Start browser voice call</button>
+              <p class="microcopy voice-status" id="voice-status" role="status" aria-live="polite">Voice simulation idle. No Twilio call is placed.</p>
+            </div>
             <div class="divider"></div>
             <button class="button accent" id="full-test-button" type="button"><span class="arrow" aria-hidden="true">▶</span> Simulate crisis call</button>
             <p class="microcopy">Runs a two-turn caller simulation and leaves any escalation in the volunteer queue. Claim it to test assignment; simulated calls never dial a phone.</p>
@@ -431,6 +437,7 @@
             <div class="stat"><span class="stat-label">Version</span><span class="stat-value" id="stat-version">—</span></div>
             <div class="stat"><span class="stat-label">Turns</span><span class="stat-value" id="stat-turns">—</span></div>
             <div class="stat"><span class="stat-label">Risk</span><span class="stat-value" id="stat-risk" title="">—</span></div>
+            <div class="stat"><span class="stat-label">Sentiment · valence / arousal / distress / markers</span><span class="stat-value sentiment-value" id="stat-sentiment" title="Continuous sentiment estimate; separate from safety risk.">Not analyzed</span></div>
             <div class="stat"><span class="stat-label">Handoff</span><span class="stat-value" id="stat-handoff">—</span></div>
             <div class="stat"><span class="stat-label">Volunteer</span><span class="stat-value" id="stat-volunteer">—</span></div>
           </div>
@@ -452,6 +459,11 @@
     const controls = [...document.querySelectorAll("button")];
     let busy = false;
     let currentRole = "caller";
+    let voiceRecognition = null;
+    let voiceActive = false;
+    let voiceWaitingForReply = false;
+    let voiceSessionReady = false;
+    let pendingVoiceTranscript = null;
 
     const roleCopy = {
       caller: ["Caller workspace", "Simulate a caller conversation and review the transcript."],
@@ -624,6 +636,20 @@
       const riskLevel = Number(session.risk?.level?.[0] ?? session.risk?.level);
       $("stat-risk").textContent = Number.isFinite(riskLevel) ? `${riskLevel} / 5` : "—";
       $("stat-risk").title = session.risk?.rationale || "";
+      const sentiment = session.latest_sentiment;
+      const sentimentValue = $("stat-sentiment");
+      if (sentiment && Number.isFinite(Number(sentiment.valence)) && Number.isFinite(Number(sentiment.arousal))) {
+        const markers = Array.isArray(sentiment.distress_markers) && sentiment.distress_markers.length
+          ? sentiment.distress_markers.join(", ")
+          : "none";
+        const distress = Number(session.sentiment_distress_severity);
+        const distressLabel = Number.isFinite(distress) ? ` · D ${distress.toFixed(2)}` : "";
+        sentimentValue.textContent = `V ${Number(sentiment.valence).toFixed(2)} · A ${Number(sentiment.arousal).toFixed(2)}${distressLabel} · ${markers}`;
+        sentimentValue.title = "Continuous model-estimated sentiment; markers are model-detected cues, not a diagnosis. Safety risk is assessed separately.";
+      } else {
+        sentimentValue.textContent = "Not analyzed";
+        sentimentValue.title = "Sentiment is unavailable until an inference-enabled turn is analyzed.";
+      }
       $("stat-handoff").textContent = `${handoff}${session.operator_acknowledged ? " · acked" : " · pending"}`;
       $("stat-volunteer").textContent = volunteer;
       const turns = session.transcript?.turns || [];
@@ -1012,18 +1038,126 @@
       await loadSession();
     }
 
-    async function recordTurn() {
+    async function recordTurn(transcript = $("transcript-input").value.trim()) {
       const id = currentId();
-      const transcript = $("transcript-input").value.trim();
       if (!transcript) throw new Error("Enter a transcript before recording a turn.");
-      await request("Record turn", "POST", `${api}/calls/${encodeURIComponent(id)}/turn`, { transcript });
+      const result = await request("Record turn", "POST", `${api}/calls/${encodeURIComponent(id)}/turn`, { transcript });
       await loadSession();
+      return result;
     }
 
     async function endCall() {
+      stopBrowserVoice("Call ended.");
       const id = currentId();
       await request("End call", "POST", `${api}/calls/${encodeURIComponent(id)}/hangup`);
       await loadSession();
+    }
+
+    function stopBrowserVoice(message) {
+      voiceActive = false;
+      voiceWaitingForReply = false;
+      voiceSessionReady = false;
+      pendingVoiceTranscript = null;
+      if (voiceRecognition) {
+        try { voiceRecognition.stop(); } catch { /* It may already be stopped. */ }
+      }
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      $("voice-status").textContent = message;
+    }
+
+    function startListening() {
+      if (!voiceActive || voiceWaitingForReply || !voiceRecognition) return false;
+      try {
+        voiceRecognition.start();
+        return true;
+      } catch (error) {
+        if (error.name !== "InvalidStateError") {
+          stopBrowserVoice(`Could not start speech recognition: ${error.message}`);
+        }
+        return false;
+      }
+    }
+
+    function speakReply(text) {
+      if (!("speechSynthesis" in window) || !text) return Promise.resolve();
+      return new Promise((resolve) => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.onend = resolve;
+        utterance.onerror = resolve;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
+      });
+    }
+
+    async function processVoiceTurn(transcript) {
+      setBusy(true);
+      try {
+        const result = await recordTurn(transcript);
+        if (voiceActive) {
+          $("voice-status").textContent = "Speaking reply…";
+          await speakReply(result.assistant_response);
+        }
+      } catch (error) {
+        stopBrowserVoice(error.message);
+        $("api-status").textContent = error.message;
+      } finally {
+        setBusy(false);
+        voiceWaitingForReply = false;
+        startListening();
+      }
+    }
+
+    async function startBrowserVoice() {
+      if (voiceActive) throw new Error("A browser voice call is already active.");
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!Recognition) throw new Error("Speech recognition is not supported by this browser.");
+
+      voiceRecognition = new Recognition();
+      voiceRecognition.lang = navigator.language || "en-US";
+      voiceRecognition.continuous = true;
+      voiceRecognition.interimResults = false;
+      voiceRecognition.onstart = () => { $("voice-status").textContent = "Listening…"; };
+      voiceRecognition.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .slice(event.resultIndex)
+          .filter((result) => result.isFinal)
+          .map((result) => result[0].transcript.trim())
+          .filter(Boolean)
+          .join(" ");
+        if (!transcript || voiceWaitingForReply) return;
+        voiceWaitingForReply = true;
+        voiceRecognition.stop();
+        $("transcript-input").value = transcript;
+        if (voiceSessionReady) processVoiceTurn(transcript);
+        else pendingVoiceTranscript = transcript;
+      };
+      voiceRecognition.onerror = (event) => {
+        if (event.error === "aborted" || event.error === "no-speech") return;
+        stopBrowserVoice(`Speech recognition error: ${event.error}. Check microphone permission and browser speech-service access.`);
+      };
+      voiceRecognition.onend = () => {
+        if (voiceActive && !voiceWaitingForReply) startListening();
+      };
+
+      voiceActive = true;
+      voiceWaitingForReply = false;
+      voiceSessionReady = false;
+      pendingVoiceTranscript = null;
+      if (!startListening()) throw new Error($("voice-status").textContent);
+
+      freshCallId("SIM-");
+      try {
+        await startCall();
+      } catch (error) {
+        stopBrowserVoice(error.message);
+        throw error;
+      }
+      voiceSessionReady = true;
+      if (pendingVoiceTranscript && voiceActive) {
+        const transcript = pendingVoiceTranscript;
+        pendingVoiceTranscript = null;
+        processVoiceTurn(transcript);
+      }
     }
 
     document.querySelectorAll(".role-tab").forEach((tab) => {
@@ -1040,6 +1174,14 @@
     $("start-button").addEventListener("click", () => withBusy(startCall));
     $("turn-button").addEventListener("click", () => withBusy(recordTurn));
     $("hangup-button").addEventListener("click", () => withBusy(endCall));
+    $("voice-start-button").addEventListener("click", () => withBusy(async () => {
+      try {
+        await startBrowserVoice();
+      } catch (error) {
+        $("voice-status").textContent = error.message;
+        throw error;
+      }
+    }));
     $("acknowledge-button").addEventListener("click", () => withBusy(async () => {
       const id = currentId();
       const result = await request("Acknowledge operator review", "POST", `${api}/calls/${encodeURIComponent(id)}/acknowledge`);

@@ -44,6 +44,7 @@ pub struct OperatorAlert {
 
 pub struct AppState {
     pub hot_sessions: Arc<RedisSessionStore>,
+    pub postgres: sqlx::PgPool,
     pub sessions: Arc<dyn SessionStore>,
     pub archive: Arc<dyn ArchiveStore>,
     pub tiered: Arc<TieredSessionStore>,
@@ -200,6 +201,7 @@ impl AppState {
 
         Ok(Self {
             hot_sessions: hot,
+            postgres: pg_pool,
             sessions: tiered.clone(),
             archive,
             tiered,

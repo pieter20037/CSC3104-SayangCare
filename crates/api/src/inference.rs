@@ -147,7 +147,7 @@ impl InferenceService for GroqInference {
 
     async fn score_sentiment(&self, text: &str) -> CoreResult<SentimentSignal> {
         let instruction = format!(
-            "Analyze this caller utterance for sentiment. Return only JSON with valence (number -1 to 1), arousal (number 0 to 1), and distress_markers (array chosen only from hopelessness, isolation, self_harm, panic, grief). Utterance: {text}"
+            "Estimate only the affect expressed in the caller's utterance; this is not a diagnosis or the separate safety-risk decision. Return exactly one JSON object with numeric valence, numeric arousal, and distress_markers containing only labels from hopelessness, isolation, self_harm, panic, grief. Use valence from -1.00 (strongly negative) through -0.50 (clearly negative), 0.00 (neutral or balanced), +0.50 (clearly positive), to +1.00 (strongly positive). Use arousal from 0.00 (very calm or low energy), 0.50 (moderate activation), to 1.00 (extremely activated). Choose intermediate decimal values when warranted; do not round every utterance to an endpoint. Add a distress marker only when the caller expresses that meaning, not when it is negated, hypothetical, or merely quoted. Do not infer self-harm from negative sentiment alone. Utterance: <caller_text>{text}</caller_text>"
         );
         let messages = vec![
             ChatMessage {

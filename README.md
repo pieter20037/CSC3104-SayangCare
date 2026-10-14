@@ -12,7 +12,7 @@ This repository is the CSC3104 cloud-computing project. It demonstrates a modula
 - Docker Compose for local infrastructure
 - Kubernetes manifests for a multi-replica deployment
 
-The current codebase is a working scaffold. The JSON Call Lab simulator and live Twilio `/gather` path apply deterministic risk triage and can generate supportive replies through Groq's OpenAI-compatible Chat Completions API. High-risk turns bypass the LLM and use a fixed safety response before queue escalation. Without a Groq API key, both paths use deterministic fallback replies. Metrics and readiness are intentionally minimal; see [Known Limitations](#known-limitations).
+The current codebase is a working scaffold. The JSON Call Lab simulator and live Twilio `/gather` path apply deterministic risk triage and can generate supportive replies through Groq's OpenAI-compatible Chat Completions API. High-risk turns bypass the LLM and use a fixed safety response before queue escalation. Without a Groq API key, both paths use deterministic fallback replies. Readiness checks Redis and PostgreSQL; metrics remain a placeholder. See [Known Limitations](#known-limitations).
 
 ## Contents
 
@@ -31,7 +31,9 @@ The current codebase is a working scaffold. The JSON Call Lab simulator and live
 - [Kubernetes](#kubernetes)
 - [Observability](#observability)
 - [Troubleshooting](#troubleshooting)
-- [Phase 1 Test Guide](PHASE_1_TEST_GUIDE.md)
+- [Project Documentation](docs/README.md)
+- [Phase 1 Test Guide](docs/PHASE_1_TEST_GUIDE.md)
+- [Raft Leader Election Demo](docs/RAFT_DEMO_GUIDE.md)
 - [Known Limitations](#known-limitations)
 - [Development Guidelines](#development-guidelines)
 
@@ -60,21 +62,22 @@ The API is built as a Cargo workspace. The `core` crate owns domain types and po
 
 ## Repository Layout
 
-| Path                     | Responsibility                                                         |
-| ------------------------ | ---------------------------------------------------------------------- |
-| `Cargo.toml`             | Workspace members, shared dependencies, Rust version, release profile  |
-| `crates/core`            | Domain models, configuration, errors, and hexagonal-architecture ports |
-| `crates/api`             | Actix Web binary, application bootstrap, routes, middleware, telemetry |
-| `crates/session-store`   | Redis hot store, PostgreSQL archive store, and tiered storage facade   |
-| `crates/priority-queue`  | Redis sorted-set queue and atomic volunteer claims                     |
-| `crates/circuit-breaker` | Circuit states, rolling counters, adaptive thresholds, registry        |
-| `crates/telephony`       | Twilio REST API implementation of the telephony port                   |
-| `migrations/`            | SQLx PostgreSQL migrations                                             |
-| `config/default.toml`    | Default non-secret application configuration                           |
-| `docker-compose.yml`     | Local PostgreSQL, Redis, Redis Sentinel, and API services              |
-| `Dockerfile`             | Multi-stage release image build                                        |
-| `k8s/`                   | Kubernetes namespace, configuration, workloads, probes, and HPA        |
-| `.sqlx/`                 | Committed SQLx offline query metadata                                  |
+| Path                      | Responsibility                                                         |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `Cargo.toml`              | Workspace members, shared dependencies, Rust version, release profile  |
+| `crates/core`             | Domain models, configuration, errors, and hexagonal-architecture ports |
+| `crates/api`              | Actix Web binary, application bootstrap, routes, middleware, telemetry |
+| `crates/session-store`    | Redis hot store, PostgreSQL archive store, and tiered storage facade   |
+| `crates/priority-queue`   | Redis sorted-set queue and atomic volunteer claims                     |
+| `crates/circuit-breaker`  | Circuit states, rolling counters, adaptive thresholds, registry        |
+| `crates/telephony`        | Twilio REST API implementation of the telephony port                   |
+| `migrations/`             | SQLx PostgreSQL migrations                                             |
+| `config/default.toml`     | Default non-secret application configuration                           |
+| `docker-compose.yml`      | Local PostgreSQL, Redis, Redis Sentinel, and single API service        |
+| `docker-compose.raft.yml` | Three-node Raft demo stack using the shared local infrastructure       |
+| `Dockerfile`              | Multi-stage release image build                                        |
+| `k8s/`                    | Kubernetes namespace, configuration, workloads, probes, and HPA        |
+| `.sqlx/`                  | Committed SQLx offline query metadata                                  |
 
 ## Requirements
 
@@ -193,7 +196,7 @@ cargo check --workspace --all-targets && \
 cargo test --workspace
 ```
 
-`cargo fmt --check` checks formatting, `cargo check --workspace --all-targets` compiles the workspace and test targets, and `cargo test --workspace` runs automated tests. These commands do not prove Docker services or real Twilio connectivity work. For live local service checks, follow Quick Start and use the smoke-test flow in [PHASE_1_TEST_GUIDE.md](PHASE_1_TEST_GUIDE.md). In the verified local smoke test, the same CallSid reused successfully, a conflicting caller returned `409`, a high-risk transcript escalated the session, and the Redis hot key was removed after the archive check.
+`cargo fmt --check` checks formatting, `cargo check --workspace --all-targets` compiles the workspace and test targets, and `cargo test --workspace` runs automated tests. These commands do not prove Docker services or real Twilio connectivity work. For live local service checks, follow Quick Start and use the smoke-test flow in [PHASE_1_TEST_GUIDE.md](docs/PHASE_1_TEST_GUIDE.md). In the verified local smoke test, the same CallSid reused successfully, a conflicting caller returned `409`, a high-risk transcript escalated the session, and the Redis hot key was removed after the archive check.
 
 ## Useful Commands
 
@@ -321,10 +324,10 @@ Important settings:
 | `SAYANGCARE__CIRCUIT_BREAKER__HALF_OPEN_AFTER_SECS` | `10`                                   | Open-to-half-open delay                                             |
 | `SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID`         | test value locally                     | Twilio account identifier                                           |
 | `SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN`          | test value locally                     | Twilio credential                                                   |
-| `SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER`         | unset                                  | Twilio-owned or verified caller ID for outbound volunteer calls    |
-| `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8081`                | Exact public origin used in TwiML actions and signature validation |
+| `SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER`         | unset                                  | Twilio-owned or verified caller ID for outbound volunteer calls     |
+| `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8081`                | Exact public origin used in TwiML actions and signature validation  |
 | `SAYANGCARE__AI__API_KEY`                           | unset                                  | Optional Groq API key; keep it in ignored `.env`                    |
-| `SAYANGCARE__AI__MODEL`                             | `openai/gpt-oss-120b`                   | Groq-hosted chat model                                              |
+| `SAYANGCARE__AI__MODEL`                             | `openai/gpt-oss-120b`                  | Groq-hosted chat model                                              |
 | `SAYANGCARE__AI__BASE_URL`                          | Groq Chat Completions URL              | OpenAI-compatible chat completions endpoint                         |
 | `SAYANGCARE__AI__TIMEOUT_SECS`                      | `12`                                   | Inference request timeout                                           |
 | `RUST_LOG`                                          | `info,sayangcare=debug,actix_web=info` | Log filter                                                          |
@@ -395,7 +398,7 @@ Example:
 curl -i http://localhost:8081/api/v1/health
 ```
 
-`/health` returns service status and package version. `/ready` currently returns `{ "ready": true }` without checking dependencies. `/metrics` is a placeholder Prometheus-compatible text response.
+`/health` returns service status and package version. `/ready` checks Redis and PostgreSQL concurrently with a two-second timeout per dependency and returns HTTP `503` if either check fails. `/metrics` is a placeholder Prometheus-compatible text response.
 
 ### Call session routes
 
@@ -473,7 +476,7 @@ The Redis sorted set prioritizes higher risk first and earlier enqueue times fir
 
 ## Raft Volunteer Queue
 
-Optional OpenRaft-replicated queue (`SAYANGCARE__QUEUE__BACKEND=raft`); Redis is the default. Step-by-step run commands are in [PHASE_2.md](PHASE_2.md).
+Optional OpenRaft-replicated queue (`SAYANGCARE__QUEUE__BACKEND=raft`); Redis is the default. Step-by-step run commands are in [PHASE_2.md](docs/PHASE_2.md).
 
 ## Twilio Webhook Flow
 
@@ -776,7 +779,7 @@ validation.
 - Twilio request-signature verification, outbound REST dispatch, and the outbound-connect TwiML route are implemented, but still require real Twilio credentials, a public HTTPS URL, a configured caller ID, and live end-to-end validation.
 - Volunteer roster, assigned-case mapping, and operator alerts are currently process-local application state, not durable relational bindings shared across API replicas.
 - The dashboard simulator tests transcript-based application behavior only; it does not test live microphone audio, Twilio speech recognition, or real phone handoff.
-- `/api/v1/ready` does not verify PostgreSQL or Redis connectivity.
+- `/api/v1/ready` verifies Redis and PostgreSQL connectivity, but does not check the configured queue backend or external inference/telephony providers.
 - `/api/v1/metrics` returns placeholder text rather than real Prometheus metrics.
 - The Compose Redis setup is a small local demonstration, not a hardened production Redis Sentinel deployment.
 - Kubernetes manifests contain placeholder image and secret values and require environment-specific review.
