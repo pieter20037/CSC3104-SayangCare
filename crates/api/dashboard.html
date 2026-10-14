@@ -660,7 +660,9 @@
     function renderQueue(data) {
       const list = $("queue-list");
       list.replaceChildren();
-      const pending = data?.pending || [];
+      const pending = (data?.pending || []).filter(
+        (item) => item.state !== "abandoned" && item.handoff_status !== "abandoned"
+      );
       if (!pending.length) {
         list.innerHTML = '<div class="empty-activity">No escalated callers waiting.</div>';
         return;

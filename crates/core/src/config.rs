@@ -100,6 +100,7 @@ pub struct CircuitBreakerConfig {
 pub struct TelephonyConfig {
     pub twilio_account_sid: String,
     pub twilio_auth_token: String,
+    pub twilio_from_number: Option<String>,
     pub public_base_url: String,
 }
 

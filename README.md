@@ -321,7 +321,8 @@ Important settings:
 | `SAYANGCARE__CIRCUIT_BREAKER__HALF_OPEN_AFTER_SECS` | `10`                                   | Open-to-half-open delay                                             |
 | `SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID`         | test value locally                     | Twilio account identifier                                           |
 | `SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN`          | test value locally                     | Twilio credential                                                   |
-| `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8081`                | Public URL used in TwiML actions                                    |
+| `SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER`         | unset                                  | Twilio-owned or verified caller ID for outbound volunteer calls    |
+| `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8081`                | Exact public origin used in TwiML actions and signature validation |
 | `SAYANGCARE__AI__API_KEY`                           | unset                                  | Optional Groq API key; keep it in ignored `.env`                    |
 | `SAYANGCARE__AI__MODEL`                             | `openai/gpt-oss-120b`                   | Groq-hosted chat model                                              |
 | `SAYANGCARE__AI__BASE_URL`                          | Groq Chat Completions URL              | OpenAI-compatible chat completions endpoint                         |
@@ -482,6 +483,7 @@ Twilio routes use `application/x-www-form-urlencoded` input and return TwiML XML
 POST /twilio/voice
 POST /twilio/gather
 POST /twilio/status
+POST /twilio/outbound-connect?session_id=<call-sid>
 ```
 
 Configure the Twilio voice webhook to point to:
@@ -496,11 +498,12 @@ The intended turn-based voice flow is:
 2. Twilio listens with `<Gather input="speech">`, transcribes the utterance, then posts `CallSid` and `SpeechResult` to `/twilio/gather`.
 3. The handler runs local heuristic risk triage before any model request. High-risk turns bypass Groq, receive a fixed safety response, and are enqueued for volunteer review. Non-crisis turns use Groq, or a deterministic fallback, then return the reply in `<Say>` followed by another `<Gather>`.
 4. Groq calls pass through the circuit breaker. If inference is unavailable, SayangCare falls back to a brief deterministic reply; high-risk escalation does not depend on the LLM.
-5. `/twilio/status` can archive a completed or failed session, but the current inbound TwiML flow does not attach that status callback to the Twilio call.
+5. `/twilio/status` archives completed or failed calls. The inbound handler registers it on the active call using Twilio's Calls REST API.
+6. When a volunteer claims a live escalation, the API creates an outbound Twilio call to that volunteer with `POST /Accounts/{AccountSid}/Calls.json`. The caller leg and volunteer leg join the same conference. `/twilio/outbound-connect` validates the Twilio signature and returns the volunteer leg's conference TwiML.
 
 This is turn-based speech recognition and text-to-speech, not a continuous audio stream. Twilio handles the phone audio and transcription; SayangCare receives form-encoded text and returns TwiML instructions.
 
-For local webhook testing with Cargo, expose the API's actual listening port through a tunnel such as ngrok, then set `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL` to the public HTTPS URL and configure the Twilio number to POST to `https://<public-host>/twilio/voice`. The current project does not yet verify `X-Twilio-Signature`; do not treat the webhook as production-secure or expose it for untrusted use. Never commit Twilio credentials.
+For local webhook testing with Cargo, expose the API's actual listening port through a tunnel such as ngrok. Set `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL` to the exact public HTTPS origin (without a trailing slash), set real Account SID, Auth Token, and Twilio caller ID values, restart the API, and configure the Twilio number to POST to `https://<public-host>/twilio/voice`. The API validates `X-Twilio-Signature` on all Twilio routes, including the outbound-connect route. A URL or token mismatch returns HTTP 403. Never commit Twilio credentials.
 
 ## Storage and Reliability Design
 
@@ -731,10 +734,8 @@ successful replies alone still do not open the breaker.
 - The Raft queue backend is opt-in (`SAYANGCARE__QUEUE__BACKEND=raft`); Redis remains the default. Raft cluster membership is static, there is no Kubernetes StatefulSet/headless-service manifest for it yet (Phase 4), and Raft state is only persisted when `RAFT_DATA_DIR` is set.
 - CB-01 sliding-window metrics are merged and tested; CB-02 closed/open/half-open recovery transitions and request permits remain on the remote `phase3-circuitbreaker` branch until merged.
 - Groq Chat Completions is the configured inference provider for supportive non-crisis replies. The Groq API key must be configured outside source control. Risk classification remains heuristic and local; high-risk turns bypass the model.
-- Twilio request-signature verification (`X-Twilio-Signature`) is not implemented.
-- The telephony adapter updates an existing call for redirects; outbound volunteer dispatch using `POST /Calls.json` and a dedicated outbound-connect TwiML route are not implemented.
-- Volunteer roster and operator alerts are currently process-local application state. Assignment ownership/history is stored in PostgreSQL and is shared across API replicas.
-- The status callback route exists, but the incoming-call TwiML does not currently configure Twilio to invoke it.
+- Twilio request-signature verification, outbound REST dispatch, and the outbound-connect TwiML route are implemented, but still require real Twilio credentials, a public HTTPS URL, a configured caller ID, and live end-to-end validation.
+- Volunteer roster, assigned-case mapping, and operator alerts are currently process-local application state, not durable relational bindings shared across API replicas.
 - The dashboard simulator tests transcript-based application behavior only; it does not test live microphone audio, Twilio speech recognition, or real phone handoff.
 - `/api/v1/ready` does not verify PostgreSQL or Redis connectivity.
 - `/api/v1/metrics` returns placeholder text rather than real Prometheus metrics.

@@ -2,12 +2,18 @@ use async_trait::async_trait;
 use reqwest::Client;
 use sayangcare_core::ports::TelephonyProvider;
 use sayangcare_core::{CoreError, CoreResult};
+use serde::Deserialize;
 
 pub struct TwilioProvider {
     client: Client,
     account_sid: String,
     auth_token: String,
     base_url: String,
+}
+
+#[derive(Deserialize)]
+struct CreateCallResponse {
+    sid: String,
 }
 
 impl TwilioProvider {
@@ -56,6 +62,38 @@ impl TwilioProvider {
         }
         Ok(())
     }
+
+    async fn create_call(&self, params: &[(&str, &str)]) -> CoreResult<String> {
+        if !self.has_live_credentials() {
+            return Err(CoreError::Telephony(
+                "Twilio outbound calling is not configured. Set real Account SID and Auth Token credentials.".to_string(),
+            ));
+        }
+
+        let url = format!("{}/Accounts/{}/Calls.json", self.base_url, self.account_sid);
+        let response = self
+            .client
+            .post(&url)
+            .basic_auth(&self.account_sid, Some(&self.auth_token))
+            .form(params)
+            .send()
+            .await
+            .map_err(|error| CoreError::Telephony(format!("twilio outbound call: {error}")))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(CoreError::Telephony(format!(
+                "Twilio outbound call returned HTTP {status}: {body}"
+            )));
+        }
+
+        response
+            .json::<CreateCallResponse>()
+            .await
+            .map(|call| call.sid)
+            .map_err(|error| CoreError::Telephony(format!("decode Twilio call response: {error}")))
+    }
 }
 
 #[async_trait]
@@ -89,6 +127,56 @@ impl TelephonyProvider for TwilioProvider {
         self.update_call(call_sid, &[("Twiml", twiml.as_str())])
             .await
     }
+
+    async fn register_status_callback(&self, call_sid: &str, callback_url: &str) -> CoreResult<()> {
+        self.update_call(
+            call_sid,
+            &[
+                ("StatusCallback", callback_url),
+                ("StatusCallbackMethod", "POST"),
+                ("StatusCallbackEvent", "completed"),
+            ],
+        )
+        .await
+    }
+
+    async fn move_call_to_conference(&self, call_sid: &str, conference: &str) -> CoreResult<()> {
+        let room = xml_escape(conference);
+        let twiml = format!(
+            r#"<Response><Dial><Conference startConferenceOnEnter="true" endConferenceOnExit="true">{room}</Conference></Dial></Response>"#
+        );
+        self.update_call(call_sid, &[("Twiml", twiml.as_str())])
+            .await
+    }
+
+    async fn create_outbound_call(
+        &self,
+        to_number: &str,
+        from_number: &str,
+        twiml_url: &str,
+    ) -> CoreResult<String> {
+        if to_number.trim().is_empty() || from_number.trim().is_empty() {
+            return Err(CoreError::Telephony(
+                "Twilio outbound call requires non-empty To and From numbers".to_string(),
+            ));
+        }
+        self.create_call(&[
+            ("To", to_number),
+            ("From", from_number),
+            ("Url", twiml_url),
+            ("Method", "POST"),
+        ])
+        .await
+    }
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 #[cfg(test)]

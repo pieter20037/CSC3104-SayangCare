@@ -36,6 +36,7 @@ pub enum HandoffStatus {
     Assigned,
     Transferred,
     Resolved,
+    Abandoned,
 }
 
 /// Lifecycle states for a session. Enforced via state machine transitions.
@@ -171,11 +172,27 @@ impl Session {
             });
         }
         self.state = next;
-        if next == SessionState::Escalated {
-            self.handoff_status = HandoffStatus::Pending;
-            self.assigned_volunteer_id = None;
-            self.operator_acknowledged = false;
-            self.escalation_count = self.escalation_count.saturating_add(1);
+        match next {
+            SessionState::Escalated => {
+                self.handoff_status = HandoffStatus::Pending;
+                self.assigned_volunteer_id = None;
+                self.operator_acknowledged = false;
+                self.escalation_count = self.escalation_count.saturating_add(1);
+            }
+            SessionState::Abandoned => {
+                if matches!(
+                    self.handoff_status,
+                    HandoffStatus::Pending | HandoffStatus::Assigned | HandoffStatus::Transferred
+                ) {
+                    self.handoff_status = HandoffStatus::Abandoned;
+                }
+            }
+            SessionState::Completed | SessionState::Failed => {
+                if self.handoff_status == HandoffStatus::Pending {
+                    self.handoff_status = HandoffStatus::Resolved;
+                }
+            }
+            _ => {}
         }
         self.version += 1;
         self.updated_at = Utc::now();
@@ -198,6 +215,12 @@ impl Session {
 
     pub fn resolve_handoff(&mut self) {
         self.handoff_status = HandoffStatus::Resolved;
+        self.updated_at = Utc::now();
+        self.version += 1;
+    }
+
+    pub fn abandon_handoff(&mut self) {
+        self.handoff_status = HandoffStatus::Abandoned;
         self.updated_at = Utc::now();
         self.version += 1;
     }
@@ -402,5 +425,41 @@ mod tests {
 
         assert_eq!(session.escalation_count, 2);
         assert!(!session.operator_acknowledged);
+    }
+
+    #[test]
+    fn abandoned_transition_updates_pending_handoff_status() {
+        let mut session = Session::with_id(SessionId("CA-test".to_string()), caller());
+        session.transition(SessionState::Active).unwrap();
+        session.transition(SessionState::Escalated).unwrap();
+        assert_eq!(session.handoff_status, super::HandoffStatus::Pending);
+
+        session.transition(SessionState::Abandoned).unwrap();
+        assert_eq!(session.state, SessionState::Abandoned);
+        assert_eq!(session.handoff_status, super::HandoffStatus::Abandoned);
+    }
+
+    #[test]
+    fn abandoned_transition_updates_assigned_handoff_status() {
+        let mut session = Session::with_id(SessionId("CA-test".to_string()), caller());
+        session.transition(SessionState::Active).unwrap();
+        session.transition(SessionState::Escalated).unwrap();
+        session.assign_volunteer("volunteer-42");
+        assert_eq!(session.handoff_status, super::HandoffStatus::Assigned);
+
+        session.transition(SessionState::Abandoned).unwrap();
+        assert_eq!(session.state, SessionState::Abandoned);
+        assert_eq!(session.handoff_status, super::HandoffStatus::Abandoned);
+    }
+
+    #[test]
+    fn non_escalated_session_retains_not_required_when_abandoned() {
+        let mut session = Session::with_id(SessionId("CA-test".to_string()), caller());
+        session.transition(SessionState::Active).unwrap();
+        assert_eq!(session.handoff_status, super::HandoffStatus::NotRequired);
+
+        session.transition(SessionState::Abandoned).unwrap();
+        assert_eq!(session.state, SessionState::Abandoned);
+        assert_eq!(session.handoff_status, super::HandoffStatus::NotRequired);
     }
 }

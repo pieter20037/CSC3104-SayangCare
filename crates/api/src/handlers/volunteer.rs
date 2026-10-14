@@ -24,6 +24,7 @@ pub struct QueueItem {
     pub risk: u8,
     pub handoff_status: String,
     pub assigned_volunteer_id: Option<String>,
+    pub state: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -85,11 +86,17 @@ pub async fn list_pending(state: web::Data<Arc<AppState>>) -> impl Responder {
             let mut pending = Vec::new();
             for sid in sids {
                 if let Ok(Some(session)) = state.sessions.get(&sid).await {
+                    if session.state != sayangcare_core::domain::SessionState::Escalated
+                        || session.handoff_status != sayangcare_core::domain::HandoffStatus::Pending
+                    {
+                        continue;
+                    }
                     pending.push(QueueItem {
                         session_id: sid.0,
                         risk: session.risk.level.0,
                         handoff_status: format!("{:?}", session.handoff_status).to_lowercase(),
                         assigned_volunteer_id: session.assigned_volunteer_id,
+                        state: format!("{:?}", session.state).to_lowercase(),
                     });
                 }
             }
@@ -159,7 +166,7 @@ pub async fn claim(
         .expect("volunteer registry lock poisoned")
         .get(&body.volunteer_id)
         .cloned();
-    let Some(_volunteer) = volunteer.filter(|volunteer| volunteer.on_shift) else {
+    let Some(volunteer) = volunteer.filter(|volunteer| volunteer.on_shift) else {
         return HttpResponse::Forbidden().json(serde_json::json!({
             "error": "volunteer is not registered or is off shift",
             "volunteer_id": body.volunteer_id,
@@ -209,11 +216,14 @@ pub async fn claim(
                 }
             };
 
-            if assigned_session.handoff_status != sayangcare_core::domain::HandoffStatus::Pending {
+            if assigned_session.state != sayangcare_core::domain::SessionState::Escalated
+                || assigned_session.handoff_status != sayangcare_core::domain::HandoffStatus::Pending
+            {
                 let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
                 return HttpResponse::Conflict().json(serde_json::json!({
-                    "error": "case is no longer pending",
+                    "error": "case is no longer pending or claimable",
                     "session_id": sid.0,
+                    "state": format!("{:?}", assigned_session.state).to_lowercase(),
                     "handoff_status": format!("{:?}", assigned_session.handoff_status).to_lowercase(),
                 }));
             }
@@ -275,28 +285,84 @@ pub async fn claim(
                     ),
                 );
             } else {
-                state.record_alert(
-                    "assigned",
-                    &sid.0,
-                    Some(&body.volunteer_id),
-                    format!(
-                        "Volunteer {} claimed session {} and the call was routed for live handoff.",
-                        body.volunteer_id, sid.0
-                    ),
-                );
+                let dispatch_result = async {
+                    let from_number = state
+                        .config
+                        .telephony
+                        .twilio_from_number
+                        .as_deref()
+                        .filter(|number| !number.trim().is_empty())
+                        .ok_or_else(|| sayangcare_core::CoreError::Telephony(
+                            "SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER is required for outbound volunteer calls".to_string(),
+                        ))?;
+                    let mut connect_url = reqwest::Url::parse(&format!(
+                        "{}{}/outbound-connect",
+                        state.config.telephony.public_base_url.trim_end_matches('/'),
+                        "/twilio"
+                    ))
+                    .map_err(|error| sayangcare_core::CoreError::Telephony(format!(
+                        "invalid public URL for outbound TwiML: {error}"
+                    )))?;
+                    connect_url
+                        .query_pairs_mut()
+                        .append_pair("session_id", &sid.0);
 
-                if let Err(e) = state
-                    .telephony
-                    .redirect_to_human(&sid.0, &body.volunteer_id)
-                    .await
-                {
-                    tracing::warn!(error = %e, session_id = %sid, volunteer_id = %body.volunteer_id, "failed to redirect live call to volunteer");
-                    state.record_alert(
-                        "handoff_failed",
-                        &sid.0,
-                        Some(&body.volunteer_id),
-                        format!("Live redirect for session {} to volunteer {} failed; fallback operator review is required.", sid.0, body.volunteer_id),
-                    );
+                    let outbound_sid = state
+                        .telephony
+                        .create_outbound_call(
+                            &volunteer.phone_number,
+                            from_number,
+                            connect_url.as_str(),
+                        )
+                        .await?;
+                    let conference = crate::handlers::twilio::conference_name(&sid.0);
+                    if let Err(error) = state
+                        .telephony
+                        .move_call_to_conference(&sid.0, &conference)
+                        .await
+                    {
+                        if let Err(hangup_error) = state.telephony.hangup(&outbound_sid).await {
+                            tracing::warn!(error = %hangup_error, outbound_call_sid = %outbound_sid, "failed to cancel volunteer call after caller conference setup failed");
+                        }
+                        return Err(error);
+                    }
+                    Ok::<String, sayangcare_core::CoreError>(outbound_sid)
+                }
+                .await;
+
+                match dispatch_result {
+                    Ok(outbound_sid) => {
+                        state.record_alert(
+                            "assigned",
+                            &sid.0,
+                            Some(&body.volunteer_id),
+                            format!("Volunteer {} claimed session {} and outbound dispatch {} was started.", body.volunteer_id, sid.0, outbound_sid),
+                        );
+                    }
+                    Err(error) => {
+                        tracing::warn!(error = %error, session_id = %sid, volunteer_id = %body.volunteer_id, "outbound volunteer dispatch failed");
+                        match state
+                            .telephony
+                            .redirect_to_human(&sid.0, &body.volunteer_id)
+                            .await
+                        {
+                            Ok(()) => state.record_alert(
+                                "handoff_fallback",
+                                &sid.0,
+                                Some(&body.volunteer_id),
+                                format!("Outbound dispatch failed for session {}; the existing-call TwiML handoff was attempted instead.", sid.0),
+                            ),
+                            Err(fallback_error) => {
+                                tracing::warn!(error = %fallback_error, session_id = %sid, volunteer_id = %body.volunteer_id, "existing-call TwiML handoff fallback failed");
+                                state.record_alert(
+                                    "handoff_failed",
+                                    &sid.0,
+                                    Some(&body.volunteer_id),
+                                    format!("Outbound dispatch for session {} failed; fallback operator review is required.", sid.0),
+                                );
+                            }
+                        }
+                    }
                 }
             }
 
