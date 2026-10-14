@@ -12,7 +12,7 @@ This repository is the CSC3104 cloud-computing project. It demonstrates a modula
 - Docker Compose for local infrastructure
 - Kubernetes manifests for a multi-replica deployment
 
-The current codebase is a working scaffold. The JSON Call Lab simulator and live Twilio `/gather` path apply deterministic risk triage and can generate supportive replies through Groq's OpenAI-compatible Chat Completions API. High-risk turns bypass the LLM and use a fixed safety response before queue escalation. Without a Groq API key, both paths use deterministic fallback replies. Readiness checks Redis and PostgreSQL; metrics remain a placeholder. See [Known Limitations](#known-limitations).
+The current codebase is a working scaffold. The JSON Call Lab simulator and live Twilio `/gather` path apply deterministic risk triage and can generate supportive replies through Groq's OpenAI-compatible Chat Completions API. High-risk turns bypass the LLM and use a fixed safety response before queue escalation. Without a Groq API key, both paths use deterministic fallback replies. Readiness checks Redis and PostgreSQL; `/api/v1/metrics` exports a per-process HTTP request counter. See [Known Limitations](#known-limitations).
 
 ## Contents
 
@@ -71,6 +71,7 @@ The API is built as a Cargo workspace. The `core` crate owns domain types and po
 | `crates/priority-queue`   | Redis sorted-set queue and atomic volunteer claims                     |
 | `crates/circuit-breaker`  | Circuit states, rolling counters, adaptive thresholds, registry        |
 | `crates/telephony`        | Twilio REST API implementation of the telephony port                   |
+| `crates/redis-client`     | Shared Redis connection provider with periodic Sentinel master refresh |
 | `migrations/`             | SQLx PostgreSQL migrations                                             |
 | `config/default.toml`     | Default non-secret application configuration                           |
 | `docker-compose.yml`      | Local PostgreSQL, Redis, Redis Sentinel, and single API service        |
@@ -398,7 +399,7 @@ Example:
 curl -i http://localhost:8081/api/v1/health
 ```
 
-`/health` returns service status and package version. `/ready` checks Redis and PostgreSQL concurrently with a two-second timeout per dependency and returns HTTP `503` if either check fails. `/metrics` is a placeholder Prometheus-compatible text response.
+`/health` returns service status and package version. `/ready` checks Redis and PostgreSQL concurrently with a two-second timeout per dependency and returns HTTP `503` if either check fails. `/metrics` exports the Prometheus counter `sayangcare_http_requests_total`. The counter is process-local; Prometheus should scrape each API pod separately and calculate each pod's rate.
 
 ### Call session routes
 
@@ -560,57 +561,105 @@ The API image uses a multi-stage Rust build. It compiles with Rust `1.88`, copie
 
 ### Docker networking note
 
-The Compose API uses PostgreSQL, Sentinel, and Redis service hostnames on the Compose network. Its queue endpoint is configured separately as `redis://redis-master:6379/`; the session store continues to discover the master through Sentinel.
+The Compose API uses PostgreSQL and Redis Sentinel service hostnames on the Compose network. The session store, Redis queue, and shared circuit-breaker state use the shared Sentinel-aware Redis connection provider.
 
 ## Kubernetes
 
-The manifests target a namespace called `sayangcare` and include:
+The manifests target namespace `sayangcare` and include a three-replica API Deployment/Service, PostgreSQL with a 5 GiB PVC, three Redis nodes, three Sentinel pods, disruption budgets, an HPA, and NGINX Ingress. The API image in the checked-in Deployment is currently set for the local Minikube test as `sayangcare-api:dev`; use a published registry image for other clusters.
 
-- A namespace and shared ConfigMap in `k8s/namespace.yaml`
-- A three-replica API Deployment and ClusterIP Service in `k8s/app-deployment.yaml`
-- A PostgreSQL StatefulSet with a 5 GiB PVC in `k8s/postgres.yaml`
-- Three Redis pods plus three Sentinel pods in `k8s/redis-sentinel.yaml`
-- An HPA targeting CPU and `active_voice_sessions` in `k8s/hpa.yaml`
+### Local Minikube setup (Windows and macOS)
 
-Create the namespace/configuration, then create the Secret from your ignored `.env` file:
+Requirements: Docker Desktop running, `kubectl`, and Minikube. Install Minikube using the package manager for your OS, then start Docker Desktop before creating the cluster.
+
+**macOS (Terminal):**
 
 ```bash
+brew install minikube
+minikube start --driver=docker
+kubectl config current-context
+kubectl get nodes
+```
+
+**Windows (PowerShell):** install Minikube with Chocolatey (`choco install minikube`) or the official Windows installer, then run:
+
+```powershell
+minikube start --driver=docker
+kubectl config current-context
+kubectl get nodes
+```
+
+The current local cluster is a single-node Minikube cluster. The setup enabled storage provisioning, Metrics Server, and NGINX Ingress:
+
+```sh
+minikube addons enable storage-provisioner
+minikube addons enable metrics-server
+minikube addons enable ingress
+kubectl get storageclass
+kubectl top nodes
+```
+
+Build and import the API image into Minikube. Re-run these commands after changing API code:
+
+```sh
+docker build -t sayangcare-api:dev .
+minikube image load sayangcare-api:dev
+```
+
+Apply the namespace and non-secret configuration, then create a local-only Secret. Dummy Twilio values are sufficient for dashboard and simulated-call testing; they cannot make live calls. Do not use real values in shell history or commit them:
+
+```sh
 kubectl apply -f k8s/namespace.yaml
-kubectl create secret generic sayangcare-secrets -n sayangcare \
-	--from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n sayangcare create secret generic sayangcare-secrets --from-literal=POSTGRES_PASSWORD='local-dev-password' --from-literal=SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID='ACtest' --from-literal=SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN='test' --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Before deploying, replace the placeholder image in `k8s/app-deployment.yaml`:
-
-```text
-ghcr.io/your-org/sayangcare-api:latest
-```
-
-Then deploy:
+Deploy dependencies first so the API can connect during startup:
 
 ```bash
-kubectl apply -f k8s/postgres.yaml
-kubectl apply -f k8s/redis-sentinel.yaml
-kubectl apply -f k8s/app-deployment.yaml
-kubectl apply -f k8s/hpa.yaml -n sayangcare
+kubectl apply -f k8s/postgres.yaml -f k8s/redis-sentinel.yaml
+kubectl -n sayangcare rollout status statefulset/postgres
+kubectl -n sayangcare rollout status statefulset/redis
+kubectl -n sayangcare rollout status statefulset/redis-sentinel
+
+kubectl apply -f k8s/app-deployment.yaml -f k8s/hpa.yaml
+kubectl -n sayangcare rollout status deployment/sayangcare-api
 ```
 
-Inspect rollout and logs:
+Check pods, PVCs, service endpoints, and HPA:
 
 ```bash
-kubectl get pods -n sayangcare
-kubectl rollout status deployment/sayangcare-api -n sayangcare
-kubectl logs -n sayangcare deployment/sayangcare-api -f
-kubectl get hpa -n sayangcare
+kubectl -n sayangcare get pods,svc,pvc,hpa
+kubectl -n sayangcare get endpoints sayangcare-api
+kubectl -n sayangcare describe hpa sayangcare-api
+kubectl -n sayangcare logs deployment/sayangcare-api
 ```
 
-The API Service is internal to the cluster. Use port forwarding for local access:
+For local access, port-forward the Service:
 
 ```bash
-kubectl port-forward -n sayangcare service/sayangcare-api 8080:80
+kubectl -n sayangcare port-forward svc/sayangcare-api 8080:80
 ```
 
-The Kubernetes files are deployment templates, not a complete production installation. Review image names, secret management, storage classes, ingress/TLS, Redis authentication, and migration execution before production use.
+In another terminal, check API health, dependencies, and metrics; open the Call Lab at `http://127.0.0.1:8080/dashboard`:
+
+```bash
+curl -i http://127.0.0.1:8080/api/v1/health
+curl -i http://127.0.0.1:8080/api/v1/ready
+curl http://127.0.0.1:8080/api/v1/metrics
+```
+
+In Windows PowerShell, use `curl.exe` rather than the `curl` alias:
+
+```powershell
+curl.exe -i http://127.0.0.1:8080/api/v1/health
+curl.exe -i http://127.0.0.1:8080/api/v1/ready
+curl.exe http://127.0.0.1:8080/api/v1/metrics
+```
+
+For a pod-recovery smoke test, start a simulated call in the dashboard, note its session ID, delete one API pod, wait for its replacement, and reload that session through the dashboard/API. Redis is shared across the API pods. This checks pod replacement and session retrieval, but does not prove an in-flight Twilio request survives a crash. Minikube has one Kubernetes node, so it cannot validate node-level high availability.
+
+The HPA uses CPU (65%), memory (75%), and a custom per-pod request-rate metric (25 requests/second). Metrics Server supplies CPU/memory; Prometheus and Prometheus Adapter are required for the custom request metric. If the HPA shows `<unknown>` or reports no custom metrics API, request-rate scaling is not active. See [Phase 4 Kubernetes guide](docs/PHASE_4_KUBERNETES.md) for adapter, Ingress/TLS, and external-cluster setup.
+
+The Ingress requires an installed NGINX Ingress Controller, a real hostname, DNS, and a TLS Secret. The checked-in example hostname and certificate name are not ready for public Twilio traffic. PostgreSQL uses a PVC but remains a single replica; this is persistence, not database failover.
 
 ## Observability
 
@@ -626,9 +675,9 @@ Current endpoints:
 
 - Health: `/api/v1/health`
 - Readiness: `/api/v1/ready`
-- Metrics placeholder: `/api/v1/metrics`
+- Prometheus request counter: `/api/v1/metrics` (`sayangcare_http_requests_total`)
 
-The metrics endpoint is not yet exporting real counters. The Kubernetes Prometheus annotations are present for future integration.
+The endpoint exports a process-local cumulative request counter. Prometheus scraping, dashboarding, and HPA custom-metric adapter installation must be configured in the cluster.
 
 ## Troubleshooting
 
@@ -791,10 +840,10 @@ validation.
 - Volunteer roster, assigned-case mapping, and operator alerts are currently process-local application state, not durable relational bindings shared across API replicas.
 - The dashboard simulator tests transcript-based application behavior only; it does not test live microphone audio, Twilio speech recognition, or real phone handoff.
 - `/api/v1/ready` verifies Redis and PostgreSQL connectivity, but does not check the configured queue backend or external inference/telephony providers.
-- `/api/v1/metrics` returns placeholder text rather than real Prometheus metrics.
+- `/api/v1/metrics` exports only a process-local HTTP request counter; it does not expose latency/error histograms or active call counts.
 - The Compose Redis setup is a small local demonstration, not a hardened production Redis Sentinel deployment.
-- Kubernetes manifests contain placeholder image and secret values and require environment-specific review.
-- The HPA references an `active_voice_sessions` custom metric that requires a metrics adapter and an actual exporter.
+- Kubernetes manifests are configured for the local `sayangcare-api:dev` image and still need a registry image, secure secrets, real hostname, DNS, and TLS for another cluster or live Twilio traffic.
+- The HPA's CPU/memory metrics require Metrics Server; its request-rate metric requires Prometheus scraping and Prometheus Adapter. HPA operation must be verified in the target cluster.
 - The migration is embedded in the API binary and also available through the SQLx CLI; use one controlled migration process in a deployment pipeline to avoid races.
 
 ## Development Guidelines

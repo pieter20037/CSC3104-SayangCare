@@ -13,6 +13,7 @@ sayangcare-session-store.workspace = true
 sayangcare-circuit-breaker.workspace = true
 sayangcare-priority-queue.workspace = true
 sayangcare-telephony.workspace = true
+sayangcare-redis.workspace = true
 
 actix-web.workspace = true
 async-trait.workspace = true

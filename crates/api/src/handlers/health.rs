@@ -1,5 +1,5 @@
-use actix_web::{web, HttpResponse, Responder};
 use crate::state::AppState;
+use actix_web::{web, HttpResponse, Responder};
 use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,11 +58,9 @@ fn readiness_status(redis_ready: bool, postgres_ready: bool) -> actix_web::http:
 /// Prometheus scrape endpoint.
 /// Wire `prometheus` or `metrics-exporter-prometheus` here later.
 pub async fn metrics() -> impl Responder {
-    // Placeholder so HPA + Prometheus annotations don't 404.
-    let body = "# SayangCare metrics placeholder\n";
     HttpResponse::Ok()
         .insert_header(("content-type", "text/plain; version=0.0.4"))
-        .body(body)
+        .body(crate::telemetry::prometheus_metrics())
 }
 
 /// Utility for handlers needing typed JSON responses.

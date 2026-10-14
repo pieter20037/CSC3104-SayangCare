@@ -1,8 +1,8 @@
 use crate::breaker::AdaptiveThresholdPolicy;
 use crate::{BreakerConfig, CircuitBreaker, CircuitState, RequestPermit};
 use async_trait::async_trait;
-use redis::aio::ConnectionManager;
 use sayangcare_core::{CoreError, CoreResult};
+use sayangcare_redis::RedisConnectionProvider;
 use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
@@ -57,7 +57,7 @@ impl BreakerHandle for CircuitBreaker {
 pub struct SharedCircuitBreaker {
     name: String,
     prefix: String,
-    client: ConnectionManager,
+    client: RedisConnectionProvider,
     config: BreakerConfig,
     policy: Arc<dyn AdaptiveThresholdPolicy>,
     probe_lease_ms: u64,
@@ -67,7 +67,7 @@ impl SharedCircuitBreaker {
     pub fn new(
         name: impl Into<String>,
         prefix: impl Into<String>,
-        client: ConnectionManager,
+        client: RedisConnectionProvider,
         config: BreakerConfig,
         policy: Arc<dyn AdaptiveThresholdPolicy>,
         probe_lease_ms: u64,
@@ -100,7 +100,13 @@ impl SharedCircuitBreaker {
     ) {
         let (state_key, samples_key, sequence_key) = self.keys();
         let (error_threshold, latency_threshold) = self.policy.thresholds(distress_severity);
-        let mut client = self.client.clone();
+        let mut client = match self.client.connection().await {
+            Ok(client) => client,
+            Err(error) => {
+                warn!(breaker = %self.name, %error, "shared circuit-breaker connection refresh failed");
+                return;
+            }
+        };
         let script = redis::Script::new(RECORD_SCRIPT);
         let result: redis::RedisResult<i32> = script
             .key(state_key)
@@ -129,7 +135,10 @@ impl BreakerHandle for SharedCircuitBreaker {
     async fn acquire_permit(&self) -> CoreResult<BreakerPermit> {
         let candidate = Uuid::new_v4().to_string();
         let (state_key, _, _) = self.keys();
-        let mut client = self.client.clone();
+        let mut client = self.client.connection().await.map_err(|error| {
+            warn!(breaker = %self.name, %error, "shared circuit-breaker connection refresh failed");
+            CoreError::CircuitOpen(self.name.clone())
+        })?;
         let script = redis::Script::new(ACQUIRE_SCRIPT);
         let result: redis::RedisResult<Vec<i64>> = script
             .key(state_key)
@@ -173,7 +182,13 @@ impl BreakerHandle for SharedCircuitBreaker {
 
     async fn current_state(&self) -> CircuitState {
         let (state_key, _, _) = self.keys();
-        let mut client = self.client.clone();
+        let mut client = match self.client.connection().await {
+            Ok(client) => client,
+            Err(error) => {
+                warn!(breaker = %self.name, %error, "shared circuit-breaker connection refresh failed");
+                return CircuitState::Open;
+            }
+        };
         let result: redis::RedisResult<i32> = redis::Script::new(STATE_SCRIPT)
             .key(state_key)
             .invoke_async(&mut client)
@@ -292,6 +307,7 @@ return 0
 mod tests {
     use super::*;
     use crate::SentimentAdaptivePolicy;
+    use redis::aio::ConnectionManager;
 
     #[tokio::test]
     #[ignore = "requires a local Redis service"]
@@ -307,16 +323,16 @@ mod tests {
             window_size: 60,
         };
         let policy = Arc::new(SentimentAdaptivePolicy::new(0.5, 10_000, 0.4));
+        let provider = RedisConnectionProvider::from_manager(manager.clone());
         let first = SharedCircuitBreaker::new(
             "reply",
             &prefix,
-            manager.clone(),
+            provider.clone(),
             config.clone(),
             policy.clone(),
             30_000,
         );
-        let second =
-            SharedCircuitBreaker::new("reply", &prefix, manager.clone(), config, policy, 30_000);
+        let second = SharedCircuitBreaker::new("reply", &prefix, provider, config, policy, 30_000);
 
         for _ in 0..FAST_FAILURE_LIMIT {
             let permit = first.acquire_permit().await.unwrap();

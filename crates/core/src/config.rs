@@ -72,7 +72,6 @@ pub struct RedisConfig {
     #[serde(deserialize_with = "deserialize_sentinel_endpoints")]
     pub sentinel_endpoints: Vec<String>,
     pub master_url: Option<String>,
-    pub queue_url: Option<String>,
     pub master_name: String,
     pub password: Option<String>,
     pub pool_size: u32,

@@ -23,14 +23,15 @@ COPY crates/session-store/Cargo.toml    crates/session-store/
 COPY crates/circuit-breaker/Cargo.toml  crates/circuit-breaker/
 COPY crates/priority-queue/Cargo.toml   crates/priority-queue/
 COPY crates/telephony/Cargo.toml        crates/telephony/
+COPY crates/redis-client/Cargo.toml     crates/redis-client/
 
 # ---------------------------------------------------------------------
 # Layer B: Create stub source files so cargo can resolve the graph.
 # The actual code comes later — this just lets cargo see the crate layout.
 # ---------------------------------------------------------------------
 RUN mkdir -p crates/api/src && echo "fn main(){}" > crates/api/src/main.rs && \
-    for c in core session-store circuit-breaker priority-queue telephony; do \
-      mkdir -p crates/$c/src && echo "" > crates/$c/src/lib.rs; \
+    for c in core session-store circuit-breaker priority-queue telephony redis-client; do \
+    mkdir -p crates/$c/src && echo "" > crates/$c/src/lib.rs; \
     done
 
 # ---------------------------------------------------------------------
@@ -52,13 +53,14 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-        cargo clean --release \
-            -p sayangcare-api \
-            -p sayangcare-core \
-            -p sayangcare-session-store \
-            -p sayangcare-circuit-breaker \
-            -p sayangcare-priority-queue \
-            -p sayangcare-telephony && \
+    cargo clean --release \
+    -p sayangcare-api \
+    -p sayangcare-core \
+    -p sayangcare-session-store \
+    -p sayangcare-circuit-breaker \
+    -p sayangcare-priority-queue \
+    -p sayangcare-telephony \
+    -p sayangcare-redis && \
     cargo build --release --bin sayangcare && \
     cp target/release/sayangcare /app/sayangcare
 

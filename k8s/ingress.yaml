@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sayangcare-api
+  namespace: sayangcare
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - sayangcare.example.com
+      secretName: sayangcare-tls
+  rules:
+    - host: sayangcare.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sayangcare-api
+                port:
+                  number: 80

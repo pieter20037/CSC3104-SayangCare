@@ -1,0 +1,18 @@
+prometheus:
+  url: http://REPLACE_WITH_PROMETHEUS_SERVICE.monitoring.svc
+  port: 9090
+
+rules:
+  default: false
+  custom:
+    - seriesQuery: 'sayangcare_http_requests_total{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace:
+            resource: namespace
+          pod:
+            resource: pod
+      name:
+        matches: "^sayangcare_http_requests_total$"
+        as: sayangcare_http_requests_per_second
+      metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'

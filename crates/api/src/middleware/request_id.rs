@@ -50,6 +50,7 @@ where
     forward_ready!(service);
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
+        let path = req.path().to_owned();
         let incoming = req
             .headers()
             .get(HEADER)
@@ -64,7 +65,11 @@ where
         let fut = self.service.call(req);
 
         Box::pin(async move {
-            let mut res = fut.await?;
+            let response = fut.await;
+            if path != "/api/v1/metrics" {
+                crate::telemetry::record_http_request();
+            }
+            let mut res = response?;
             if let Ok(value) = HeaderValue::from_str(&rid) {
                 res.headers_mut()
                     .insert(HeaderName::from_static(HEADER), value);

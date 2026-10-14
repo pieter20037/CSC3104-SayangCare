@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
 use sayangcare_core::domain::SessionId;
 use sayangcare_core::ports::PriorityQueue;
 use sayangcare_core::{CoreError, CoreResult};
+use sayangcare_redis::RedisConnectionProvider;
 
 /// Distributed priority queue backed by a Redis sorted set.
 ///
@@ -14,13 +14,13 @@ use sayangcare_core::{CoreError, CoreResult};
 ///
 /// Claim is atomic via Lua to prevent two volunteers grabbing the same caller.
 pub struct RedisPriorityQueue {
-    client: ConnectionManager,
+    client: RedisConnectionProvider,
     queue_key: String,
     claim_prefix: String,
 }
 
 impl RedisPriorityQueue {
-    pub fn new(client: ConnectionManager, queue_key: impl Into<String>) -> Self {
+    pub fn new(client: RedisConnectionProvider, queue_key: impl Into<String>) -> Self {
         let key = queue_key.into();
         Self {
             client,
@@ -44,16 +44,16 @@ mod tests {
     use redis::Client;
     use sayangcare_core::domain::SessionId;
     use sayangcare_core::ports::PriorityQueue;
+    use sayangcare_redis::RedisConnectionProvider;
 
     #[tokio::test]
     #[ignore = "requires Redis at 127.0.0.1:6379; run with --include-ignored after docker compose up"]
     async fn list_pending_returns_sorted_sessions() {
         let client = Client::open("redis://127.0.0.1:6379/").unwrap();
         let mut conn = client.get_multiplexed_async_connection().await.unwrap();
-        let queue = RedisPriorityQueue::new(
-            redis::aio::ConnectionManager::new(client).await.unwrap(),
-            "test:queue",
-        );
+        let manager = redis::aio::ConnectionManager::new(client).await.unwrap();
+        let queue =
+            RedisPriorityQueue::new(RedisConnectionProvider::from_manager(manager), "test:queue");
 
         let _: () = redis::cmd("DEL")
             .arg("test:queue")
@@ -83,7 +83,11 @@ impl PriorityQueue for RedisPriorityQueue {
         risk: u8,
         enqueued_at: DateTime<Utc>,
     ) -> CoreResult<()> {
-        let mut conn = self.client.clone();
+        let mut conn = self
+            .client
+            .connection()
+            .await
+            .map_err(|e| CoreError::Storage(format!("redis manager for enqueue: {e}")))?;
         let score = Self::score(risk, enqueued_at);
         let _: () = conn
             .zadd(&self.queue_key, &session_id.0, score)
@@ -93,7 +97,11 @@ impl PriorityQueue for RedisPriorityQueue {
     }
 
     async fn list_pending(&self) -> CoreResult<Vec<SessionId>> {
-        let mut conn = self.client.clone();
+        let mut conn = self
+            .client
+            .connection()
+            .await
+            .map_err(|e| CoreError::Storage(format!("redis manager for list pending: {e}")))?;
         let result: Vec<String> = conn
             .zrange(&self.queue_key, 0, -1)
             .await
@@ -102,7 +110,11 @@ impl PriorityQueue for RedisPriorityQueue {
     }
 
     async fn peek_highest(&self) -> CoreResult<Option<SessionId>> {
-        let mut conn = self.client.clone();
+        let mut conn = self
+            .client
+            .connection()
+            .await
+            .map_err(|e| CoreError::Storage(format!("redis manager for peek: {e}")))?;
         let result: Vec<String> = conn
             .zrange(&self.queue_key, 0, 0)
             .await
@@ -111,7 +123,11 @@ impl PriorityQueue for RedisPriorityQueue {
     }
 
     async fn claim(&self, volunteer_id: &str) -> CoreResult<Option<SessionId>> {
-        let mut conn = self.client.clone();
+        let mut conn = self
+            .client
+            .connection()
+            .await
+            .map_err(|e| CoreError::Storage(format!("redis manager for claim: {e}")))?;
         // Atomically pop the highest-priority item and record the claim.
         let script = redis::Script::new(
             r#"
@@ -134,7 +150,11 @@ impl PriorityQueue for RedisPriorityQueue {
     }
 
     async fn claim_session(&self, session_id: &SessionId, volunteer_id: &str) -> CoreResult<bool> {
-        let mut conn = self.client.clone();
+        let mut conn = self
+            .client
+            .connection()
+            .await
+            .map_err(|e| CoreError::Storage(format!("redis manager for claim session: {e}")))?;
         let script = redis::Script::new(
             r#"
                 if redis.call('ZSCORE', KEYS[1], ARGV[1]) == false then return 0 end
@@ -155,7 +175,11 @@ impl PriorityQueue for RedisPriorityQueue {
     }
 
     async fn list_claimed(&self, volunteer_id: &str) -> CoreResult<Vec<SessionId>> {
-        let mut conn = self.client.clone();
+        let mut conn = self
+            .client
+            .connection()
+            .await
+            .map_err(|e| CoreError::Storage(format!("redis manager for list claims: {e}")))?;
         let claims: std::collections::HashMap<String, String> = conn
             .hgetall(&self.claim_prefix)
             .await
@@ -174,7 +198,11 @@ impl PriorityQueue for RedisPriorityQueue {
         from_volunteer_id: &str,
         to_volunteer_id: &str,
     ) -> CoreResult<bool> {
-        let mut conn = self.client.clone();
+        let mut conn = self
+            .client
+            .connection()
+            .await
+            .map_err(|e| CoreError::Storage(format!("redis manager for move claim: {e}")))?;
         let script = redis::Script::new(
             r#"
             if redis.call('HGET', KEYS[1], ARGV[1]) ~= ARGV[2] then return 0 end
@@ -194,7 +222,11 @@ impl PriorityQueue for RedisPriorityQueue {
     }
 
     async fn release_claim(&self, session_id: &SessionId, volunteer_id: &str) -> CoreResult<bool> {
-        let mut conn = self.client.clone();
+        let mut conn = self
+            .client
+            .connection()
+            .await
+            .map_err(|e| CoreError::Storage(format!("redis manager for release claim: {e}")))?;
         let script = redis::Script::new(
             r#"
             if redis.call('HGET', KEYS[1], ARGV[1]) ~= ARGV[2] then return 0 end

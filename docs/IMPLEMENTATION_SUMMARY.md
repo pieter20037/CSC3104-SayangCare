@@ -9,7 +9,7 @@ Two major features have been successfully implemented, tested, and merged to mai
 
 ### Key Metrics
 
-- ✅ **48 tests passing** (16 circuit-breaker + 9 session-store + others)
+- ✅ **72 tests passing; 2 Redis-dependent tests ignored** in the latest recorded workspace run
 - ✅ **0 data loss scenarios** (version-safe deletion, atomic operations)
 - ✅ **100% recovery** from PostgreSQL outages (retry + sweeper)
 - ✅ **Merged to main** (Yi Xuan & Lucas)
@@ -20,12 +20,13 @@ Two major features have been successfully implemented, tested, and merged to mai
 
 ### Run All Tests
 
-```powershell
-cd "c:\Users\darre\CSC3104-SayangCare Project\CSC3104-SayangCare"
+Run from the repository root in PowerShell or macOS Terminal:
+
+```sh
 cargo test --workspace
 ```
 
-**Expected: 48 tests passed, 1 ignored (normal)**
+**Latest recorded: 72 tests passed, 2 Redis-dependent tests ignored.** See the [cross-platform test reference](./TEST_EXECUTION_QUICK_REFERENCE.md) for the per-crate breakdown.
 
 ---
 
@@ -137,9 +138,9 @@ Time 3: delete_if_version(&id, v1)
 
 ## Test Results
 
-### Circuit Breaker (16 tests)
+### Circuit Breaker (19 passed in latest workspace run)
 
-All 16 tests passing ✅
+All latest recorded circuit-breaker unit tests pass; one Redis integration test is ignored without Redis.
 
 **Test Categories**:
 
@@ -162,16 +163,16 @@ All 9 tests passing ✅
 ### Overall Results
 
 ```
-Running tests from 6 crates:
-- sayangcare-api: 1 test ✅
-- sayangcare-circuit-breaker: 16 tests ✅
-- sayangcare-core: 13 tests ✅
-- sayangcare-priority-queue: 8 tests + 1 ignored ✅
-- sayangcare-session-store: 9 tests ✅
-- sayangcare-telephony: 2 tests ✅
+Latest verified workspace run (15 October 2026):
+- sayangcare-api: 14 passed
+- sayangcare-circuit-breaker: 19 passed, 1 Redis-dependent test ignored
+- sayangcare-core: 20 passed
+- sayangcare-priority-queue: 8 passed, 1 Redis-dependent test ignored
+- sayangcare-redis: no unit tests
+- sayangcare-session-store: 9 passed
+- sayangcare-telephony: 2 passed
 
-TOTAL: 48 tests passed, 1 ignored
-TIME: ~2 minutes (Rust compilation)
+TOTAL: 72 tests passed, 2 ignored
 ```
 
 ---
@@ -195,10 +196,11 @@ TIME: ~2 minutes (Rust compilation)
 - Session store: [`crates/session-store/src/tiered.rs`](../crates/session-store/src/tiered.rs)
 
 4. Run targeted tests:
-   ```powershell
-   cargo test -p sayangcare-circuit-breaker
-   cargo test -p sayangcare-session-store
-   ```
+
+```sh
+ cargo test -p sayangcare-circuit-breaker
+ cargo test -p sayangcare-session-store
+```
 
 ### Option 3: Deep Dive (2-3 hours)
 
@@ -257,8 +259,7 @@ let sweeper = Arc::new(OrphanedSessionSweeper::new(hot, tiered.clone()));
 
 ## Deployment Checklist
 
-- [x] Unit tests passing (16 circuit-breaker + 9 session-store)
-- [x] Integration tests passing (48 total)
+- [x] Workspace tests passing (latest recorded run: 72 passed, 2 Redis-dependent tests ignored)
 - [x] Code reviewed and merged to main
 - [x] No data loss scenarios
 - [x] Retry mechanism tested with simulated outages
@@ -266,7 +267,7 @@ let sweeper = Arc::new(OrphanedSessionSweeper::new(hot, tiered.clone()));
 - [x] Thread safety verified (atomic operations)
 - [x] Documentation complete
 
-**Status**: ✅ **Ready for production**
+**Status**: ✅ **Core implementation tests pass.** Production readiness still requires environment-specific security, cluster, failover, load, and live telephony validation.
 
 ---
 

@@ -1,20 +1,52 @@
 # Phase 3: Resilience and Live Telephony
 
-Run all commands in PowerShell from the repository root.
+The numbered walkthrough uses PowerShell on Windows. macOS users can use the [Terminal alternative](#macos-terminal-alternative). Run commands from the repository root.
 
 ## Status
 
-| Area | Status |
-|---|---|
-| Hot/cold session storage (Redis + PostgreSQL) | Done |
-| Archive with retries | Done |
-| Orphaned-session sweeper (every 30s, >5 min inactive) | Done |
-| TEL-01 ngrok tunnel | Done |
-| TEL-02 Inbound webhook | Done |
-| TEL-03 Twilio signature verification | Done |
-| TEL-04 Outbound REST client | Done |
-| TEL-05 Outbound-connect TwiML | Done |
-| TEL-06 Live end-to-end test | Pending (US trial number; team is in Singapore) |
+| Area                                                  | Status                                          |
+| ----------------------------------------------------- | ----------------------------------------------- |
+| Hot/cold session storage (Redis + PostgreSQL)         | Done                                            |
+| Archive with retries                                  | Done                                            |
+| Orphaned-session sweeper (every 30s, >5 min inactive) | Done                                            |
+| TEL-01 ngrok tunnel                                   | Done                                            |
+| TEL-02 Inbound webhook                                | Done                                            |
+| TEL-03 Twilio signature verification                  | Done                                            |
+| TEL-04 Outbound REST client                           | Done                                            |
+| TEL-05 Outbound-connect TwiML                         | Done                                            |
+| TEL-06 Live end-to-end test                           | Pending (US trial number; team is in Singapore) |
+
+## macOS Terminal alternative
+
+Install ngrok once with Homebrew, prepare the local environment, and start the data services:
+
+```sh
+brew install ngrok/ngrok/ngrok
+test -f .env || cp .env.example .env
+docker compose up -d --wait postgres redis-master redis-replica redis-sentinel
+docker compose ps
+```
+
+Add Twilio credentials to the ignored `.env` file using a text editor. Set `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL` to the HTTPS ngrok URL, then start the API in one Terminal window:
+
+```sh
+cargo run -p sayangcare-api
+```
+
+In another Terminal window, check the API and start the tunnel. Replace the example domain with the ngrok domain assigned to your account:
+
+```sh
+curl -i http://localhost:8081/api/v1/health
+ngrok http 8081 --url YOUR_NGROK_DOMAIN
+```
+
+The dashboard is at `http://localhost:8081/dashboard`. To verify unsigned webhooks are rejected, run:
+
+```sh
+curl -i -X POST 'https://YOUR_NGROK_DOMAIN/twilio/voice' -H 'Content-Type: application/x-www-form-urlencoded' --data 'CallSid=CA-test-001&From=%2B6590000000&To=%2B6560000000'
+```
+
+The SQL inspection in section 6 uses the same `docker compose exec -T postgres psql ... -c 'SQL'` command in Terminal; only the PowerShell line-continuation character (backtick) differs. Stop the API and tunnel with `Ctrl+C` in their respective terminals.
 
 ## 1. Start services
 
@@ -61,7 +93,7 @@ SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER=<your-twilio-number-from-.env>
 SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL=https://<your-ngrok-url>.ngrok-free.dev
 ```
 
-**⚠️ NEVER commit `.env` or actual credentials to git. Use `git update-index --skip-worktree .env` to exclude it from tracking.**
+**Never commit `.env` or real credentials to Git.** The repository ignores `.env`; if it is already tracked, remove it from the Git index without deleting your local copy.
 
 `PUBLIC_BASE_URL` is the HTTPS origin only (no trailing slash or path). Never commit `.env`. Restart the API after changes.
 
@@ -69,6 +101,7 @@ SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL=https://<your-ngrok-url>.ngrok-free.dev
 
 In the Twilio console, set the number's voice webhook to **POST**:
 (ALREADY DONE SO SKIP.)
+
 ```text
 https://tackling-mud-chip.ngrok-free.dev/twilio/voice
 ```
@@ -104,9 +137,10 @@ Escalation and dispatch:
 3. Confirm the volunteer phone rings and joins the caller's conference.
 4. Confirm the session is archived:
 
-```powershell (This command should show 0 rows for now. It is to verify the call is archieved, confirm volunteer, risk assessment and debug issues.)
-docker compose exec -T postgres psql -U sayangcare -d sayangcare `
-  -c "SELECT id, state, handoff_status, assigned_volunteer_id, is_simulated, risk->'level' AS risk_level FROM sessions WHERE id = 'CA-your-test-sid';"
+```sh
+docker compose exec -T postgres psql -U sayangcare -d sayangcare -c "SELECT id, state, handoff_status, assigned_volunteer_id, is_simulated, risk->'level' AS risk_level FROM sessions WHERE id = 'CA-your-test-sid';"
 ```
+
+Replace `CA-your-test-sid` with the actual Twilio CallSid. A successfully archived session should return one row.
 
 Record the date, result, Twilio call status and any error codes.

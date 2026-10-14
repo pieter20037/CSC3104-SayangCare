@@ -34,6 +34,12 @@ spec:
     spec:
       # Sentinel + Redis need to see each other on a shared network; default is fine.
       terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: redis }
       containers:
         - name: redis
           image: redis:7-alpine
@@ -77,7 +83,7 @@ spec:
             periodSeconds: 15
           resources:
             requests: { cpu: "100m", memory: "128Mi" }
-            limits:   { cpu: "500m", memory: "512Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -86,6 +92,16 @@ spec:
         resources:
           requests:
             storage: 2Gi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  namespace: sayangcare
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: redis }
 ---
 ########################################
 # 3. Headless Service for Sentinels
@@ -121,6 +137,12 @@ spec:
     metadata:
       labels: { app: redis-sentinel }
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: redis-sentinel }
       # Sentinels must NOT be co-located with the Redis node they monitor,
       # but on a small cluster anti-affinity may not be satisfiable — soft it.
       affinity:
@@ -138,19 +160,19 @@ spec:
           args:
             - |
               set -e
-              # Sentinel config is written fresh each boot so it can be
-              # regenerated if the master changes.
-              cat > /tmp/sentinel.conf <<EOF
+              if [ ! -f /data/sentinel.conf ]; then
+                cat > /data/sentinel.conf <<EOF
               port 26379
-              dir /tmp
+              dir /data
+              sentinel resolve-hostnames yes
+              sentinel announce-hostnames yes
               sentinel monitor sayangcare-master redis-0.redis.sayangcare.svc.cluster.local 6379 2
               sentinel down-after-milliseconds sayangcare-master 5000
               sentinel failover-timeout sayangcare-master 10000
               sentinel parallel-syncs sayangcare-master 1
-              sentinel resolve-hostnames yes
-              sentinel announce-hostnames yes
               EOF
-              exec redis-sentinel /tmp/sentinel.conf
+              fi
+              exec redis-sentinel /data/sentinel.conf
           ports:
             - containerPort: 26379
               name: sentinel
@@ -159,6 +181,32 @@ spec:
               command: ["redis-cli", "-p", "26379", "ping"]
             initialDelaySeconds: 5
             periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "-p", "26379", "ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
           resources:
-            requests: { cpu: "50m",  memory: "64Mi" }
-            limits:   { cpu: "200m", memory: "128Mi" }
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "200m", memory: "128Mi" }
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 256Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-sentinel-pdb
+  namespace: sayangcare
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: redis-sentinel }

@@ -10,6 +10,7 @@ use sayangcare_core::CoreResult;
 use sayangcare_priority_queue::{
     RaftPriorityQueue, RaftQueueNode, RaftQueueSettings, RedisPriorityQueue,
 };
+use sayangcare_redis::RedisConnectionProvider;
 use sayangcare_session_store::{
     OrphanedSessionSweeper, PostgresArchiveStore, RedisSessionStore, TieredSessionStore,
     VolunteerBindingStore,
@@ -62,14 +63,17 @@ pub struct AppState {
 impl AppState {
     pub async fn bootstrap(config: AppConfig) -> CoreResult<Self> {
         // --- Hot store (Redis Sentinel) ---
-        let hot = RedisSessionStore::new(
+        let redis = RedisConnectionProvider::from_config(
             config.redis.master_url.as_deref(),
             &config.redis.sentinel_endpoints,
             &config.redis.master_name,
             config.redis.password.as_deref(),
         )
-        .await?;
-        let hot = Arc::new(hot);
+        .await
+        .map_err(|error| {
+            sayangcare_core::CoreError::Storage(format!("redis connection provider: {error}"))
+        })?;
+        let hot = Arc::new(RedisSessionStore::new(redis.clone()));
 
         // --- Cold store (Postgres) ---
         let pg_pool = sqlx::postgres::PgPoolOptions::new()
@@ -109,7 +113,7 @@ impl AppState {
                 half_open_after_secs: config.circuit_breaker.half_open_after_secs,
                 window_size: 60,
             },
-            hot.connection_manager(),
+            redis.clone(),
             "sayangcare:circuit-breaker",
             probe_lease_ms,
         ));
@@ -138,25 +142,10 @@ impl AppState {
                     info!(node_id, "Raft priority queue enabled");
                     (Arc::new(RaftPriorityQueue::new(node.clone())), Some(node))
                 }
-                "redis" => {
-                    let queue_url = config
-                        .redis
-                        .queue_url
-                        .as_deref()
-                        .or(config.redis.master_url.as_deref())
-                        .unwrap_or("redis://127.0.0.1:6379/");
-                    let redis_client = redis::Client::open(queue_url)
-                        .map_err(|e| sayangcare_core::CoreError::Storage(format!("redis: {e}")))?;
-                    let redis_mgr = redis::aio::ConnectionManager::new(redis_client)
-                        .await
-                        .map_err(|e| {
-                            sayangcare_core::CoreError::Storage(format!("redis mgr: {e}"))
-                        })?;
-                    (
-                        Arc::new(RedisPriorityQueue::new(redis_mgr, "escalation:queue")),
-                        None,
-                    )
-                }
+                "redis" => (
+                    Arc::new(RedisPriorityQueue::new(redis.clone(), "escalation:queue")),
+                    None,
+                ),
                 other => {
                     return Err(sayangcare_core::CoreError::Storage(format!(
                         "unknown queue backend '{other}'; use 'redis' or 'raft'"

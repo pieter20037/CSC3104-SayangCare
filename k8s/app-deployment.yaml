@@ -33,7 +33,7 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
-        prometheus.io/path: "/metrics"
+        prometheus.io/path: "/api/v1/metrics"
     spec:
       # Graceful shutdown: give in-flight calls time to drain before SIGKILL.
       terminationGracePeriodSeconds: 30
@@ -46,7 +46,7 @@ spec:
             matchLabels: { app: sayangcare-api }
       containers:
         - name: api
-          image: ghcr.io/your-org/sayangcare-api:latest # <-- change me
+          image: sayangcare-api:dev
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -83,12 +83,18 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /api/v1/health
+              path: /api/v1/ready
               port: http
-            initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 2
             failureThreshold: 2
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 30
           # Pre-stop: unregister from Service before shutdown so no new
           # sessions land on a pod that's about to die.
           lifecycle:
@@ -105,6 +111,8 @@ spec:
             runAsUser: 10001
             capabilities:
               drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
 ---
 # Never let voluntary disruptions (node drains, rollouts) drop below 2 pods.
 apiVersion: policy/v1
@@ -116,28 +124,3 @@ spec:
   minAvailable: 2
   selector:
     matchLabels: { app: sayangcare-api }
----
-# Optional: Ingress. Uncomment once you have an ingress controller + TLS.
-# apiVersion: networking.k8s.io/v1
-# kind: Ingress
-# metadata:
-#   name: sayangcare-api
-#   namespace: sayangcare
-#   annotations:
-#     nginx.ingress.kubernetes.io/proxy-body-size: "2m"
-#     cert-manager.io/cluster-issuer: letsencrypt-prod
-# spec:
-#   ingressClassName: nginx
-#   tls:
-#     - hosts: [sayangcare.example.com]
-#       secretName: sayangcare-tls
-#   rules:
-#     - host: sayangcare.example.com
-#       http:
-#         paths:
-#           - path: /
-#             pathType: Prefix
-#             backend:
-#               service:
-#                 name: sayangcare-api
-#                 port: { number: 80 }

@@ -1,0 +1,8 @@
+[package]
+name = "sayangcare-redis"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+redis.workspace = true
+tokio.workspace = true

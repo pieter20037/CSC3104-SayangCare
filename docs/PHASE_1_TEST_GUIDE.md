@@ -1,6 +1,6 @@
 # Phase 1: Session Lifecycle and Recovery
 
-This guide describes the implemented local session, risk, escalation, and volunteer workflow and how to verify it locally on Windows with PowerShell.
+This guide describes the implemented local session, risk, escalation, and volunteer workflow. Detailed lifecycle examples below use Windows PowerShell; macOS users can follow the equivalent Terminal quick path in the [macOS section](#macos-terminal).
 
 ## What Changed
 
@@ -26,6 +26,42 @@ Redis Lua operations provide cross-process atomicity across API replicas. A proc
 - Rust and Cargo are installed.
 - The ignored local `.env` exists and has valid PostgreSQL and Redis URLs/credentials. Do not commit `.env`.
 - Ports in `.env` are available; this setup uses API `8081`, PostgreSQL `5434`, Redis `6379`, and Sentinel `26379`.
+
+## macOS Terminal
+
+From the repository root, prepare `.env` and start the local data services:
+
+```sh
+test -f .env || cp .env.example .env
+docker compose up -d --wait postgres redis-master redis-replica redis-sentinel
+docker compose ps
+docker compose exec -T redis-sentinel redis-cli -p 26379 SENTINEL get-master-addr-by-name sayangcare-master
+```
+
+Start the API in one Terminal window and leave it running:
+
+```sh
+cargo run -p sayangcare-api
+```
+
+In another Terminal window, check health and readiness, then open the Call Lab:
+
+```sh
+curl -i http://localhost:8081/api/v1/health
+curl -i http://localhost:8081/api/v1/ready
+open http://localhost:8081/dashboard
+```
+
+Use the dashboard to create a simulated call, record normal and high-risk turns, claim/transfer/resolve its volunteer case, and end the call. Inspect the archived session or assignment using the same `docker compose exec ... psql ... -c "..."` commands shown in the Windows sections; those SQL commands work unchanged in macOS Terminal.
+
+Run automated checks from the repository root:
+
+```sh
+cargo test --workspace
+cargo check --workspace --all-targets
+```
+
+Stop the API with `Ctrl+C`; stop the containers with `docker compose down`. Do not add `-v` unless you intend to delete the database volume. The optional three-node Raft demo has its own macOS instructions in [Phase 2](PHASE_2.md#macos-terminal-alternative).
 
 ## Start Dependencies
 
@@ -238,4 +274,3 @@ docker compose down
 ```
 
 Do not use `docker compose down -v` unless you intend to delete the local database volume.
-

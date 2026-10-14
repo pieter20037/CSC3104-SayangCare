@@ -1,6 +1,6 @@
 use crate::breaker::{AdaptiveThresholdPolicy, BreakerConfig};
 use crate::shared::SharedCircuitBreaker;
-use redis::aio::ConnectionManager;
+use sayangcare_redis::RedisConnectionProvider;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -10,7 +10,7 @@ pub struct BreakerRegistry {
     breakers: RwLock<HashMap<String, Arc<SharedCircuitBreaker>>>,
     policy: Arc<dyn AdaptiveThresholdPolicy>,
     default_config: BreakerConfig,
-    client: ConnectionManager,
+    client: RedisConnectionProvider,
     prefix: String,
     probe_lease_ms: u64,
 }
@@ -19,7 +19,7 @@ impl BreakerRegistry {
     pub fn new(
         policy: Arc<dyn AdaptiveThresholdPolicy>,
         default_config: BreakerConfig,
-        client: ConnectionManager,
+        client: RedisConnectionProvider,
         prefix: impl Into<String>,
         probe_lease_ms: u64,
     ) -> Self {
@@ -51,5 +51,4 @@ impl BreakerRegistry {
             })
             .clone()
     }
-
 }

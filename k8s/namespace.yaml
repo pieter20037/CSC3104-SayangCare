@@ -25,10 +25,11 @@ data:
   # Redis Sentinel (in-cluster DNS names)
   SAYANGCARE__REDIS__SENTINEL_ENDPOINTS: '["redis-sentinel-0.redis-sentinel.sayangcare.svc.cluster.local:26379","redis-sentinel-1.redis-sentinel.sayangcare.svc.cluster.local:26379","redis-sentinel-2.redis-sentinel.sayangcare.svc.cluster.local:26379"]'
   SAYANGCARE__REDIS__MASTER_NAME: "sayangcare-master"
-  SAYANGCARE__REDIS__QUEUE_URL: "redis://redis-0.redis.sayangcare.svc.cluster.local:6379/"
 
   # Postgres URL is assembled in app-deployment.yaml from sayangcare-secrets.
-  SAYANGCARE__POSTGRES__MAX_CONNECTIONS: "20"
+  # 4 per API pod keeps the 20-replica HPA ceiling within PostgreSQL's default
+  # max_connections of 100, leaving capacity for migrations and administration.
+  SAYANGCARE__POSTGRES__MAX_CONNECTIONS: "4"
 
   # Circuit breaker defaults
   SAYANGCARE__CIRCUIT_BREAKER__BASE_ERROR_RATE: "0.25"

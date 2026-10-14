@@ -1,6 +1,75 @@
 # Phase 2: Run Order (Raft Volunteer Queue)
 
-Run everything from the repo root in PowerShell. Needs Docker Desktop running.
+The numbered walkthrough uses PowerShell on Windows. macOS users can use the [Terminal alternative](#macos-terminal-alternative). Both workflows require Docker Desktop running and commands started from the repository root.
+
+## macOS Terminal alternative
+
+Start the shared data services and run the tests in Terminal:
+
+```sh
+docker compose up -d --wait postgres redis-master redis-replica redis-sentinel
+docker compose ps
+cargo test --workspace
+```
+
+Open three more Terminal windows. Run one node command in each; these environment variables apply only to that terminal.
+
+**Node 1, Terminal 1:**
+
+```sh
+export SAYANGCARE__QUEUE__BACKEND=raft
+export SAYANGCARE__QUEUE__RAFT_PEERS='1=http://127.0.0.1:18081,2=http://127.0.0.1:18082,3=http://127.0.0.1:18083'
+export SAYANGCARE__QUEUE__RAFT_TOKEN=demo-secret
+export SAYANGCARE__QUEUE__RAFT_NODE_ID=1
+export SAYANGCARE__SERVER__PORT=18081
+export SAYANGCARE__QUEUE__RAFT_DATA_DIR="$TMPDIR/raft/n1"
+cargo run -p sayangcare-api
+```
+
+**Node 2, Terminal 2:**
+
+```sh
+export SAYANGCARE__QUEUE__BACKEND=raft
+export SAYANGCARE__QUEUE__RAFT_PEERS='1=http://127.0.0.1:18081,2=http://127.0.0.1:18082,3=http://127.0.0.1:18083'
+export SAYANGCARE__QUEUE__RAFT_TOKEN=demo-secret
+export SAYANGCARE__QUEUE__RAFT_NODE_ID=2
+export SAYANGCARE__SERVER__PORT=18082
+export SAYANGCARE__QUEUE__RAFT_DATA_DIR="$TMPDIR/raft/n2"
+cargo run -p sayangcare-api
+```
+
+**Node 3, Terminal 3:**
+
+```sh
+export SAYANGCARE__QUEUE__BACKEND=raft
+export SAYANGCARE__QUEUE__RAFT_PEERS='1=http://127.0.0.1:18081,2=http://127.0.0.1:18082,3=http://127.0.0.1:18083'
+export SAYANGCARE__QUEUE__RAFT_TOKEN=demo-secret
+export SAYANGCARE__QUEUE__RAFT_NODE_ID=3
+export SAYANGCARE__SERVER__PORT=18083
+export SAYANGCARE__QUEUE__RAFT_DATA_DIR="$TMPDIR/raft/n3"
+cargo run -p sayangcare-api
+```
+
+Leave Terminal 4 for checks. Verify that the nodes agree on a leader and enqueue a test call through a follower:
+
+```sh
+for port in 18081 18082 18083; do curl -sS "http://127.0.0.1:$port/api/v1/queue/raft"; done
+curl -sS -X POST http://127.0.0.1:18082/api/v1/calls/incoming -H 'content-type: application/json' -d '{"call_sid":"RAFT-DEMO-1","from":"+6590000000","to":"+6560000000"}'
+curl -sS -X POST http://127.0.0.1:18082/api/v1/calls/RAFT-DEMO-1/turn -H 'content-type: application/json' -d '{"transcript":"I want to kill myself tonight"}'
+for port in 18081 18082 18083; do curl -sS "http://127.0.0.1:$port/api/v1/volunteers/queue"; done
+```
+
+Find the leader from the first responses, then press `Ctrl+C` in that node's terminal to stop it. After about six seconds, query the two surviving nodes; they should report the same newly elected leader. Claim the call through a survivor:
+
+```sh
+curl -sS http://127.0.0.1:18082/api/v1/queue/raft
+curl -sS http://127.0.0.1:18083/api/v1/queue/raft
+curl -sS -X POST http://127.0.0.1:18083/api/v1/volunteers/claim -H 'content-type: application/json' -d '{"volunteer_id":"volunteer-aisha"}'
+```
+
+Restart the stopped node by rerunning its node command with the same data directory. Confirm it rejoins as a follower and catches up. Stop all three API processes with `Ctrl+C`, then stop the shared services with `docker compose down`.
+
+The checks and demo expectations in the Windows walkthrough apply to macOS too. Use `Ctrl+C` in the leader terminal instead of `Stop-Process`, and `$TMPDIR/raft` instead of `$env:TEMP\raft` for persisted node data.
 
 ## 1. Start dependencies
 
@@ -17,7 +86,7 @@ Look out for: `postgres` shows `healthy`; ports `5434` (Postgres), `6379` (Redis
 cargo test --workspace
 ```
 
-Look out for: every line says `test result: ok`, and no `FAILED`. One Redis test shows `1 ignored` (normal).
+Look out for: every line says `test result: ok`, and no `FAILED`. Two Redis integration tests may show `ignored` when Redis is unavailable; this is expected.
 
 ## 3. Start a 3-node Raft cluster
 
@@ -110,11 +179,11 @@ Look out for: claim returns `"handoff_status":"assigned"`; `pending` is now empt
 
 The node you killed in step 6 does not restart by itself, so queries to its port return nothing (empty output from `curl -s`) until you bring it back. Re-run the step 3 command for the node you killed, **in that node's own terminal**. Keep the same `RAFT_DATA_DIR`, so the node reloads its saved log and catches up from the current leader.
 
-| Killed node (port) | Terminal to use | Command to re-run |
-|---|---|---|
-| Node 1 (18081) | Terminal 1 | the **Terminal 1 — Node 1** block from step 3 |
-| Node 2 (18082) | Terminal 2 | the **Terminal 2 — Node 2** block from step 3 |
-| Node 3 (18083) | Terminal 3 | the **Terminal 3 — Node 3** block from step 3 |
+| Killed node (port) | Terminal to use | Command to re-run                             |
+| ------------------ | --------------- | --------------------------------------------- |
+| Node 1 (18081)     | Terminal 1      | the **Terminal 1 — Node 1** block from step 3 |
+| Node 2 (18082)     | Terminal 2      | the **Terminal 2 — Node 2** block from step 3 |
+| Node 3 (18083)     | Terminal 3      | the **Terminal 3 — Node 3** block from step 3 |
 
 For example, if you killed node 1, paste this into **Terminal 1**:
 

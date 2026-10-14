@@ -7,6 +7,7 @@ members = [
     "crates/circuit-breaker",
     "crates/priority-queue",
     "crates/telephony",
+    "crates/redis-client",
 ]
 
 [workspace.package]
@@ -61,6 +62,7 @@ sayangcare-session-store = { path = "crates/session-store" }
 sayangcare-circuit-breaker = { path = "crates/circuit-breaker" }
 sayangcare-priority-queue = { path = "crates/priority-queue" }
 sayangcare-telephony = { path = "crates/telephony" }
+sayangcare-redis = { path = "crates/redis-client" }
 
 [profile.release]
 lto = "thin"

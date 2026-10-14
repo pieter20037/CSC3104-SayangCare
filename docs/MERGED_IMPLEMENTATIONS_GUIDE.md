@@ -98,14 +98,14 @@ fn pack_state(generation: u64, state: u8) -> u64 {
 
 #### Run Unit Tests
 
-```powershell
+```sh
 cargo test -p sayangcare-circuit-breaker -- --nocapture
 ```
 
-**Expected Output** (16 tests should pass):
+**Latest recorded output** (19 tests passed; excerpt):
 
 ```
-running 16 tests
+running 19 tests
 test breaker::tests::acquire_returns_correct_request_permit ... ok
 test breaker::tests::empty_window_returns_zero_metrics ... ok
 test breaker::tests::error_rate_updates_when_window_slides ... ok
@@ -123,7 +123,7 @@ test breaker::tests::successful_recovery_probe_closes_circuit ... ok
 test breaker::tests::valid_recovery_probe_closes_circuit_with_permit ... ok
 test breaker::tests::concurrent_half_open_requests_allow_only_one_probe ... ok
 
-test result: ok. 16 passed; 0 failed; 0 ignored
+test result: ok. 19 passed; 0 failed; 0 ignored
 ```
 
 ### Test Breakdown
@@ -290,7 +290,7 @@ Recovery also runs:
 
 #### Run Unit Tests
 
-```powershell
+```sh
 cargo test -p sayangcare-session-store -- --nocapture
 ```
 
@@ -425,7 +425,7 @@ pub async fn sweep_once(&self) -> Result<usize, CoreError> {
 
 Ensure Docker Desktop is running:
 
-```powershell
+```sh
 docker compose up -d --wait postgres redis-master redis-replica redis-sentinel
 docker compose ps
 ```
@@ -437,27 +437,29 @@ docker compose ps
 
 ### Run All Tests
 
-```powershell
-cd c:\Users\darre\CSC3104-SayangCare Project\CSC3104-SayangCare
+Run from the repository root in PowerShell or macOS Terminal:
+
+```sh
 cargo test --workspace
 ```
 
-**Expected Summary Output**:
+**Representative summary from the latest recorded run**:
 
 ```
-test result: ok. 1 passed ...          (sayangcare-api tests)
-test result: ok. 16 passed ...         (circuit-breaker: 16 tests)
-test result: ok. 13 passed ...         (core domain tests)
-test result: ok. 8 passed; 1 ignored   (priority-queue: 8 tests, 1 Redis-dependent)
-test result: ok. 9 passed ...          (session-store: 9 tests)
-test result: ok. 2 passed ...          (telephony tests)
+API: 14 passed
+Circuit breaker: 19 passed, 1 Redis-dependent test ignored
+Core: 20 passed
+Priority queue: 8 passed, 1 Redis-dependent test ignored
+Session store: 9 passed
+Telephony: 2 passed
+Total: 72 passed, 2 ignored
 ```
 
-**Total: 48 tests passed, 1 ignored (normal)**
+**Latest recorded total: 72 tests passed, 2 Redis-dependent tests ignored.** Totals can change as the workspace evolves.
 
 ### Run Specific Test Suites
 
-```powershell
+```sh
 # Circuit breaker tests only
 cargo test -p sayangcare-circuit-breaker
 
@@ -552,16 +554,16 @@ INFO: sessions archived by sweeper (archived=15)
 ### Sessions Stuck in Redis?
 
 1. Check PostgreSQL connectivity:
-   ```powershell
+   ```sh
    docker compose ps postgres
    ```
 2. Check Redis TTL protection:
-   ```powershell
+   ```sh
    redis-cli TTL session:<id>
    ```
 3. Check sweeper logs for recovery errors
 4. Manually trigger recovery:
-   ```powershell
+   ```sh
    # Call the sweeper debug endpoint (if exposed)
    ```
 
@@ -579,12 +581,12 @@ This is **expected and correct**. It means:
 
 ## Summary
 
-| Component                | What It Does                                | Status                            |
-| ------------------------ | ------------------------------------------- | --------------------------------- |
-| **Circuit Breaker**      | Protects LLM API from cascading failures    | ✅ Merged (16 tests)              |
-| **Retry Mechanism**      | Survives temporary PostgreSQL outages       | ✅ Merged (9 tests)               |
-| **Data Loss Prevention** | Never deletes sessions prematurely          | ✅ Merged (version-safe deletion) |
-| **Background Recovery**  | Recovers from crashes and extended outages  | ✅ Merged (sweeper task)          |
-| **TTL Protection**       | Terminal sessions survive prolonged outages | ✅ Merged (72-hour TTL)           |
+| Component                | What It Does                                | Status                                                                    |
+| ------------------------ | ------------------------------------------- | ------------------------------------------------------------------------- |
+| **Circuit Breaker**      | Protects LLM API from cascading failures    | ✅ Merged (19 unit tests; 1 Redis integration test ignored without Redis) |
+| **Retry Mechanism**      | Survives temporary PostgreSQL outages       | ✅ Merged (9 tests)                                                       |
+| **Data Loss Prevention** | Never deletes sessions prematurely          | ✅ Merged (version-safe deletion)                                         |
+| **Background Recovery**  | Recovers from crashes and extended outages  | ✅ Merged (sweeper task)                                                  |
+| **TTL Protection**       | Terminal sessions survive prolonged outages | ✅ Merged (72-hour TTL)                                                   |
 
-All implementations are tested, merged to main, and ready for production use.
+The implementation has unit-test coverage and is integrated into the workspace. Production readiness still requires environment-specific security, cluster, failover, load, backup, and live telephony validation.

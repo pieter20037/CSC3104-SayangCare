@@ -74,7 +74,7 @@ This index guides you through the complete review of two merged implementations:
   - State transitions (Closed → Open → Half-Open → Closed)
   - RequestPermit enum and generation tracking
   - How to run tests and expected outputs
-  - Test breakdown (16 tests, each explained)
+  - Historical test breakdown (16 tests at the time of writing; latest recorded run is in the quick reference)
   - Integration points
 - Detailed Session Store explanation
   - Tiered storage architecture (Redis + PostgreSQL)
@@ -161,7 +161,7 @@ This index guides you through the complete review of two merged implementations:
 
 ## 🧪 Test Coverage Summary
 
-### Circuit Breaker: 16 Tests ✅
+### Circuit Breaker: Historical 16-Test Breakdown
 
 **Category 1: Basic State Transitions (4 tests)**
 
@@ -301,8 +301,8 @@ After review, verify:
 
 - [ ] Read IMPLEMENTATION_SUMMARY.md
 - [ ] Ran `cargo test --workspace`
-- [ ] All 48 tests passed ✅
-- [ ] 1 test ignored (expected for Redis-dependent)
+- [ ] All workspace tests passed (latest recorded run: 72 passed, 2 Redis-dependent tests ignored) ✅
+- [ ] 2 Redis-dependent tests may be ignored when Redis is unavailable
 - [ ] Understood circuit breaker state machine
 - [ ] Understood session store retry logic
 - [ ] Reviewed at least one flow diagram

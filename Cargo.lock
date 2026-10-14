@@ -2715,6 +2715,7 @@ dependencies = [
  "sayangcare-circuit-breaker",
  "sayangcare-core",
  "sayangcare-priority-queue",
+ "sayangcare-redis",
  "sayangcare-session-store",
  "sayangcare-telephony",
  "serde",
@@ -2737,6 +2738,7 @@ dependencies = [
  "chrono",
  "redis",
  "sayangcare-core",
+ "sayangcare-redis",
  "serde",
  "thiserror 1.0.69",
  "tokio",
@@ -2768,11 +2770,20 @@ dependencies = [
  "redis",
  "reqwest",
  "sayangcare-core",
+ "sayangcare-redis",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "sayangcare-redis"
+version = "0.1.0"
+dependencies = [
+ "redis",
+ "tokio",
 ]
 
 [[package]]
@@ -2784,6 +2795,7 @@ dependencies = [
  "chrono",
  "redis",
  "sayangcare-core",
+ "sayangcare-redis",
  "serde",
  "serde_json",
  "sqlx",
