@@ -92,6 +92,14 @@ impl AppState {
             config.circuit_breaker.base_latency_ms,
             0.4, // sensitivity
         ));
+        let probe_lease_ms = config
+            .ai
+            .timeout_secs
+            .max(1)
+            .saturating_mul(2)
+            .saturating_add(5)
+            .max(30)
+            .saturating_mul(1000);
         let breakers = Arc::new(BreakerRegistry::new(
             policy,
             BreakerConfig {
@@ -101,6 +109,9 @@ impl AppState {
                 half_open_after_secs: config.circuit_breaker.half_open_after_secs,
                 window_size: 60,
             },
+            hot.connection_manager(),
+            "sayangcare:circuit-breaker",
+            probe_lease_ms,
         ));
 
         // --- Priority queue: Redis sorted set (default) or Raft-replicated cluster ---
@@ -252,22 +263,6 @@ impl AppState {
             self.tiered.clone(),
         ))
         .spawn(cancel.clone());
-
-        // Circuit breaker ticker.
-        let breakers = self.breakers.clone();
-        let cancel_cb = cancel.clone();
-        tokio::spawn(async move {
-            let mut tick = interval(Duration::from_secs(5));
-            loop {
-                tokio::select! {
-                    _ = tick.tick() => breakers.tick_all().await,
-                    _ = cancel_cb.cancelled() => {
-                        info!("breaker ticker shutting down");
-                        break;
-                    }
-                }
-            }
-        });
 
         let state = self.clone();
         let cancel_reaper = cancel.clone();

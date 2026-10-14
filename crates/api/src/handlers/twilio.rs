@@ -11,6 +11,7 @@
 use crate::middleware::twilio_signature::verify_twilio_signature;
 use crate::state::AppState;
 use actix_web::{http::header, web, HttpRequest, HttpResponse, Responder};
+use sayangcare_circuit_breaker::BreakerHandle;
 use sayangcare_core::domain::{CallerId, Session, SessionId, Speaker, Turn};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -76,8 +77,12 @@ pub async fn voice(
 
     // Observe the breaker without acquiring a permit: the greeting makes no
     // inference request and must not consume the Half-Open recovery slot.
-    let breaker = state.breakers.get("llm-inference").await;
-    if incoming_uses_audio(&session, state.inference.is_some(), breaker.state()) {
+    let breaker = state.breakers.get("llm-reply").await;
+    if incoming_uses_audio(
+        &session,
+        state.inference.is_some(),
+        breaker.current_state().await,
+    ) {
         if session.state != sayangcare_core::domain::SessionState::Degraded {
             let expected = session.version;
             if session
@@ -202,8 +207,9 @@ pub async fn gather(
     let assistant_reply = if escalated {
         "Thank you for telling me. Don't worry, I've alerted a human volunteer. They'll speak with you as soon as one is available. Please stay with me while we connect you.".to_string()
     } else if let Some(inference) = state.inference.as_ref() {
-        let breaker = state.breakers.get("llm-inference").await;
-        match breaker.acquire_with_permit() {
+        let sentiment_breaker = state.breakers.get("llm-sentiment").await;
+        let reply_breaker = state.breakers.get("llm-reply").await;
+        match reply_breaker.acquire_permit().await {
             Err(_) => {
                 // Circuit is Open, or another recovery probe is running.
                 use_audio = true;
@@ -212,7 +218,8 @@ pub async fn gather(
             Ok(permit) => {
                 match crate::sentiment::generate_reply(
                     inference.as_ref(),
-                    &breaker,
+                    sentiment_breaker.as_ref(),
+                    reply_breaker.as_ref(),
                     permit,
                     &mut session,
                     &caller_turn,

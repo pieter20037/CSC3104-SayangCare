@@ -1,5 +1,6 @@
 use crate::state::AppState;
 use actix_web::{web, HttpResponse, Responder};
+use sayangcare_circuit_breaker::BreakerHandle;
 use sayangcare_core::domain::{CallerId, Session, SessionId, Turn};
 use sayangcare_core::CoreError;
 use serde::{Deserialize, Serialize};
@@ -171,9 +172,10 @@ pub async fn turn(
     let assistant_response = if escalated {
         response_for_risk(session.risk.level.0).to_string()
     } else if let Some(inference) = state.inference.as_ref() {
-        let breaker = state.breakers.get("llm-inference").await;
+        let sentiment_breaker = state.breakers.get("llm-sentiment").await;
+        let reply_breaker = state.breakers.get("llm-reply").await;
 
-        match breaker.acquire_with_permit() {
+        match reply_breaker.acquire_permit().await {
             Err(_) => {
                 // Circuit is Open, or another recovery probe is running.
                 use_audio = true;
@@ -183,7 +185,8 @@ pub async fn turn(
             Ok(permit) => {
                 match crate::sentiment::generate_reply(
                     inference.as_ref(),
-                    &breaker,
+                    sentiment_breaker.as_ref(),
+                    reply_breaker.as_ref(),
                     permit,
                     &mut session,
                     &caller_turn,

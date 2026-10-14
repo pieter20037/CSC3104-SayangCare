@@ -74,6 +74,10 @@ impl RedisSessionStore {
         Ok(())
     }
 
+    pub fn connection_manager(&self) -> ConnectionManager {
+        self.client.clone()
+    }
+
     fn is_terminal(state: &SessionState) -> bool {
         matches!(
             state,

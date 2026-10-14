@@ -1,5 +1,5 @@
 //! CB-04 inference workflow, shared by simulated and live calls.
-use sayangcare_circuit_breaker::{CircuitBreaker, RequestPermit};
+use sayangcare_circuit_breaker::{BreakerHandle, BreakerPermit};
 use sayangcare_core::domain::{Session, Turn};
 use sayangcare_core::ports::InferenceService;
 use sayangcare_core::CoreResult;
@@ -10,50 +10,74 @@ pub fn risk_severity(score: u8) -> f32 {
     (score.clamp(1, 5) - 1) as f32 / 4.0
 }
 
-/// Called only after a permit is acquired. Open circuits never call the model.
+/// Scores sentiment and generates a reply through independently protected operations.
 pub async fn generate_reply(
     inference: &dyn InferenceService,
-    breaker: &CircuitBreaker,
-    permit: RequestPermit,
+    sentiment_breaker: &dyn BreakerHandle,
+    reply_breaker: &dyn BreakerHandle,
+    reply_permit: BreakerPermit,
     session: &mut Session,
     caller_turn: &Turn,
 ) -> CoreResult<String> {
-    let started = Instant::now();
     let mut severity = risk_severity(session.risk.level.0);
-    let sentiment_failed = match inference.score_sentiment(&caller_turn.text).await {
-        Ok(signal) if signal.valence.is_finite() && signal.arousal.is_finite() => {
-            severity = severity.max(signal.distress_severity());
-            session.latest_sentiment = Some(signal);
-            false
+    let sentiment_permit = sentiment_breaker.acquire_permit().await;
+    match sentiment_permit {
+        Ok(permit) => {
+            let started = Instant::now();
+            let result = inference.score_sentiment(&caller_turn.text).await;
+            let latency = started.elapsed().as_millis() as u64;
+            match result {
+                Ok(mut signal) if signal.valence.is_finite() && signal.arousal.is_finite() => {
+                    signal.valence = signal.valence.clamp(-1.0, 1.0);
+                    signal.arousal = signal.arousal.clamp(0.0, 1.0);
+                    severity = severity.max(signal.distress_severity());
+                    session.latest_sentiment = Some(signal);
+                    sentiment_breaker
+                        .record_success(permit, latency, severity)
+                        .await;
+                }
+                result => {
+                    tracing::warn!(session_id = %session.id, result = ?result, "sentiment scoring failed; using deterministic risk severity");
+                    session.latest_sentiment = None;
+                    sentiment_breaker
+                        .record_failure(permit, latency, severity)
+                        .await;
+                }
+            }
         }
-        result => {
-            tracing::warn!(session_id = %session.id, result = ?result, "sentiment scoring failed; using current risk severity");
-            // Do not reuse a previous turn's sentiment as a fresh measurement.
+        Err(error) => {
+            tracing::warn!(session_id = %session.id, %error, "sentiment breaker open; using deterministic risk severity");
             session.latest_sentiment = None;
-            true
         }
-    };
+    }
+
     let mut context = session.transcript.clone();
     context.push(caller_turn.clone());
+    let started = Instant::now();
     let reply = inference.generate_reply(&context).await;
     let latency = started.elapsed().as_millis() as u64;
-    if sentiment_failed || reply.is_err() {
-        breaker
-            .record_failure_with_permit(permit, latency, severity)
-            .await;
-    } else {
-        breaker
-            .record_success_with_distress(permit, latency, severity)
-            .await;
+    match &reply {
+        Ok(_) => {
+            reply_breaker
+                .record_success(reply_permit, latency, severity)
+                .await;
+        }
+        Err(_) => {
+            reply_breaker
+                .record_failure(reply_permit, latency, severity)
+                .await;
+        }
     }
-    tracing::debug!(session_id = %session.id, severity, latency, "sentiment-adjusted inference completed");
+    tracing::debug!(session_id = %session.id, severity, latency, "reply generation completed");
     reply
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sayangcare_circuit_breaker::{BreakerConfig, CircuitState, SentimentAdaptivePolicy};
+    use sayangcare_circuit_breaker::{
+        BreakerConfig, BreakerPermit, CircuitBreaker, CircuitState, SentimentAdaptivePolicy,
+    };
     use sayangcare_core::domain::{CallerId, RiskAssessment, SentimentSignal, Speaker, Transcript};
     use sayangcare_core::CoreError;
     use std::sync::Arc;
@@ -92,17 +116,17 @@ mod tests {
             panic!("CB-04 must not replace deterministic safety triage")
         }
     }
-    fn fixture(min_requests: u64) -> (CircuitBreaker, Session, Turn) {
-        let breaker = CircuitBreaker::new(
-            BreakerConfig {
-                base_error_rate: 0.6,
-                base_latency_ms: 10000,
-                min_requests,
-                half_open_after_secs: 0,
-                window_size: 10,
-            },
-            Arc::new(SentimentAdaptivePolicy::new(0.6, 10000, 0.4)),
-        );
+    fn fixture(min_requests: u64) -> (CircuitBreaker, CircuitBreaker, Session, Turn) {
+        let config = BreakerConfig {
+            base_error_rate: 0.6,
+            base_latency_ms: 10000,
+            min_requests,
+            half_open_after_secs: 0,
+            window_size: 10,
+        };
+        let policy = Arc::new(SentimentAdaptivePolicy::new(0.6, 10000, 0.4));
+        let sentiment_breaker = CircuitBreaker::new(config.clone(), policy.clone());
+        let reply_breaker = CircuitBreaker::new(config, policy);
         let session = Session::new(CallerId {
             phone_number: "test".into(),
             display_name: None,
@@ -112,7 +136,7 @@ mod tests {
             text: "hello".into(),
             timestamp: chrono::Utc::now(),
         };
-        (breaker, session, turn)
+        (sentiment_breaker, reply_breaker, session, turn)
     }
 
     #[test]
@@ -128,49 +152,89 @@ mod tests {
     #[actix_web::test]
     async fn live_sentiment_tightens_threshold_and_is_saved() {
         for (valence, expected) in [(1.0, CircuitState::Closed), (-1.0, CircuitState::Open)] {
-            let (breaker, mut session, turn) = fixture(2);
-            breaker
-                .record_failure_with_permit(breaker.acquire_with_permit().unwrap(), 10, 0.0)
+            let (sentiment_breaker, reply_breaker, mut session, turn) = fixture(2);
+            reply_breaker
+                .record_failure_with_permit(reply_breaker.acquire_with_permit().unwrap(), 10, 0.0)
                 .await;
-            let permit = breaker.acquire_with_permit().unwrap();
+            let permit = BreakerPermit::Local(reply_breaker.acquire_with_permit().unwrap());
             let fake = FakeInference {
                 valence,
                 score_fails: false,
                 reply_fails: false,
             };
             assert_eq!(
-                generate_reply(&fake, &breaker, permit, &mut session, &turn)
-                    .await
-                    .unwrap(),
+                generate_reply(
+                    &fake,
+                    &sentiment_breaker,
+                    &reply_breaker,
+                    permit,
+                    &mut session,
+                    &turn
+                )
+                .await
+                .unwrap(),
                 "supportive reply"
             );
             assert_eq!(session.latest_sentiment.unwrap().valence, valence);
-            assert_eq!(breaker.state(), expected);
+            assert_eq!(reply_breaker.state(), expected);
         }
     }
 
     #[actix_web::test]
     async fn scorer_failure_keeps_reply_and_clears_stale_signal() {
-        let (breaker, mut session, turn) = fixture(1);
+        let (sentiment_breaker, reply_breaker, mut session, turn) = fixture(1);
         let fake = FakeInference {
             valence: 1.0,
             score_fails: false,
             reply_fails: false,
         };
-        let permit = breaker.acquire_with_permit().unwrap();
-        generate_reply(&fake, &breaker, permit, &mut session, &turn)
-            .await
-            .unwrap();
+        let permit = BreakerPermit::Local(reply_breaker.acquire_with_permit().unwrap());
+        generate_reply(
+            &fake,
+            &sentiment_breaker,
+            &reply_breaker,
+            permit,
+            &mut session,
+            &turn,
+        )
+        .await
+        .unwrap();
         assert!(session.latest_sentiment.is_some());
         let fake = FakeInference {
             score_fails: true,
             ..fake
         };
-        let permit = breaker.acquire_with_permit().unwrap();
-        assert!(generate_reply(&fake, &breaker, permit, &mut session, &turn)
-            .await
-            .is_ok());
+        let permit = BreakerPermit::Local(reply_breaker.acquire_with_permit().unwrap());
+        assert!(generate_reply(
+            &fake,
+            &sentiment_breaker,
+            &reply_breaker,
+            permit,
+            &mut session,
+            &turn
+        )
+        .await
+        .is_ok());
         assert!(session.latest_sentiment.is_none());
+        assert_eq!(reply_breaker.state(), CircuitState::Closed);
+
+        let fake = FakeInference {
+            score_fails: true,
+            ..fake
+        };
+        let permit = BreakerPermit::Local(reply_breaker.acquire_with_permit().unwrap());
+        assert!(generate_reply(
+            &fake,
+            &sentiment_breaker,
+            &reply_breaker,
+            permit,
+            &mut session,
+            &turn
+        )
+        .await
+        .is_ok());
+        assert_eq!(sentiment_breaker.state(), CircuitState::Open);
+        assert_eq!(reply_breaker.state(), CircuitState::Closed);
     }
 
     #[actix_web::test]
@@ -187,10 +251,23 @@ mod tests {
                 reply_fails: true,
             },
         ] {
-            let (breaker, mut session, turn) = fixture(1);
-            let permit = breaker.acquire_with_permit().unwrap();
-            let _ = generate_reply(&fake, &breaker, permit, &mut session, &turn).await;
-            assert_eq!(breaker.state(), CircuitState::Open);
+            let (sentiment_breaker, reply_breaker, mut session, turn) = fixture(1);
+            let permit = BreakerPermit::Local(reply_breaker.acquire_with_permit().unwrap());
+            let _ = generate_reply(
+                &fake,
+                &sentiment_breaker,
+                &reply_breaker,
+                permit,
+                &mut session,
+                &turn,
+            )
+            .await;
+            if fake.valence.is_nan() {
+                assert_eq!(sentiment_breaker.state(), CircuitState::Open);
+                assert_eq!(reply_breaker.state(), CircuitState::Closed);
+            } else {
+                assert_eq!(reply_breaker.state(), CircuitState::Open);
+            }
         }
     }
 }

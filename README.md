@@ -306,31 +306,31 @@ max_connections = 20
 
 Important settings:
 
-| Setting                                             | Local example                          | Purpose                                                             |
-| --------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------- |
-| `SAYANGCARE__SERVER__HOST`                          | `0.0.0.0`                              | HTTP bind address                                                   |
-| `SAYANGCARE__SERVER__PORT`                          | `8081`                                 | HTTP port                                                           |
-| `SAYANGCARE__SERVER__WORKERS`                       | `4`                                    | Actix worker count                                                  |
-| `SAYANGCARE__POSTGRES__URL`                         | `...@127.0.0.1:5434/...`               | PostgreSQL connection URL                                           |
-| `SAYANGCARE__POSTGRES__MAX_CONNECTIONS`             | `20`                                   | PostgreSQL pool limit                                               |
-| `SAYANGCARE__REDIS__SENTINEL_ENDPOINTS`             | `["127.0.0.1:26379"]`                  | Sentinel endpoint list                                              |
-| `SAYANGCARE__REDIS__MASTER_NAME`                    | `sayangcare-master`                    | Sentinel master name                                                |
-| `SAYANGCARE__REDIS__MASTER_URL`                     | `redis://127.0.0.1:6379/`              | Optional direct session-store URL; set for native local development |
-| `SAYANGCARE__REDIS__QUEUE_URL`                      | `redis://127.0.0.1:6379/`              | Redis endpoint used by the priority queue                           |
-| `SAYANGCARE__REDIS__PASSWORD`                       | unset locally                          | Redis password, if enabled                                          |
-| `SAYANGCARE__CIRCUIT_BREAKER__BASE_ERROR_RATE`      | `0.25`                                 | Base error threshold                                                |
-| `SAYANGCARE__CIRCUIT_BREAKER__BASE_LATENCY_MS`      | `2000`                                 | Base latency threshold                                              |
-| `SAYANGCARE__CIRCUIT_BREAKER__MIN_REQUESTS`         | `20`                                   | Minimum samples before evaluation                                   |
-| `SAYANGCARE__CIRCUIT_BREAKER__HALF_OPEN_AFTER_SECS` | `10`                                   | Open-to-half-open delay                                             |
-| `SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID`         | test value locally                     | Twilio account identifier                                           |
-| `SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN`          | test value locally                     | Twilio credential                                                   |
-| `SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER`         | unset                                  | Twilio-owned or verified caller ID for outbound volunteer calls     |
-| `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8081`                | Exact public origin used in TwiML actions and signature validation  |
-| `SAYANGCARE__AI__API_KEY`                           | unset                                  | Optional Groq API key; keep it in ignored `.env`                    |
-| `SAYANGCARE__AI__MODEL`                             | `openai/gpt-oss-120b`                  | Groq-hosted chat model                                              |
-| `SAYANGCARE__AI__BASE_URL`                          | Groq Chat Completions URL              | OpenAI-compatible chat completions endpoint                         |
-| `SAYANGCARE__AI__TIMEOUT_SECS`                      | `12`                                   | Inference request timeout                                           |
-| `RUST_LOG`                                          | `info,sayangcare=debug,actix_web=info` | Log filter                                                          |
+| Setting                                             | Local example                          | Purpose                                                                                          |
+| --------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `SAYANGCARE__SERVER__HOST`                          | `0.0.0.0`                              | HTTP bind address                                                                                |
+| `SAYANGCARE__SERVER__PORT`                          | `8081`                                 | HTTP port                                                                                        |
+| `SAYANGCARE__SERVER__WORKERS`                       | `4`                                    | Actix worker count                                                                               |
+| `SAYANGCARE__POSTGRES__URL`                         | `...@127.0.0.1:5434/...`               | PostgreSQL connection URL                                                                        |
+| `SAYANGCARE__POSTGRES__MAX_CONNECTIONS`             | `20`                                   | PostgreSQL pool limit                                                                            |
+| `SAYANGCARE__REDIS__SENTINEL_ENDPOINTS`             | `["127.0.0.1:26379"]`                  | Sentinel endpoint list                                                                           |
+| `SAYANGCARE__REDIS__MASTER_NAME`                    | `sayangcare-master`                    | Sentinel master name                                                                             |
+| `SAYANGCARE__REDIS__MASTER_URL`                     | `redis://127.0.0.1:6379/`              | Optional direct session-store URL; set for native local development                              |
+| `SAYANGCARE__REDIS__QUEUE_URL`                      | `redis://127.0.0.1:6379/`              | Redis endpoint used by the priority queue                                                        |
+| `SAYANGCARE__REDIS__PASSWORD`                       | unset locally                          | Redis password, if enabled                                                                       |
+| `SAYANGCARE__CIRCUIT_BREAKER__BASE_ERROR_RATE`      | `0.25`                                 | Base error threshold                                                                             |
+| `SAYANGCARE__CIRCUIT_BREAKER__BASE_LATENCY_MS`      | `2000`                                 | Base latency threshold                                                                           |
+| `SAYANGCARE__CIRCUIT_BREAKER__MIN_REQUESTS`         | `20`                                   | Minimum shared samples for error-rate and p95 evaluation; three consecutive failures trip sooner |
+| `SAYANGCARE__CIRCUIT_BREAKER__HALF_OPEN_AFTER_SECS` | `10`                                   | Open-to-half-open delay                                                                          |
+| `SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID`         | test value locally                     | Twilio account identifier                                                                        |
+| `SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN`          | test value locally                     | Twilio credential                                                                                |
+| `SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER`         | unset                                  | Twilio-owned or verified caller ID for outbound volunteer calls                                  |
+| `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8081`                | Exact public origin used in TwiML actions and signature validation                               |
+| `SAYANGCARE__AI__API_KEY`                           | unset                                  | Optional Groq API key; keep it in ignored `.env`                                                 |
+| `SAYANGCARE__AI__MODEL`                             | `openai/gpt-oss-120b`                  | Groq-hosted chat model                                                                           |
+| `SAYANGCARE__AI__BASE_URL`                          | Groq Chat Completions URL              | OpenAI-compatible chat completions endpoint                                                      |
+| `SAYANGCARE__AI__TIMEOUT_SECS`                      | `12`                                   | Inference request timeout                                                                        |
+| `RUST_LOG`                                          | `info,sayangcare=debug,actix_web=info` | Log filter                                                                                       |
 
 Never commit real Twilio, LLM, database, or Redis credentials. Use Kubernetes Secrets or an external secret manager for deployed environments.
 
@@ -536,7 +536,7 @@ The circuit breaker has three states:
 - `Open`: requests are rejected and the caller enters degraded handling
 - `HalfOpen`: a probe request is allowed after the cooldown
 
-The breaker module now includes CB-01 sliding-window latency/error metrics and unit coverage. The CB-02 recovery-transition implementation is available on the remote `phase3-circuitbreaker` branch but is not yet merged into `main`. The default background ticker checks breakers every five seconds; API handlers use the configured inference provider when available and deterministic fallback behavior otherwise.
+The API stores breaker state and a bounded sample window in Redis, so API replicas share OPEN state, cooldowns, metrics, and a single recovery probe. Three consecutive failures trip immediately; otherwise error-rate and p95 checks use the configured minimum sample count. If Redis cannot coordinate a permit, the API fails closed to inference and uses its fallback path.
 
 ## Docker
 
@@ -702,7 +702,7 @@ The intended local arrangement keeps host PostgreSQL on `5432` or `5433` and pub
 
 ## CB-03 Cached Audio Fallback
 
-Twilio remains the phone gateway. When the `llm-inference` breaker rejects a
+Twilio remains the phone gateway. When the `llm-reply` breaker rejects a
 request (Open, or a Half-Open probe is already running), `/twilio/gather` returns
 a fixed spoken explanation followed by `<Play>` for a bundled six-second chime.
 It then gathers speech again, so the next turn can reassess risk and attempt
@@ -734,11 +734,14 @@ requests, so slow replies can now open the breaker.
 
 ## CB-04 Sentiment-Aware Thresholds
 
-Both the Call Lab and live Twilio turns use the same sentiment workflow. After
-acquiring an inference permit, the API requests a sentiment signal from Groq,
-saves it in `latest_sentiment`, and generates the supportive reply. High-risk
-and already escalated calls continue to bypass inference entirely. Rejected
-permits invoke CB-03 without making a sentiment or reply request.
+Both the Call Lab and live Twilio turns use the same sentiment workflow. The
+API uses separate shared breakers for sentiment scoring and reply generation.
+It requests a sentiment signal when that breaker allows it, saves valid output
+in `latest_sentiment`, and then generates the supportive reply. High-risk and
+already escalated calls continue to bypass inference entirely. A rejected reply
+permit invokes CB-03 without making a reply request. If only sentiment scoring
+is unavailable, the API clears the old signal, uses deterministic risk severity
+for adaptation, and still attempts reply generation.
 
 The current local risk score (1..5) maps to severity using `(score - 1) / 4`:
 1 maps to 0, 2 to 0.25, 3 to 0.5, 4 to 0.75, and 5 to 1. The breaker uses
@@ -749,20 +752,28 @@ classifier or volunteer queue priority.
 With the existing policy sensitivity of 0.4, each base threshold is multiplied
 by `1 - 0.4 * severity`. For example, severity 0.5 changes a 25% error threshold
 to 20% and a 2000 ms latency threshold to 1600 ms. Existing policy floors remain
-1% for error rate and 50 ms for latency. The rolling window and minimum request
-count still apply. Successful requests now evaluate error rate and p95 latency
-as well as recording metrics. A slow Half-Open probe reopens the breaker; a
-healthy probe closes it. Generation checks still reject stale results.
+1% for error rate and 50 ms for latency. Each operation evaluates its own shared
+Redis sample window. Three consecutive failures open that operation's breaker
+without waiting for `MIN_REQUESTS`; mixed outcomes use the configured minimum
+sample count and bounded window. Redis atomically reserves one recovery probe
+across API replicas. A slow probe reopens its breaker; a healthy probe closes it.
 
-If scoring fails or produces non-finite values, the API clears the stale signal,
-uses the current risk severity, and still attempts a supportive reply. The whole
-turn is recorded as a dependency failure even if that reply succeeds. Reply
-failures retain the deterministic fallback. Without an AI key, local replies
-continue unchanged. No database migration or new credentials are required.
+If scoring fails or produces non-finite values, the sentiment breaker records
+that operation as failed, clears the stale signal, and uses deterministic risk
+severity. A successful reply remains a reply success. Reply failures retain the
+deterministic fallback. Without an AI key, local replies continue unchanged. No
+database migration or new credentials are required.
 
-This adds one model request per permitted non-crisis turn. Breaker latency
-includes scoring plus reply generation; each request retains the configured AI
-timeout, so the combined wait can approach twice that timeout.
+This adds one model request per permitted non-crisis turn for sentiment scoring,
+in addition to reply generation. Each operation has its own configured AI
+timeout, so combined model wait can approach twice that timeout. The shared
+breaker adds Redis coordination; if coordination is unavailable, inference is
+rejected and the existing fallback is used.
+
+Sentiment is an operational heuristic used only to adjust degradation thresholds.
+It is not a clinical assessment and does not decide crisis escalation, which
+continues to use deterministic local triage. Neither heuristic is validated for
+real crisis care; production use requires independent clinical and safety review.
 
 Verify with `cargo test --workspace` and `cargo check --workspace --all-targets`.
 Focused regression checks are `cargo test -p sayangcare-api sentiment::tests`

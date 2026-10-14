@@ -69,7 +69,7 @@ The workspace separates six crates: `api`, `core`, `session-store`, `circuit-bre
 
 The session-store crate uses SQLx migrations and a PostgreSQL pool for the cold archive. The migration history contains seven files, adding session recovery, handoff state, simulated-session tracking, and assignment/history constraints to the initial schema. Redis stores serialized hot sessions with a one-hour TTL. The tiered store provides hot-first reads, cold-store recovery, terminal-state flush retries with exponential backoff, and version-safe cleanup. The sweeper's five-minute inactivity threshold and 30-second interval are implemented in code. Failed archive writes remain visible in Redis and are retried, rather than being silently treated as successful archival.
 
-The circuit-breaker crate maintains a bounded sliding window, calculates error rate and p95 latency, controls recovery permits, and adjusts configured limits based on distress. The API stores the latest sentiment signal and only uses the inference provider for non-high-risk responses. Holding audio is a versioned local WAV asset served by the API. If a signal-generation call fails while a text reply remains available, the fallback path avoids claiming that the unavailable signal is a successful result.
+The circuit-breaker crate maintains shared Redis-backed bounded samples, calculates error rate and p95 latency, trips after three consecutive failures, and atomically reserves one recovery probe across API replicas. Sentiment scoring and reply generation have separate breaker state, so scorer failure does not mark a successful reply as failed. Sentiment only adjusts operational degradation thresholds; deterministic local triage remains responsible for escalation. This signal and the risk heuristic are not clinically validated and must not be treated as a mental-health assessment. Holding audio is a versioned local WAV asset served by the API.
 
 The priority-queue crate defines the `PriorityQueue` abstraction, Redis implementation, and OpenRaft state machine and transport. The Raft backend supports peer HTTP requests, leader forwarding, snapshots, request-id deduplication, and optional local persistence. It must be explicitly enabled and configured with peer membership; Redis remains the default. Volunteer assignment changes are also written to PostgreSQL, which provides durable history independently of queue membership.
 
@@ -79,15 +79,15 @@ Several proposal targets are only partially implemented. The code offers determi
 
 The executable evidence available for this report is the workspace unit-test run performed on 14 October 2026. `cargo test --workspace` completed successfully: 66 tests passed, none failed, and one Redis queue test was ignored because it requires an external Redis service. The passed tests cover API fallback and Twilio TwiML paths, session state and risk classification, circuit-breaker transitions and probe concurrency, retry/archive behaviour, queue ordering and claim ownership, Twilio credential guards, and Raft state persistence and replication.
 
-| Workspace crate | Passed | Ignored | Representative coverage |
-|---|---:|---:|---|
-| API | 12 | 0 | Fallback, TwiML, sentiment integration |
-| Circuit breaker | 19 | 0 | Sliding window, transitions, recovery permits |
-| Core | 16 | 0 | Session state, risk, configuration |
-| Priority queue | 8 | 1 | Ordering, ownership, Raft replication/failover |
-| Session store | 9 | 0 | CAS, archival retry, recovery |
-| Telephony | 2 | 0 | Credential guards |
-| **Total** | **66** | **1** | **No test failures** |
+| Workspace crate | Passed | Ignored | Representative coverage                        |
+| --------------- | -----: | ------: | ---------------------------------------------- |
+| API             |     12 |       0 | Fallback, TwiML, sentiment integration         |
+| Circuit breaker |     19 |       0 | Sliding window, transitions, recovery permits  |
+| Core            |     16 |       0 | Session state, risk, configuration             |
+| Priority queue  |      8 |       1 | Ordering, ownership, Raft replication/failover |
+| Session store   |      9 |       0 | CAS, archival retry, recovery                  |
+| Telephony       |      2 |       0 | Credential guards                              |
+| **Total**       | **66** |   **1** | **No test failures**                           |
 
 The Raft tests include a simulated three-node queue in which entries replicate and the system continues after leader loss. This is evidence about the in-process test harness and Raft state-machine implementation, not a Kubernetes pod-failure experiment. Session-store tests exercise temporary archive failures, version conflicts, retries, and retention of the hot record after retry exhaustion. These tests support the correctness of individual code paths; they do not quantify durability under real Redis/PostgreSQL outages or network partitions.
 
@@ -111,11 +111,11 @@ The next steps are to complete the Prometheus exporter and dashboard, reconcile 
 
 ## References
 
-[1] M. Fowler, “CircuitBreaker,” *martinfowler.com*, 2014. [Online]. Available: https://martinfowler.com/bliki/CircuitBreaker.html
+[1] M. Fowler, “CircuitBreaker,” _martinfowler.com_, 2014. [Online]. Available: https://martinfowler.com/bliki/CircuitBreaker.html
 
-[2] M. T. Nygard, *Release It!: Design and Deploy Production-Ready Software*, 2nd ed. Raleigh, NC, USA: Pragmatic Bookshelf, 2018.
+[2] M. T. Nygard, _Release It!: Design and Deploy Production-Ready Software_, 2nd ed. Raleigh, NC, USA: Pragmatic Bookshelf, 2018.
 
-[3] D. Ongaro and J. Ousterhout, “In search of an understandable consensus algorithm,” in *Proc. USENIX Annual Technical Conference (USENIX ATC ’14)*, 2014, pp. 305–319. [Online]. Available: https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro
+[3] D. Ongaro and J. Ousterhout, “In search of an understandable consensus algorithm,” in _Proc. USENIX Annual Technical Conference (USENIX ATC ’14)_, 2014, pp. 305–319. [Online]. Available: https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro
 
 [4] Redis Ltd., “High availability with Redis Sentinel.” [Online]. Available: https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/
 
@@ -123,8 +123,8 @@ The next steps are to complete the Prometheus exporter and dashboard, reconcile 
 
 [6] Kubernetes Authors, “Horizontal Pod Autoscaling.” [Online]. Available: https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/
 
-[7] V. K. Jones, C. Yan, M. Y. Shade, et al., “Reducing loneliness and improving social support among older adults through different modalities of personal voice assistants,” *Geriatrics*, vol. 9, no. 2, p. 22, 2024, doi: 10.3390/geriatrics9020022.
+[7] V. K. Jones, C. Yan, M. Y. Shade, et al., “Reducing loneliness and improving social support among older adults through different modalities of personal voice assistants,” _Geriatrics_, vol. 9, no. 2, p. 22, 2024, doi: 10.3390/geriatrics9020022.
 
-[8] Y. Yang, C. Wang, X. Xiang, and R. An, “AI applications to reduce loneliness among older adults: A systematic review of effectiveness and technologies,” *Healthcare*, vol. 13, no. 5, p. 446, 2025, doi: 10.3390/healthcare13050446.
+[8] Y. Yang, C. Wang, X. Xiang, and R. An, “AI applications to reduce loneliness among older adults: A systematic review of effectiveness and technologies,” _Healthcare_, vol. 13, no. 5, p. 446, 2025, doi: 10.3390/healthcare13050446.
 
 :::
