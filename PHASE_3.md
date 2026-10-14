@@ -52,19 +52,23 @@ Only one agent can use the domain at a time (`ERR_NGROK_334` means it is already
 
 ## 3. Configure `.env`
 
+Copy these from your Twilio console and `.env` file:
+
 ```dotenv
-SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID=<YOUR_TWILIO_ACCOUNT_SID>
-SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN=<YOUR_TWILIO_AUTH_TOKEN>
-SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER=<YOUR_TWILIO_NUMBER>
-SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL=https://tackling-mud-chip.ngrok-free.dev
+SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID=<your-account-sid-from-.env>
+SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN=<your-auth-token-from-.env>
+SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER=<your-twilio-number-from-.env>
+SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL=https://<your-ngrok-url>.ngrok-free.dev
 ```
+
+**⚠️ NEVER commit `.env` or actual credentials to git. Use `git update-index --skip-worktree .env` to exclude it from tracking.**
 
 `PUBLIC_BASE_URL` is the HTTPS origin only (no trailing slash or path). Never commit `.env`. Restart the API after changes.
 
 ## 4. Twilio webhook
 
 In the Twilio console, set the number's voice webhook to **POST**:
-
+(ALREADY DONE SO SKIP.)
 ```text
 https://tackling-mud-chip.ngrok-free.dev/twilio/voice
 ```
@@ -100,7 +104,7 @@ Escalation and dispatch:
 3. Confirm the volunteer phone rings and joins the caller's conference.
 4. Confirm the session is archived:
 
-```powershell
+```powershell (This command should show 0 rows for now. It is to verify the call is archieved, confirm volunteer, risk assessment and debug issues.)
 docker compose exec -T postgres psql -U sayangcare -d sayangcare `
   -c "SELECT id, state, handoff_status, assigned_volunteer_id, is_simulated, risk->'level' AS risk_level FROM sessions WHERE id = 'CA-your-test-sid';"
 ```

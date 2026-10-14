@@ -14,7 +14,6 @@ use actix_web::{http::header, web, HttpRequest, HttpResponse, Responder};
 use sayangcare_core::domain::{CallerId, Session, SessionId, Speaker, Turn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
 use tracing::{info, warn};
 
 const GATHER_ACTION: &str = "/twilio/gather";
@@ -38,7 +37,7 @@ pub async fn voice(
     info!(call_sid = %call_sid, from = %from, "incoming call");
 
     // Twilio retries a webhook with the same CallSid; Redis atomically preserves its first state.
-    let session = Session::with_id(
+    let mut session = Session::with_id(
         SessionId(call_sid.clone()),
         CallerId {
             phone_number: from.clone(),
@@ -49,7 +48,7 @@ pub async fn voice(
     match state.sessions.create_if_absent(&session).await {
         Ok(true) => {}
         Ok(false) => match state.sessions.get(&session.id).await {
-            Ok(Some(existing)) if existing.caller.phone_number == *from => {}
+            Ok(Some(existing)) if existing.caller.phone_number == *from => session = existing,
             Ok(_) => return twiml_error("We couldn't match this call. Please call back."),
             Err(e) => {
                 warn!(error = %e, "failed to load existing session");
@@ -66,12 +65,44 @@ pub async fn voice(
     let action = format!("{public_base_url}{GATHER_ACTION}");
     let status_cb = format!("{public_base_url}{STATUS_CALLBACK}");
 
+    // Register callbacks before either the normal greeting or early audio return.
     if let Err(error) = state
         .telephony
         .register_status_callback(call_sid, &status_cb)
         .await
     {
         warn!(error = %error, call_sid = %call_sid, "failed to register Twilio status callback");
+    }
+
+    // Observe the breaker without acquiring a permit: the greeting makes no
+    // inference request and must not consume the Half-Open recovery slot.
+    let breaker = state.breakers.get("llm-inference").await;
+    if incoming_uses_audio(&session, state.inference.is_some(), breaker.state()) {
+        if session.state != sayangcare_core::domain::SessionState::Degraded {
+            let expected = session.version;
+            if session
+                .record_turns([Turn {
+                    speaker: Speaker::Assistant,
+                    text: crate::fallback::HOLDING_MESSAGE.to_string(),
+                    timestamp: chrono::Utc::now(),
+                }])
+                .is_err()
+                || crate::fallback::mark_degraded(&mut session, true).is_err()
+            {
+                return twiml_error("Your session cannot continue in its current state.");
+            }
+            if let Err(error) = state.sessions.update_cas(&session, expected).await {
+                warn!(error = %error, "failed to persist incoming audio fallback");
+                return twiml_error("Your session changed concurrently. Please try again.");
+            }
+        }
+        return xml_response(reply_twiml(
+            &action,
+            crate::fallback::HOLDING_MESSAGE,
+            Some(&crate::fallback::audio_url(
+                &state.config.telephony.public_base_url,
+            )),
+        ));
     }
 
     // Greet + gather speech.
@@ -87,6 +118,21 @@ pub async fn voice(
     );
 
     xml_response(body)
+}
+
+fn incoming_uses_audio(
+    session: &Session,
+    inference_configured: bool,
+    breaker_state: sayangcare_circuit_breaker::CircuitState,
+) -> bool {
+    use sayangcare_core::domain::SessionState;
+    inference_configured
+        && breaker_state == sayangcare_circuit_breaker::CircuitState::Open
+        && matches!(
+            session.state,
+            SessionState::Initiated | SessionState::Active | SessionState::Degraded
+        )
+        && !session.risk.level.requires_immediate_escalation()
 }
 
 /// Handles the transcribed speech from a <Gather>.
@@ -131,9 +177,7 @@ pub async fn gather(
         .map(|turn| sayangcare_core::domain::RiskAssessment::from_text(&turn.text))
         .max_by_key(|assessment| assessment.level);
     let current_assessment = sayangcare_core::domain::RiskAssessment::from_text(&speech);
-    let current_turn_is_high_risk = current_assessment
-        .level
-        .requires_immediate_escalation();
+    let current_turn_is_high_risk = current_assessment.level.requires_immediate_escalation();
     let assessment = prior_assessment
         .filter(|prior| prior.level > current_assessment.level)
         .unwrap_or(current_assessment);
@@ -154,32 +198,29 @@ pub async fn gather(
 
     let was_escalated = session.state == sayangcare_core::domain::SessionState::Escalated;
     let escalated = was_escalated || session.risk.level.requires_immediate_escalation();
+    let mut use_audio = false;
     let assistant_reply = if escalated {
         "Thank you for telling me. I'm sorry you're going through this. I want to help keep you safe, and I'm alerting a human volunteer now. Are you in immediate danger right now?".to_string()
     } else if let Some(inference) = state.inference.as_ref() {
         let breaker = state.breakers.get("llm-inference").await;
         match breaker.acquire_with_permit() {
             Err(_) => {
-                // Circuit is open, or another recovery probe is running.
-                "I'm here with you. Please tell me a little more about what is happening."
-                    .to_string()
+                // Circuit is Open, or another recovery probe is running.
+                use_audio = true;
+                crate::fallback::HOLDING_MESSAGE.to_string()
             }
             Ok(permit) => {
-                let mut context = session.transcript.clone();
-                context.push(caller_turn.clone());
-                let started = Instant::now();
-
-                match inference.generate_reply(&context).await {
-                    Ok(reply) => {
-                        let latency = started.elapsed().as_millis() as u64;
-                        breaker.record_success_with_permit(permit, latency);
-                        reply
-                    }
+                match crate::sentiment::generate_reply(
+                    inference.as_ref(),
+                    &breaker,
+                    permit,
+                    &mut session,
+                    &caller_turn,
+                )
+                .await
+                {
+                    Ok(reply) => reply,
                     Err(error) => {
-                        let latency = started.elapsed().as_millis() as u64;
-                        breaker
-                            .record_failure_with_permit(permit, latency, 0.25)
-                            .await;
                         warn!(
                             error = %error,
                             call_sid = %call_sid,
@@ -209,6 +250,10 @@ pub async fn gather(
         return twiml_error("Your session cannot continue in its current state.");
     }
 
+    if crate::fallback::mark_degraded(&mut session, use_audio).is_err() {
+        return twiml_error("Your session cannot continue in its current state.");
+    }
+
     if escalated {
         if was_escalated {
             if current_turn_is_high_risk {
@@ -224,7 +269,8 @@ pub async fn gather(
                 );
             }
         } else {
-            if let Err(error) = session.transition(sayangcare_core::domain::SessionState::Escalated) {
+            if let Err(error) = session.transition(sayangcare_core::domain::SessionState::Escalated)
+            {
                 warn!(error = %error, call_sid = %call_sid, "failed to transition high-risk call to escalated");
                 return twiml_error("I want to connect you with a human supporter, but our system is having trouble. Please contact local emergency services or someone you trust now.");
             }
@@ -259,18 +305,33 @@ pub async fn gather(
         "{}{GATHER_ACTION}",
         state.config.telephony.public_base_url.trim_end_matches('/')
     );
-    let escaped = xml_escape(&assistant_reply);
+    xml_response(reply_twiml(
+        &action,
+        &assistant_reply,
+        use_audio
+            .then(|| crate::fallback::audio_url(&state.config.telephony.public_base_url))
+            .as_deref(),
+    ))
+}
+
+fn reply_twiml(action: &str, reply: &str, audio_url: Option<&str>) -> String {
+    let action = xml_escape(action);
+    let escaped = xml_escape(reply);
+    let playback = audio_url
+        .map(|url| format!("<Play>{}</Play>", xml_escape(url)))
+        .unwrap_or_default();
     let body = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Joanna">{escaped}</Say>
+  {playback}
   <Gather input="speech" speechTimeout="auto" action="{action}" method="POST" actionOnEmptyResult="true">
     <Say voice="Polly.Joanna">I'm still here.</Say>
   </Gather>
   <Redirect method="POST">{action}</Redirect>
 </Response>"#
     );
-    xml_response(body)
+    body
 }
 
 /// Twilio status callback — fires when the call ends.
@@ -389,4 +450,89 @@ fn xml_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn incoming_audio_only_when_open_and_preserves_escalation() {
+        use sayangcare_circuit_breaker::CircuitState;
+        use sayangcare_core::domain::SessionState;
+        let mut session = Session::new(CallerId {
+            phone_number: "test".into(),
+            display_name: None,
+        });
+        assert!(incoming_uses_audio(&session, true, CircuitState::Open));
+        assert!(!incoming_uses_audio(&session, true, CircuitState::Closed));
+        assert!(!incoming_uses_audio(&session, true, CircuitState::HalfOpen));
+        assert!(!incoming_uses_audio(&session, false, CircuitState::Open));
+        session.state = SessionState::Escalated;
+        assert!(!incoming_uses_audio(&session, true, CircuitState::Open));
+        session.state = SessionState::Completed;
+        assert!(!incoming_uses_audio(&session, true, CircuitState::Open));
+        session.state = SessionState::Active;
+        session.risk = sayangcare_core::domain::RiskAssessment::from_text("I want to kill myself");
+        assert!(session.risk.level.requires_immediate_escalation());
+        assert!(!incoming_uses_audio(&session, true, CircuitState::Open));
+    }
+
+    #[actix_web::test]
+    async fn open_breaker_routes_to_audio_and_recovery_returns_to_speech() {
+        use sayangcare_circuit_breaker::{BreakerConfig, CircuitBreaker, SentimentAdaptivePolicy};
+        let breaker = CircuitBreaker::new(
+            BreakerConfig {
+                base_error_rate: 0.25,
+                base_latency_ms: 2000,
+                min_requests: 1,
+                half_open_after_secs: 0,
+                window_size: 10,
+            },
+            Arc::new(SentimentAdaptivePolicy::new(0.25, 2000, 0.5)),
+        );
+        let permit = breaker.acquire_with_permit().unwrap();
+        breaker.record_failure_with_permit(permit, 100, 0.25).await;
+        let use_audio = breaker.acquire_with_permit().is_err();
+        assert!(use_audio);
+        let url = crate::fallback::audio_url("https://example.com");
+        let xml = reply_twiml(
+            "/twilio/gather",
+            crate::fallback::HOLDING_MESSAGE,
+            use_audio.then_some(url.as_str()),
+        );
+        assert!(xml.contains("<Play>"));
+        breaker.tick().await;
+        let probe = breaker.acquire_with_permit().unwrap();
+        assert!(breaker.acquire_with_permit().is_err());
+        breaker.record_success_with_permit(probe, 100);
+        assert!(breaker.acquire_with_permit().is_ok());
+        assert!(!reply_twiml("/twilio/gather", "I'm listening", None).contains("<Play>"));
+    }
+
+    #[test]
+    fn holding_audio_preserves_gather_and_does_not_hang_up() {
+        let xml = reply_twiml(
+            "https://example.com/twilio/gather",
+            crate::fallback::HOLDING_MESSAGE,
+            Some("https://example.com/audio/holding-v1.wav"),
+        );
+        assert!(xml.contains("<Play>https://example.com/audio/holding-v1.wav</Play>"));
+        assert!(xml.contains("<Gather input=\"speech\""));
+        assert!(xml.contains("actionOnEmptyResult=\"true\""));
+        assert!(xml.contains("<Redirect method=\"POST\">"));
+        assert!(!xml.contains("<Hangup"));
+    }
+
+    #[test]
+    fn normal_reply_still_uses_say_and_escapes_xml() {
+        let xml = reply_twiml(
+            "https://example.com/gather?a=1&b=2",
+            "I'm listening & here",
+            None,
+        );
+        assert!(!xml.contains("<Play>"));
+        assert!(xml.contains("I&apos;m listening &amp; here"));
+        assert!(xml.contains("a=1&amp;b=2"));
+    }
 }

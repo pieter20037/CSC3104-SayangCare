@@ -697,10 +697,81 @@ lsof -nP -iTCP:8080 -sTCP:LISTEN
 
 The intended local arrangement keeps host PostgreSQL on `5432` or `5433` and publishes Docker PostgreSQL on `5434`.
 
+## CB-03 Cached Audio Fallback
+
+Twilio remains the phone gateway. When the `llm-inference` breaker rejects a
+request (Open, or a Half-Open probe is already running), `/twilio/gather` returns
+a fixed spoken explanation followed by `<Play>` for a bundled six-second chime.
+It then gathers speech again, so the next turn can reassess risk and attempt
+recovery. The session and transcript are persisted as usual, with state
+`degraded`. A successful permitted reply returns the session to `active`.
+New calls to `/twilio/voice` also receive this fallback immediately when the
+breaker is Open and inference is configured. The greeting checks state without
+reserving a Half-Open recovery probe. Retried voice webhooks preserve the stored
+session and do not repeat the degraded-state transcript mutation.
+High-risk and already escalated calls retain their safety response and volunteer
+queue workflow rather than entering audio fallback. Missing AI credentials and
+individual failed inference requests retain the existing text fallback; after a
+failure opens the breaker, subsequent rejected turns use cached audio.
+
+The Call Lab turn endpoint adds `fallback_audio_url` (a URL during audio fallback,
+otherwise `null`) and reports `state: "degraded"`. The dashboard does not
+automatically play the audio. The embedded file is available at
+`GET /audio/holding-v1.wav`, with `audio/wav` and immutable cache headers; see
+[the audio asset notes](crates/api/assets/README.md).
+
+For live calls, `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL` must be your public HTTPS
+origin and both `/twilio/*` and `/audio/*` must be reachable by Twilio. No new
+credentials, audio service, database migration, or runtime asset copy is needed.
+Listen locally at `http://localhost:8081/audio/holding-v1.wav` after starting the
+API. Automated checks: `cargo test --workspace` and
+`cargo check --workspace --all-targets`. Live phone playback still needs Twilio
+validation. CB-04 also evaluates sentiment-adjusted thresholds after successful
+requests, so slow replies can now open the breaker.
+
+## CB-04 Sentiment-Aware Thresholds
+
+Both the Call Lab and live Twilio turns use the same sentiment workflow. After
+acquiring an inference permit, the API requests a sentiment signal from Groq,
+saves it in `latest_sentiment`, and generates the supportive reply. High-risk
+and already escalated calls continue to bypass inference entirely. Rejected
+permits invoke CB-03 without making a sentiment or reply request.
+
+The current local risk score (1..5) maps to severity using `(score - 1) / 4`:
+1 maps to 0, 2 to 0.25, 3 to 0.5, 4 to 0.75, and 5 to 1. The breaker uses
+the higher of that severity and the model signal's `distress_severity()`.
+LLM sentiment affects degradation thresholds, not the deterministic safety
+classifier or volunteer queue priority.
+
+With the existing policy sensitivity of 0.4, each base threshold is multiplied
+by `1 - 0.4 * severity`. For example, severity 0.5 changes a 25% error threshold
+to 20% and a 2000 ms latency threshold to 1600 ms. Existing policy floors remain
+1% for error rate and 50 ms for latency. The rolling window and minimum request
+count still apply. Successful requests now evaluate error rate and p95 latency
+as well as recording metrics. A slow Half-Open probe reopens the breaker; a
+healthy probe closes it. Generation checks still reject stale results.
+
+If scoring fails or produces non-finite values, the API clears the stale signal,
+uses the current risk severity, and still attempts a supportive reply. The whole
+turn is recorded as a dependency failure even if that reply succeeds. Reply
+failures retain the deterministic fallback. Without an AI key, local replies
+continue unchanged. No database migration or new credentials are required.
+
+This adds one model request per permitted non-crisis turn. Breaker latency
+includes scoring plus reply generation; each request retains the configured AI
+timeout, so the combined wait can approach twice that timeout.
+
+Verify with `cargo test --workspace` and `cargo check --workspace --all-targets`.
+Focused regression checks are `cargo test -p sayangcare-api sentiment::tests`
+and `cargo test -p sayangcare-circuit-breaker`. With the API and Groq configured,
+send a non-crisis Call Lab turn, then fetch `/api/v1/calls/{sid}` to inspect
+`latest_sentiment`. Live Groq scoring and Twilio behavior still need integration
+validation.
+
 ## Known Limitations
 
 - The Raft queue backend is opt-in (`SAYANGCARE__QUEUE__BACKEND=raft`); Redis remains the default. Raft cluster membership is static, there is no Kubernetes StatefulSet/headless-service manifest for it yet (Phase 4), and Raft state is only persisted when `RAFT_DATA_DIR` is set.
-- CB-01 sliding-window metrics are merged and tested; CB-02 closed/open/half-open recovery transitions and request permits remain on the remote `phase3-circuitbreaker` branch until merged.
+- CB-01 sliding-window metrics and CB-02 recovery transitions/request permits are integrated. CB-03 audio fallback and CB-04 sentiment-adjusted thresholds have local regression coverage; live provider validation remains necessary.
 - Groq Chat Completions is the configured inference provider for supportive non-crisis replies. The Groq API key must be configured outside source control. Risk classification remains heuristic and local; high-risk turns bypass the model.
 - Twilio request-signature verification, outbound REST dispatch, and the outbound-connect TwiML route are implemented, but still require real Twilio credentials, a public HTTPS URL, a configured caller ID, and live end-to-end validation.
 - Volunteer roster, assigned-case mapping, and operator alerts are currently process-local application state, not durable relational bindings shared across API replicas.
