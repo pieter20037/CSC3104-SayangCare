@@ -293,6 +293,43 @@ impl CircuitBreaker {
         }
     }
 
+    /// CB-04: successful requests also evaluate sentiment-adjusted latency.
+    pub async fn record_success_with_distress(
+        &self,
+        permit: RequestPermit,
+        latency_ms: u64,
+        distress_severity: f32,
+    ) {
+        let (error_threshold, latency_threshold) = self.policy.thresholds(distress_severity);
+        if let RequestPermit::RecoveryProbe { generation } = permit {
+            // A slow probe is not healthy enough to resume normal traffic.
+            if latency_ms >= latency_threshold {
+                self.trip_if_current(generation, HALF_OPEN_PROBING).await;
+            } else {
+                self.record_success_with_permit(permit, latency_ms);
+            }
+            return;
+        }
+        self.record_success_with_permit(permit, latency_ms);
+        let RequestPermit::Normal { generation } = permit else {
+            return;
+        };
+        let (total, error_rate, p95) = {
+            let metrics = self.metrics.lock().unwrap();
+            let (current_generation, state) = self.current_state_and_generation();
+            if current_generation != generation || state != CircuitState::Closed as u8 {
+                return;
+            }
+            metrics.snapshot()
+        };
+        if total >= self.config.min_requests
+            && (error_rate >= error_threshold || p95 >= latency_threshold)
+        {
+            self.trip_if_current(generation, CircuitState::Closed as u8)
+                .await;
+        }
+    }
+
     /// Record a failed call. May trip the breaker.
     pub async fn record_failure(&self, latency_ms: u64, distress_severity: f32) {
         let (total, error_rate, p95_latency) = {
@@ -576,6 +613,60 @@ impl CircuitBreaker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn adaptive_test_breaker() -> CircuitBreaker {
+        CircuitBreaker::new(
+            BreakerConfig {
+                base_error_rate: 0.25,
+                base_latency_ms: 1000,
+                min_requests: 1,
+                half_open_after_secs: 0,
+                window_size: 10,
+            },
+            Arc::new(crate::SentimentAdaptivePolicy::new(0.25, 1000, 0.4)),
+        )
+    }
+
+    #[tokio::test]
+    async fn successful_latency_trips_sooner_for_distressed_caller() {
+        let calm = adaptive_test_breaker();
+        let distressed = adaptive_test_breaker();
+        calm.record_success_with_distress(calm.acquire_with_permit().unwrap(), 850, 0.0)
+            .await;
+        distressed
+            .record_success_with_distress(distressed.acquire_with_permit().unwrap(), 850, 0.5)
+            .await;
+        assert_eq!(calm.state(), CircuitState::Closed);
+        assert_eq!(distressed.state(), CircuitState::Open);
+    }
+
+    #[tokio::test]
+    async fn slow_recovery_probe_reopens_and_fast_probe_closes() {
+        let breaker = adaptive_test_breaker();
+        breaker
+            .record_failure_with_permit(breaker.acquire_with_permit().unwrap(), 100, 0.0)
+            .await;
+        breaker.tick().await;
+        let probe = breaker.acquire_with_permit().unwrap();
+        breaker.record_success_with_distress(probe, 850, 0.5).await;
+        assert_eq!(breaker.state(), CircuitState::Open);
+        breaker.tick().await;
+        let probe = breaker.acquire_with_permit().unwrap();
+        breaker.record_success_with_distress(probe, 100, 0.5).await;
+        assert_eq!(breaker.state(), CircuitState::Closed);
+    }
+
+    #[tokio::test]
+    async fn stale_success_with_distress_cannot_trip_new_generation() {
+        let breaker = adaptive_test_breaker();
+        let old = breaker.acquire_with_permit().unwrap();
+        breaker.record_failure_with_permit(old, 100, 0.0).await;
+        breaker.tick().await;
+        let probe = breaker.acquire_with_permit().unwrap();
+        breaker.record_success_with_distress(probe, 100, 0.0).await;
+        breaker.record_success_with_distress(old, 2000, 1.0).await;
+        assert_eq!(breaker.state(), CircuitState::Closed);
+    }
 
     #[test]
     fn sliding_window_discards_old_requests() {

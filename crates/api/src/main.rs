@@ -17,6 +17,7 @@ mod fallback;
 mod handlers;
 mod inference;
 mod middleware;
+mod sentiment;
 mod state;
 mod telemetry;
 

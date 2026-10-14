@@ -14,7 +14,6 @@ use actix_web::{http::header, web, HttpRequest, HttpResponse, Responder};
 use sayangcare_core::domain::{CallerId, Session, SessionId, Speaker, Turn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
 use tracing::{info, warn};
 
 const GATHER_ACTION: &str = "/twilio/gather";
@@ -211,21 +210,17 @@ pub async fn gather(
                 crate::fallback::HOLDING_MESSAGE.to_string()
             }
             Ok(permit) => {
-                let mut context = session.transcript.clone();
-                context.push(caller_turn.clone());
-                let started = Instant::now();
-
-                match inference.generate_reply(&context).await {
-                    Ok(reply) => {
-                        let latency = started.elapsed().as_millis() as u64;
-                        breaker.record_success_with_permit(permit, latency);
-                        reply
-                    }
+                match crate::sentiment::generate_reply(
+                    inference.as_ref(),
+                    &breaker,
+                    permit,
+                    &mut session,
+                    &caller_turn,
+                )
+                .await
+                {
+                    Ok(reply) => reply,
                     Err(error) => {
-                        let latency = started.elapsed().as_millis() as u64;
-                        breaker
-                            .record_failure_with_permit(permit, latency, 0.25)
-                            .await;
                         warn!(
                             error = %error,
                             call_sid = %call_sid,

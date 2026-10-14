@@ -4,7 +4,6 @@ use sayangcare_core::domain::{CallerId, Session, SessionId, Turn};
 use sayangcare_core::CoreError;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::Instant;
 use tracing::info;
 
 #[derive(Debug, Deserialize)]
@@ -126,9 +125,7 @@ pub async fn turn(
         .map(|turn| sayangcare_core::domain::RiskAssessment::from_text(&turn.text))
         .max_by_key(|assessment| assessment.level);
     let current_assessment = sayangcare_core::domain::RiskAssessment::from_text(transcript);
-    let current_turn_is_high_risk = current_assessment
-        .level
-        .requires_immediate_escalation();
+    let current_turn_is_high_risk = current_assessment.level.requires_immediate_escalation();
     let assessment = prior_assessment
         .filter(|prior| prior.level > current_assessment.level)
         .unwrap_or(current_assessment);
@@ -165,27 +162,18 @@ pub async fn turn(
             }
 
             Ok(permit) => {
-                let mut context = session.transcript.clone();
-                context.push(caller_turn.clone());
-
-                let started = Instant::now();
-
-                match inference.generate_reply(&context).await {
-                    Ok(reply) => {
-                        let latency = started.elapsed().as_millis() as u64;
-
-                        breaker.record_success_with_permit(permit, latency);
-
-                        reply
-                    }
+                match crate::sentiment::generate_reply(
+                    inference.as_ref(),
+                    &breaker,
+                    permit,
+                    &mut session,
+                    &caller_turn,
+                )
+                .await
+                {
+                    Ok(reply) => reply,
 
                     Err(error) => {
-                        let latency = started.elapsed().as_millis() as u64;
-
-                        breaker
-                            .record_failure_with_permit(permit, latency, 0.25)
-                            .await;
-
                         tracing::warn!(
                             error = %error,
                             session_id = %session.id,
