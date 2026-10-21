@@ -1,79 +1,35 @@
-# Headless Service — used by the StatefulSet for stable DNS.
-apiVersion: v1
-kind: Service
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
 metadata:
-  name: postgres
-  namespace: sayangcare
-  labels: { app: postgres }
-spec:
-  clusterIP: None
-  selector: { app: postgres }
-  ports:
-    - name: postgres
-      port: 5432
-      targetPort: 5432
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: postgres
+  name: sayangcare-db
   namespace: sayangcare
 spec:
-  serviceName: postgres
-  replicas: 1
-  selector:
-    matchLabels: { app: postgres }
-  template:
-    metadata:
-      labels: { app: postgres }
-    spec:
-      securityContext:
-        fsGroup: 999 # postgres user in the official image
-      containers:
-        - name: postgres
-          image: postgres:16-alpine
-          ports:
-            - containerPort: 5432
-              name: postgres
-          env:
-            - name: POSTGRES_USER
-              value: sayangcare
-            - name: POSTGRES_DB
-              value: sayangcare
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: sayangcare-secrets
-                  key: POSTGRES_PASSWORD
-            - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/postgresql/data
-          # Startup probe: gives Postgres up to 5 min to init on first boot.
-          startupProbe:
-            exec:
-              command: ["pg_isready", "-U", "sayangcare"]
-            failureThreshold: 30
-            periodSeconds: 10
-          livenessProbe:
-            exec:
-              command: ["pg_isready", "-U", "sayangcare"]
-            initialDelaySeconds: 30
-            periodSeconds: 15
-          readinessProbe:
-            exec:
-              command: ["pg_isready", "-U", "sayangcare"]
-            initialDelaySeconds: 5
-            periodSeconds: 5
-          resources:
-            requests: { cpu: "250m", memory: "256Mi" }
-            limits: { cpu: "1", memory: "1Gi" }
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 5Gi
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  failoverDelay: 0
+  stopDelay: 90
+  smartShutdownTimeout: 45
+  bootstrap:
+    initdb:
+      database: sayangcare
+      owner: sayangcare
+      secret:
+        name: sayangcare-db-app
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+    topologyKey: kubernetes.io/hostname
+  storage:
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  postgresql:
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required

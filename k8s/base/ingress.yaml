@@ -1,10 +1,23 @@
+# Public entry point for Twilio webhooks (/twilio/*), the JSON API, and the
+# dashboard. Requires an NGINX Ingress Controller with the `nginx` IngressClass.
+#
+# Base = production shape: a real hostname, TLS terminated at the controller
+# (Secret `sayangcare-tls`), and plain-HTTP requests redirected to HTTPS. Set
+# SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL (namespace.yaml) to the same HTTPS
+# origin so Twilio signature verification reconstructs the signed URL.
+#
+# overlays/minikube patches this into a host-less, HTTP-only rule because TLS
+# terminates at the ngrok tunnel in front of the local cluster.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: sayangcare-api
   namespace: sayangcare
   annotations:
+    # Twilio form posts are tiny; 2m still leaves headroom for JSON turns.
     nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+    # A /gather turn can wait on two Groq requests (12s timeout each).
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"

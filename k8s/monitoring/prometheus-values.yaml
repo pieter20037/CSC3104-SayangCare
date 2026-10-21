@@ -1,0 +1,33 @@
+# Lightweight local Prometheus for validating the annotated SayangCare API
+# metrics and request-rate HPA. Production installs should use an established
+# monitoring stack and persistent storage appropriate to the cluster.
+alertmanager:
+  enabled: false
+
+kube-state-metrics:
+  enabled: false
+
+prometheus-node-exporter:
+  enabled: false
+
+prometheus-pushgateway:
+  enabled: false
+
+server:
+  persistentVolume:
+    enabled: false
+  retention: "1h"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  service:
+    type: ClusterIP
+    servicePort: 9090
+
+scrapeConfigs:
+  kubernetes-pods-slow:
+    enabled: false

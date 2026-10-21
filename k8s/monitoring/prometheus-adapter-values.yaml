@@ -1,0 +1,21 @@
+# Local Minikube Prometheus Adapter configuration for the request-rate HPA.
+# The API ServiceMonitor is unnecessary: Prometheus discovers API pods using
+# the prometheus.io/scrape annotations on the API Deployment.
+prometheus:
+  url: http://prometheus-server.monitoring.svc
+  port: 9090
+
+rules:
+  default: false
+  custom:
+    - seriesQuery: 'sayangcare_http_requests_total{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace:
+            resource: namespace
+          pod:
+            resource: pod
+      name:
+        matches: "^sayangcare_http_requests_total$"
+        as: sayangcare_http_requests_per_second
+      metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'

@@ -1,0 +1,22 @@
+# Base deployment. Apply with `kubectl apply -k k8s/base` (kustomize orders the
+# Namespace and ConfigMap ahead of the workloads, which `kubectl apply -f k8s/`
+# does not). The Secret `sayangcare-secrets` is created out-of-band; see
+# docs/PHASE_4_KUBERNETES.md.
+#
+# Variants:
+#   overlays/minikube          local cluster, ngrok-fronted HTTP ingress
+#   overlays/request-rate-hpa  adds request-rate autoscaling (Prometheus Adapter)
+#   overlays/production        registry image placeholder for a remote cluster
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - redis-sentinel.yaml
+  - app-deployment.yaml
+  - hpa.yaml
+  - ingress.yaml
+
+patches:
+  - path: postgres-ha-routing-patch.yaml

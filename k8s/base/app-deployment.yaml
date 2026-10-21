@@ -44,6 +44,39 @@ spec:
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels: { app: sayangcare-api }
+      # The API exits at bootstrap if Sentinel, the Redis master, or PostgreSQL
+      # is unreachable (for example, DNS is still settling after a node restart).
+      # Waiting here keeps pods in Init instead of a CrashLoopBackOff storm.
+      initContainers:
+        - name: wait-for-dependencies
+          image: redis:7-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              SENTINEL="redis-sentinel.sayangcare.svc.cluster.local"
+              until MASTER="$(redis-cli -h "$SENTINEL" -p 26379 SENTINEL get-master-addr-by-name sayangcare-master 2>/dev/null | sed -n '1p')" \
+                    && [ -n "$MASTER" ] \
+                    && [ "$(redis-cli -h "$MASTER" -p 6379 PING 2>/dev/null)" = "PONG" ]; do
+                echo "waiting for Redis Sentinel and a reachable master"
+                sleep 2
+              done
+              until nc -z -w 2 postgres.sayangcare.svc.cluster.local 5432; do
+                echo "waiting for PostgreSQL"
+                sleep 2
+              done
+              echo "dependencies reachable: redis master=$MASTER postgres=ok"
+          resources:
+            requests: { cpu: "10m", memory: "16Mi" }
+            limits: { cpu: "100m", memory: "64Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
       containers:
         - name: api
           image: sayangcare-api:dev
@@ -69,6 +102,20 @@ spec:
                 secretKeyRef:
                   name: sayangcare-secrets
                   key: SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN
+            # Optional keys: outbound caller ID and Groq inference. Omit them from
+            # the Secret for simulator-only clusters; the API falls back safely.
+            - name: SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER
+              valueFrom:
+                secretKeyRef:
+                  name: sayangcare-secrets
+                  key: SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER
+                  optional: true
+            - name: SAYANGCARE__AI__API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sayangcare-secrets
+                  key: SAYANGCARE__AI__API_KEY
+                  optional: true
           envFrom:
             - configMapRef:
                 name: sayangcare-config

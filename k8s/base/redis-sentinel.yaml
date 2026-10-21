@@ -47,23 +47,62 @@ spec:
           args:
             - |
               set -e
-              # Extract ordinal from hostname (redis-0, redis-1, redis-2)
-              ORDINAL=${HOSTNAME##*-}
-              if [ "$ORDINAL" = "0" ]; then
-                # Node 0 is the initial master
-                exec redis-server \
-                  --port 6379 \
-                  --appendonly yes \
-                  --save "" \
-                  --protected-mode no
+              SELF_FQDN="${HOSTNAME}.redis.sayangcare.svc.cluster.local"
+              SELF_IP="$(hostname -i | awk '{print $1}')"
+              ORDINAL="${HOSTNAME##*-}"
+              SENTINEL_HOST="redis-sentinel.sayangcare.svc.cluster.local"
+              MASTER_NAME="sayangcare-master"
+
+              # Ask Sentinel which node currently holds the master role. A pod that
+              # restarts after a failover must rejoin as a replica of the promoted
+              # node instead of coming back as a second master. Sentinel may still
+              # be starting after a full-cluster restart, so retry briefly.
+              MASTER_HOST=""
+              MASTER_PORT="6379"
+              for attempt in 1 2 3 4 5; do
+                ADDR="$(redis-cli -h "$SENTINEL_HOST" -p 26379 SENTINEL get-master-addr-by-name "$MASTER_NAME" 2>/dev/null || true)"
+                MASTER_HOST="$(printf '%s\n' "$ADDR" | sed -n '1p')"
+                if [ -n "$MASTER_HOST" ]; then
+                  MASTER_PORT="$(printf '%s\n' "$ADDR" | sed -n '2p')"
+                  break
+                fi
+                sleep 2
+              done
+
+              if [ -z "$MASTER_HOST" ]; then
+                # No Sentinel answer (first install): ordinal 0 bootstraps as master.
+                if [ "$ORDINAL" = "0" ]; then
+                  ROLE="master"
+                else
+                  ROLE="replica"
+                  MASTER_HOST="redis-0.redis.sayangcare.svc.cluster.local"
+                fi
+              elif [ "$MASTER_HOST" = "$SELF_FQDN" ] || [ "$MASTER_HOST" = "$SELF_IP" ]; then
+                ROLE="master"
               else
-                # Replicas follow the master's stable DNS name
+                ROLE="replica"
+              fi
+              echo "redis startup: pod=$HOSTNAME role=$ROLE master=${MASTER_HOST:-self}:$MASTER_PORT"
+
+              # replica-announce-ip publishes the pod's stable DNS name to the master
+              # and Sentinel, so topology tracking survives pod IP changes.
+              if [ "$ROLE" = "master" ]; then
                 exec redis-server \
                   --port 6379 \
                   --appendonly yes \
                   --save "" \
                   --protected-mode no \
-                  --replicaof redis-0.redis.sayangcare.svc.cluster.local 6379
+                  --replica-announce-ip "$SELF_FQDN" \
+                  --replica-announce-port 6379
+              else
+                exec redis-server \
+                  --port 6379 \
+                  --appendonly yes \
+                  --save "" \
+                  --protected-mode no \
+                  --replica-announce-ip "$SELF_FQDN" \
+                  --replica-announce-port 6379 \
+                  --replicaof "$MASTER_HOST" "$MASTER_PORT"
               fi
           ports:
             - containerPort: 6379

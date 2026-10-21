@@ -356,7 +356,7 @@ The API also runs embedded migrations during startup with `sqlx::migrate!`, so a
 | ------------------------------------------- | -------------------------------------------- |
 | Host shell, `sqlx`, `psql`, local Cargo API | `127.0.0.1:5434`                             |
 | API container in Compose                    | `postgres:5432`                              |
-| Kubernetes API pod                          | `postgres.sayangcare.svc.cluster.local:5432` |
+| Kubernetes API pod                          | `sayangcare-db-rw.sayangcare.svc.cluster.local:5432` (current primary) |
 
 If `sqlx migrate run` reports `role "sayangcare" does not exist`, it is usually connecting to another PostgreSQL server on `localhost:5432`. Check the effective environment:
 
@@ -565,7 +565,7 @@ The Compose API uses PostgreSQL and Redis Sentinel service hostnames on the Comp
 
 ## Kubernetes
 
-The manifests target namespace `sayangcare` and include a three-replica API Deployment/Service, PostgreSQL with a 5 GiB PVC, three Redis nodes, three Sentinel pods, disruption budgets, an HPA, and NGINX Ingress. The API image in the checked-in Deployment is currently set for the local Minikube test as `sayangcare-api:dev`; use a published registry image for other clusters.
+The Kustomize manifests target namespace `sayangcare` and include a three-replica API Deployment/Service, a three-instance CloudNativePG cluster with 5 GiB PVCs and synchronous replication, three Redis nodes, three Sentinel pods, disruption budgets, an HPA, and NGINX Ingress. The local Minikube overlay uses the `sayangcare-api:dev` image; use the production overlay and a published registry image for other clusters. Install the CloudNativePG operator before applying the Kustomization.
 
 ### Local Minikube setup (Windows and macOS)
 
@@ -605,22 +605,29 @@ docker build -t sayangcare-api:dev .
 minikube image load sayangcare-api:dev
 ```
 
-Apply the namespace and non-secret configuration, then create a local-only Secret. Dummy Twilio values are sufficient for dashboard and simulated-call testing; they cannot make live calls. Do not use real values in shell history or commit them:
+Create a local-only Secret before applying the overlay. Dummy Twilio values are sufficient for dashboard and simulated-call testing; they cannot make live calls. Do not use real values in shell history or commit them:
 
 ```sh
-kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/base/namespace.yaml
 kubectl -n sayangcare create secret generic sayangcare-secrets --from-literal=POSTGRES_PASSWORD='local-dev-password' --from-literal=SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID='ACtest' --from-literal=SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN='test' --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n sayangcare create secret generic sayangcare-db-app --from-literal=username=sayangcare --from-literal=password='local-dev-password' --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Deploy dependencies first so the API can connect during startup:
+Install the CloudNativePG operator and wait for it to be ready:
+
+```sh
+kubectl apply --server-side -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.1.yaml
+kubectl rollout status deployment/cnpg-controller-manager -n cnpg-system
+```
+
+Deploy the Minikube stack. The API init container waits for Redis Sentinel and the PostgreSQL primary before starting:
 
 ```bash
-kubectl apply -f k8s/postgres.yaml -f k8s/redis-sentinel.yaml
-kubectl -n sayangcare rollout status statefulset/postgres
+kubectl apply -k k8s/overlays/minikube
+kubectl -n sayangcare wait --for=condition=Ready cluster/sayangcare-db --timeout=10m
 kubectl -n sayangcare rollout status statefulset/redis
 kubectl -n sayangcare rollout status statefulset/redis-sentinel
 
-kubectl apply -f k8s/app-deployment.yaml -f k8s/hpa.yaml
 kubectl -n sayangcare rollout status deployment/sayangcare-api
 ```
 
@@ -628,6 +635,7 @@ Check pods, PVCs, service endpoints, and HPA:
 
 ```bash
 kubectl -n sayangcare get pods,svc,pvc,hpa
+kubectl -n sayangcare get cluster sayangcare-db
 kubectl -n sayangcare get endpoints sayangcare-api
 kubectl -n sayangcare describe hpa sayangcare-api
 kubectl -n sayangcare logs deployment/sayangcare-api
@@ -636,30 +644,34 @@ kubectl -n sayangcare logs deployment/sayangcare-api
 For local access, port-forward the Service:
 
 ```bash
-kubectl -n sayangcare port-forward svc/sayangcare-api 8080:80
+kubectl -n sayangcare port-forward --address 127.0.0.1 svc/sayangcare-api 18080:80
 ```
 
-In another terminal, check API health, dependencies, and metrics; open the Call Lab at `http://127.0.0.1:8080/dashboard`:
+In another terminal, check API health, dependencies, and metrics; open the Call Lab at `http://127.0.0.1:18080/dashboard`:
 
 ```bash
-curl -i http://127.0.0.1:8080/api/v1/health
-curl -i http://127.0.0.1:8080/api/v1/ready
-curl http://127.0.0.1:8080/api/v1/metrics
+curl -i http://127.0.0.1:18080/api/v1/health
+curl -i http://127.0.0.1:18080/api/v1/ready
+curl http://127.0.0.1:18080/api/v1/metrics
 ```
 
 In Windows PowerShell, use `curl.exe` rather than the `curl` alias:
 
 ```powershell
-curl.exe -i http://127.0.0.1:8080/api/v1/health
-curl.exe -i http://127.0.0.1:8080/api/v1/ready
-curl.exe http://127.0.0.1:8080/api/v1/metrics
+curl.exe --noproxy "*" -i http://127.0.0.1:18080/api/v1/health
+curl.exe --noproxy "*" -i http://127.0.0.1:18080/api/v1/ready
+curl.exe --noproxy "*" http://127.0.0.1:18080/api/v1/metrics
 ```
 
 For a pod-recovery smoke test, start a simulated call in the dashboard, note its session ID, delete one API pod, wait for its replacement, and reload that session through the dashboard/API. Redis is shared across the API pods. This checks pod replacement and session retrieval, but does not prove an in-flight Twilio request survives a crash. Minikube has one Kubernetes node, so it cannot validate node-level high availability.
 
-The HPA uses CPU (65%), memory (75%), and a custom per-pod request-rate metric (25 requests/second). Metrics Server supplies CPU/memory; Prometheus and Prometheus Adapter are required for the custom request metric. If the HPA shows `<unknown>` or reports no custom metrics API, request-rate scaling is not active. See [Phase 4 Kubernetes guide](docs/PHASE_4_KUBERNETES.md) for adapter, Ingress/TLS, and external-cluster setup.
+The base HPA uses CPU (65%) and memory (75%). Request-rate autoscaling adds a custom per-pod target (25 requests/second) and requires Prometheus and Prometheus Adapter; install them before applying `kubectl apply -k k8s/overlays/request-rate-hpa`. If the HPA shows `<unknown>` or reports no custom metrics API, request-rate scaling is not active. See [Phase 4 Kubernetes guide](docs/PHASE_4_KUBERNETES.md) for monitoring setup, Ingress/TLS, and external-cluster deployment.
 
-The Ingress requires an installed NGINX Ingress Controller, a real hostname, DNS, and a TLS Secret. The checked-in example hostname and certificate name are not ready for public Twilio traffic. PostgreSQL uses a PVC but remains a single replica; this is persistence, not database failover.
+See the [Phase 5 runbook](docs/PHASE_5.md) for starting the local monitoring stack, checking Prometheus/HPA metrics, running a simulated call lifecycle, and tracking the remaining load-test and chaos-engineering work.
+
+The Ingress requires an installed NGINX Ingress Controller, a real hostname, DNS, and a TLS Secret. The checked-in example hostname and certificate name are not ready for public Twilio traffic. CloudNativePG replicates PostgreSQL across three instances, uses one synchronous standby for acknowledged writes, and directs the API to its primary service. Minikube is still a single-node cluster, so all database instances share one node and cannot survive node loss. Configure backups separately; replication is not a backup.
+
+When upgrading an existing populated PostgreSQL deployment, back up and restore its data into the CloudNativePG cluster before switching the API. Kustomize deploys the cluster but does not migrate data; the Phase 4 guide records the tested migration and failover results.
 
 ## Observability
 

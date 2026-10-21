@@ -1,0 +1,31 @@
+# Adds request-rate autoscaling on top of the Minikube CPU/memory HPA and
+# preserves the local HTTP Ingress settings.
+#
+# Requires Prometheus scraping the API pods (annotations on the Deployment) and
+# Prometheus Adapter publishing `sayangcare_http_requests_per_second` through the
+# custom metrics API (docs/prometheus-adapter-values.yaml). Apply this overlay
+# only after `kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1` succeeds;
+# an unavailable metric makes the HPA refuse to scale down.
+#
+# Usage: `kubectl apply -k k8s/overlays/request-rate-hpa`
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../minikube
+
+patches:
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: sayangcare-api
+    patch: |-
+      - op: add
+        path: /spec/metrics/-
+        value:
+          type: Pods
+          pods:
+            metric:
+              name: sayangcare_http_requests_per_second
+            target:
+              type: AverageValue
+              averageValue: "25"

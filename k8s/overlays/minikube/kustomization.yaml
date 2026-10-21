@@ -1,0 +1,29 @@
+# Local Minikube variant: `kubectl apply -k k8s/overlays/minikube`
+#
+# Differences from the base:
+#   * Ingress has no host and no TLS, and never redirects to HTTPS. The
+#     controller is reached on 127.0.0.1 (minikube tunnel or a port-forward)
+#     and, for live Twilio calls, through an ngrok HTTPS tunnel that terminates
+#     TLS before traffic enters the cluster.
+#   * The API image stays `sayangcare-api:dev`, loaded with `minikube image load`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+patches:
+  - target:
+      kind: Ingress
+      name: sayangcare-api
+    patch: |-
+      - op: remove
+        path: /spec/tls
+      - op: remove
+        path: /spec/rules/0/host
+      - op: replace
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1force-ssl-redirect
+        value: "false"
+      - op: add
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1ssl-redirect
+        value: "false"

@@ -8,9 +8,13 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: sayangcare-api
-  minReplicas: 2
+  # 3 matches the Deployment's replica count and keeps the PDB (minAvailable: 2)
+  # satisfiable with one voluntary disruption; 2 would block node drains.
+  minReplicas: 3
   maxReplicas: 20
   behavior:
+    # Scale up immediately on a spike (double, or +4 pods, per minute);
+    # scale down slowly so brief lulls between calls don't churn pods.
     scaleUp:
       stabilizationWindowSeconds: 0
       selectPolicy: Max
@@ -28,6 +32,9 @@ spec:
         - type: Percent
           value: 25
           periodSeconds: 60
+  # Resource metrics need only Metrics Server. The request-rate metric
+  # (sayangcare_http_requests_per_second) lives in overlays/request-rate-hpa
+  # because an unavailable custom metric prevents the HPA from scaling down.
   metrics:
     - type: Resource
       resource:
@@ -41,10 +48,3 @@ spec:
         target:
           type: Utilization
           averageUtilization: 75
-    - type: Pods
-      pods:
-        metric:
-          name: sayangcare_http_requests_per_second
-        target:
-          type: AverageValue
-          averageValue: "25"

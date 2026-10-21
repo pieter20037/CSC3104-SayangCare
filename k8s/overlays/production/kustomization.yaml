@@ -1,0 +1,36 @@
+# Remote-cluster variant: `kubectl apply -k k8s/overlays/production`
+#
+# Before applying, replace the three REPLACE_ME values below and make sure the
+# cluster has: a default ReadWriteOnce StorageClass, Metrics Server, an NGINX
+# Ingress Controller, DNS for the hostname pointing at that controller, the TLS
+# Secret `sayangcare-tls`, and the application Secret `sayangcare-secrets`.
+# `kubectl kustomize k8s/overlays/production` renders the result for review.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+images:
+  - name: sayangcare-api
+    newName: ghcr.io/REPLACE_ME_GITHUB_OWNER/sayangcare-api
+    newTag: REPLACE_ME_TAG
+
+patches:
+  - target:
+      kind: Ingress
+      name: sayangcare-api
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: REPLACE_ME_HOSTNAME
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: REPLACE_ME_HOSTNAME
+  - target:
+      kind: ConfigMap
+      name: sayangcare-config
+    patch: |-
+      - op: replace
+        path: /data/SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL
+        value: https://REPLACE_ME_HOSTNAME
