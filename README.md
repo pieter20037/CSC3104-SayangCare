@@ -414,11 +414,36 @@ For the browser-based Call Lab, start the API and open `http://localhost:<api-po
 
 ### Call Lab simulator
 
+For the existing Windows Minikube setup, run `.\scripts\start-dashboard.ps1 -OpenBrowser`
+from the repository root with Docker Desktop running. The launcher prints
+friendly progress and success/failure icons, waits for the existing services,
+and verifies API health, Redis/PostgreSQL readiness, and the dashboard before
+printing **ACCESS THE DASHBOARD HERE: http://127.0.0.1:18080/dashboard**.
+Keep the terminal open; Ctrl+C closes its own connection, not the cluster.
+Use `-SkipMinikubeStart` for an already-running cluster, `-Port 18081` if the
+default port is occupied, or `-CheckOnly` for a temporary readiness check.
+It does not install or rebuild anything; follow the
+[Windows Phase 5 guide](docs/PHASE_5_Windows.md) for first-time setup.
+The [Mac guide](docs/PHASE_5_Mac.md) retains the manual macOS startup commands.
+
 The SID refresh control generates a new `SIM-...` ID. **Start call** creates a session with that ID in Redis; **Record turn** stores the caller and assistant turns there. The ID stays the same for the whole call. **End call** archives the session to PostgreSQL and removes its Redis copy only after the archive succeeds. If the call was escalated, its final state remains `escalated` when archived. With a Groq key configured, non-crisis turns receive a generated supportive reply; high-risk turns use the deterministic safety response and local heuristic classification. Without a key, turns use deterministic fallback replies. These are test transcripts, not microphone or phone audio.
 
 Select an on-shift volunteer in **Working as** (Aisha is selected by default; Noor is also on shift; Ibrahim is off shift). A queue row's **Claim** action assigns that specific session to the selected volunteer. **Claim next** assigns the highest-priority pending session to that volunteer. The assignment appears under **Assigned cases** and in the session record. **View case details** loads the session and transcript. **Transfer** moves an assigned case to another on-shift volunteer (selected automatically); **Resolve** closes the volunteer handoff; **Acknowledge** records operator review. Simulated calls update SayangCare state only and never redirect a real phone call.
 
 The dashboard is a responsive operator/test workspace with the call form, pending queue, session transcript, roster, assignments, alerts, and request details. If several local API copies are running, open the URL for the copy built from the latest source and confirm its port in that process's startup log.
+
+The care workspace includes icon-based Caller lab, Volunteer desk, and Operations navigation, keyboard-accessible workspace switching, and snapshot cards for queue size, on-shift volunteers, operator alerts, and the selected session's transcript turns. These cards reflect the latest successful data fetch, not continuously streamed system-wide metrics. Errors are shown in an inline alert. Browser voice simulation, crisis simulation, queue claims, transfers, resolution, acknowledgments, Raft status, and request inspection remain available in their respective views. Workspace selection is not authentication.
+
+The dashboard HTML is embedded in the API binary. For a Kubernetes deployment, rebuild and load the image, then roll out the API to see UI changes:
+
+```sh
+docker build -t sayangcare-api:dev .
+minikube image load sayangcare-api:dev
+kubectl -n sayangcare rollout restart deployment/sayangcare-api
+kubectl -n sayangcare rollout status deployment/sayangcare-api
+```
+
+Restart your API port-forward if its selected pod was replaced, then reload the dashboard.
 
 Create a session:
 
@@ -667,7 +692,7 @@ For a pod-recovery smoke test, start a simulated call in the dashboard, note its
 
 The base HPA uses CPU (65%) and memory (75%). Request-rate autoscaling adds a custom per-pod target (25 requests/second) and requires Prometheus and Prometheus Adapter; install them before applying `kubectl apply -k k8s/overlays/request-rate-hpa`. If the HPA shows `<unknown>` or reports no custom metrics API, request-rate scaling is not active. See [Phase 4 Kubernetes guide](docs/PHASE_4_KUBERNETES.md) for monitoring setup, Ingress/TLS, and external-cluster deployment.
 
-See the [Phase 5 runbook](docs/PHASE_5.md) for starting the local monitoring stack, checking Prometheus/HPA metrics, running a simulated call lifecycle, and tracking the remaining load-test and chaos-engineering work.
+See the Phase 5 runbooks for [Windows](docs/PHASE_5_Windows.md) or [macOS](docs/PHASE_5_Mac.md) for starting the local monitoring stack, checking Prometheus/HPA metrics, running a simulated call lifecycle, and tracking the remaining load-test and chaos-engineering work.
 
 The Ingress requires an installed NGINX Ingress Controller, a real hostname, DNS, and a TLS Secret. The checked-in example hostname and certificate name are not ready for public Twilio traffic. CloudNativePG replicates PostgreSQL across three instances, uses one synchronous standby for acknowledged writes, and directs the API to its primary service. Minikube is still a single-node cluster, so all database instances share one node and cannot survive node loss. Configure backups separately; replication is not a backup.
 

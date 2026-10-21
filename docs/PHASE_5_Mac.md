@@ -1,7 +1,9 @@
-# Phase 5: Chaos Testing, Metrics, and Final Evaluation
+# Phase 5: Chaos Testing, Metrics, and Final Evaluation (macOS)
+
+For PowerShell commands, see the [Windows guide](./PHASE_5_Windows.md).
 
 This guide records the Phase 5 backlog, what is already available, and how to
-start the current local Kubernetes stack and run the checks that exist today.
+start a local Kubernetes stack and run the checks that exist today.
 The Phase 5 performance and observability work is not all implemented yet; do
 not report planned tests as completed.
 
@@ -16,27 +18,43 @@ not report planned tests as completed.
 | **TEST-02** | Pod failover chaos test | **Partial** | API pod replacement, Redis Sentinel failover, and PostgreSQL primary-pod failover were tested separately. The requested mid-call API pod termination during a k6 run remains to be tested. |
 | **TEST-03** | Evaluation metrics gathering | **Partial** | Earlier Phase 4 checks recorded recovery and scaling observations. Phase 5 still needs a repeatable benchmark, collected throughput/latency/error results, recovery measurements, and consistency results in a final evidence table. |
 
-The local API HPA currently has CPU, memory, and request-rate metrics enabled.
+The local API HPA configuration includes CPU, memory, and request-rate metrics.
 Its request-rate target is 25 requests/second per API pod.
 
 ## Requirements
 
-- Docker Desktop with Linux containers, Minikube, `kubectl`, and Helm.
-- The repository's Kubernetes manifests and the `sayangcare-api:dev` image.
-- A test cluster only for pod deletion and failover experiments. The current
-  Minikube cluster is single-node; these tests cannot demonstrate node-level HA.
+- Docker Desktop for your Mac's architecture (Apple silicon or Intel), running
+  Linux containers.
+- Homebrew, Minikube, `kubectl`, and Helm. Install missing CLI tools with:
+
+  ```bash
+  brew install minikube kubectl helm
+  ```
+
+- The repository's Kubernetes manifests and an API image built for your cluster.
+  An image loaded into another teammate's Minikube is not available on your Mac.
+- A test cluster only for pod deletion and failover experiments. A single-node
+  Minikube cluster cannot demonstrate node-level HA.
 - k6 is needed for TEST-01/TEST-02, but a project k6 script must be written
   before `k6 run` can execute the call-lifecycle benchmark.
 
 Use simulated caller data only. Do not use real patient/caller data in load
-tests.
+tests. Docker Desktop must be running, but do not also start Docker Compose or
+a separate native API for this Kubernetes workflow.
 
 ## Start the Existing Local Kubernetes Stack
 
-Open PowerShell at the repository root:
+Open Terminal (zsh or bash), change to your repository folder, and start Docker
+Desktop. Replace the example checkout path below with your own:
 
-```powershell
-Set-Location "C:\Users\darre\CSC3104-SayangCare Project\CSC3104-SayangCare"
+```bash
+cd "$HOME/CSC3104-SayangCare"
+open -a Docker
+```
+
+Wait until Docker Desktop reports that the engine is running. Then:
+
+```bash
 minikube start --driver=docker
 kubectl config use-context minikube
 kubectl get nodes
@@ -44,7 +62,7 @@ kubectl get nodes
 
 Wait for the CloudNativePG operator, database cluster, and application:
 
-```powershell
+```bash
 kubectl rollout status deployment/cnpg-controller-manager -n cnpg-system
 kubectl -n sayangcare wait --for=condition=Ready cluster/sayangcare-db --timeout=10m
 kubectl -n sayangcare rollout status statefulset/redis
@@ -52,23 +70,39 @@ kubectl -n sayangcare rollout status statefulset/redis-sentinel
 kubectl -n sayangcare rollout status deployment/sayangcare-api
 ```
 
-For a new Minikube profile, first create the namespace and test secrets and
-install the CloudNativePG operator as described in
-[Phase 4 Kubernetes setup](./PHASE_4_KUBERNETES.md). Do not replace an existing
-database or re-create secrets without taking a backup and following that guide's
-migration instructions.
+For a new Minikube profile, first create the namespace and test secrets, install
+the CloudNativePG operator, build/load the API image, and deploy the application
+as described in [Phase 4 Kubernetes setup](./PHASE_4_KUBERNETES.md). A new Mac
+does not inherit the existing Windows cluster. Build locally so the image
+matches your Mac's cluster architecture:
 
-Install the local Prometheus and adapter only if the `monitoring` namespace is
-not already installed:
+```bash
+docker build -t sayangcare-api:dev .
+minikube image load sayangcare-api:dev
+```
 
-```powershell
+Do not replace an existing database or re-create secrets without taking a
+backup and following the Phase 4 guide's migration instructions.
+
+Install the local Prometheus and adapter only if they are not already installed.
+This is a one-time setup per cluster, not a step to repeat on every startup.
+Check first:
+
+```bash
+kubectl -n monitoring get deployment prometheus-server prometheus-adapter
+```
+
+If both deployments exist, wait for readiness rather than reinstalling. If
+they are missing, install:
+
+```bash
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
-helm upgrade --install prometheus prometheus-community/prometheus `
-  --namespace monitoring --create-namespace `
+helm upgrade --install prometheus prometheus-community/prometheus \
+  --namespace monitoring --create-namespace \
   --values k8s/monitoring/prometheus-values.yaml
-helm upgrade --install prometheus-adapter prometheus-community/prometheus-adapter `
-  --namespace monitoring `
+helm upgrade --install prometheus-adapter prometheus-community/prometheus-adapter \
+  --namespace monitoring \
   --values k8s/monitoring/prometheus-adapter-values.yaml
 kubectl -n monitoring rollout status deployment/prometheus-server
 kubectl -n monitoring rollout status deployment/prometheus-adapter
@@ -77,11 +111,15 @@ kubectl -n monitoring rollout status deployment/prometheus-adapter
 Apply the request-rate overlay. It includes the Minikube HTTP Ingress settings
 as well as the request-rate metric:
 
-```powershell
+```bash
 kubectl apply -k k8s/overlays/request-rate-hpa
 kubectl get apiservice v1beta1.custom.metrics.k8s.io
 kubectl -n sayangcare get pods,hpa
 ```
+
+The overlay only needs reapplying when deploying or updating configuration.
+For an unchanged existing cluster, the last two commands are enough to inspect
+its state.
 
 The Prometheus Adapter APIService should report `Available=True`. The custom
 metric is available after Prometheus has scraped API traffic; initially it may
@@ -89,18 +127,18 @@ be absent until requests have been made and samples collected.
 
 ## Run the API and Inspect Metrics
 
-In one PowerShell terminal, forward the API service:
+In one Terminal window, forward the API service:
 
-```powershell
+```bash
 kubectl -n sayangcare port-forward --address 127.0.0.1 svc/sayangcare-api 18080:80
 ```
 
 In another terminal, check health, readiness, and the current metrics endpoint:
 
-```powershell
-curl.exe --noproxy "*" -i http://127.0.0.1:18080/api/v1/health
-curl.exe --noproxy "*" -i http://127.0.0.1:18080/api/v1/ready
-curl.exe --noproxy "*" http://127.0.0.1:18080/api/v1/metrics
+```bash
+curl --noproxy "*" -i http://127.0.0.1:18080/api/v1/health
+curl --noproxy "*" -i http://127.0.0.1:18080/api/v1/ready
+curl --noproxy "*" http://127.0.0.1:18080/api/v1/metrics
 ```
 
 Expected: health and readiness return HTTP 200, readiness reports Redis and
@@ -110,7 +148,7 @@ rates, active session counts, or circuit-breaker state.
 
 To inspect Prometheus, use a separate terminal:
 
-```powershell
+```bash
 kubectl -n monitoring port-forward --address 127.0.0.1 svc/prometheus-server 19090:9090
 ```
 
@@ -126,7 +164,7 @@ sum(rate(sayangcare_http_requests_total[2m])) by (namespace, pod)
 
 The request-rate HPA's custom metric can be inspected with:
 
-```powershell
+```bash
 kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1/namespaces/sayangcare/pods/*/sayangcare_http_requests_per_second"
 kubectl -n sayangcare describe hpa sayangcare-api
 ```
@@ -136,40 +174,94 @@ for local testing, not long-term evaluation data storage.
 
 ## Run a Simulated Call Lifecycle
 
-The existing API and dashboard can exercise a call lifecycle without live
-Twilio. Keep the API port-forward running. Use a unique `call_sid` each time:
+Keep the API port-forward running. Run these steps in the same zsh or bash
+terminal. No live Twilio credentials are needed.
 
-```powershell
-curl.exe --noproxy "*" -X POST http://127.0.0.1:18080/api/v1/calls/incoming `
-  -H "content-type: application/json" `
-  -d '{"call_sid":"CA-phase5-demo-001","from":"+6590000000","to":"+6560000000"}'
+**1. Set up a unique test call:**
+
+```bash
+api="http://127.0.0.1:18080/api/v1/calls"
+sid="SIM-$(uuidgen)"
 ```
 
-Record a turn and end the call:
+**2. Start the call:**
 
-```powershell
-curl.exe --noproxy "*" -X POST http://127.0.0.1:18080/api/v1/calls/CA-phase5-demo-001/turn `
-  -H "content-type: application/json" `
-  -d '{"transcript":"I have been feeling overwhelmed."}'
-
-curl.exe --noproxy "*" -X POST http://127.0.0.1:18080/api/v1/calls/CA-phase5-demo-001/hangup
+```bash
+body=$(printf '{"call_sid":"%s","from":"+6590000000","to":"+6560000000"}' "$sid")
+curl --noproxy "*" -sS --fail-with-body "$api/incoming" -H "Content-Type: application/json" -d "$body"
 ```
+
+**3. Record a turn:**
+
+```bash
+body='{"transcript":"I have been feeling overwhelmed."}'
+curl --noproxy "*" -sS --fail-with-body "$api/$sid/turn" -H "Content-Type: application/json" -d "$body"
+```
+
+**4. End the call:**
+
+```bash
+curl --noproxy "*" -sS --fail-with-body -X POST "$api/$sid/hangup"
+```
+
+These commands use shell quoting supported by zsh and bash. If your Mac's
+older curl does not support `--fail-with-body`, use `--fail` instead; failures
+will still return a nonzero exit code, but their response bodies may be hidden.
+If a step fails, inspect its error before proceeding.
 
 The simulator stores active session state in Redis and archives a completed
 session to PostgreSQL. The browser UI is available at
 <http://127.0.0.1:18080/dashboard>.
 
+## Existing Automated Regression Tests
+
+With the Rust toolchain installed, run from the repository root:
+
+```bash
+cargo test --workspace --locked
+```
+
+These existing tests cover session state, risk/sentiment, archive retry and
+recovery, circuit breakers/fallback, Twilio handling, telemetry, and Raft.
+Most do not require Compose or Minikube. The 22 October 2026 Windows validation
+passed 72 tests; the 2 Redis-dependent tests passed separately against disposable
+Redis. This is not a macOS execution result or a k6/live-telephony validation.
+
+For the ignored tests, provide isolated test Redis at `127.0.0.1:6379`, never
+application/production Redis, then run:
+
+```bash
+cargo test --locked -p sayangcare-circuit-breaker -p sayangcare-priority-queue -- --ignored
+```
+
 ## Planned k6 and Chaos Run
 
-There is currently no checked-in k6 script, so the following benchmark is a
-planned next step, not a command that works yet. Add a script (for example
-`tests/k6/call-lifecycle.js`) that creates a unique call SID for each virtual
-user, checks every response, records latency and errors, and executes incoming,
-turn, and hangup in order. Then install k6 and run, for example:
+**Stop here for now: the k6 benchmark is not implemented yet.**
+The simulated-call commands above work independently of k6.
 
-```powershell
-k6 run --vus 100 --duration 2m tests/k6/call-lifecycle.js
+If k6 is not installed, install it using Homebrew:
+
+```bash
+brew install k6
+k6 version
 ```
+
+If `k6` is not found after installation, check Homebrew's executable directly:
+
+```bash
+"$(brew --prefix)/bin/k6" version
+```
+
+If this prints a version, k6 is installed; check your Homebrew PATH setup rather
+than reinstalling. Homebrew typically uses `/opt/homebrew` on Apple silicon and
+`/usr/local` on Intel Macs. Follow `brew shellenv` instructions for your
+installation, then restart Terminal or VS Code.
+
+Installing k6 does not create the project's load-test script. There is currently
+no checked-in `tests/k6/call-lifecycle.js`, so do not run that path yet.
+The future script must create a unique call SID for each iteration, check every
+response, record latency and errors, and execute incoming, turn, and hangup in
+order. Its target URL must also be configured for the chosen test route.
 
 Use a short smoke run first, then increase concurrency. Record the script
 revision, VUs, duration, request count, throughput, latency percentiles,
@@ -180,14 +272,14 @@ and its results are saved.
 For TEST-02, run the k6 scenario against the test cluster and delete one API pod
 while calls are active. First inspect the selected pod:
 
-```powershell
+```bash
 kubectl -n sayangcare get pods -l app=sayangcare-api
 ```
 
 In another terminal, select a pod name from that output and delete only that
 pod:
 
-```powershell
+```bash
 kubectl -n sayangcare delete pod API_POD_NAME
 kubectl -n sayangcare rollout status deployment/sayangcare-api
 ```
@@ -219,6 +311,6 @@ completed call lifecycles separately.
 Press `Ctrl+C` in each port-forward terminal. Keep Minikube and its PVCs running
 if you want to continue later. To stop the cluster without deleting its data:
 
-```powershell
+```bash
 minikube stop
 ```

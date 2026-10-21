@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#eef2ed">
-  <title>SayangCare | Call Lab</title>
+  <meta name="theme-color" content="#123d38">
+  <title>SayangCare | Care workspace</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23123d38'/%3E%3Cpath d='M16 24L6 14a5 5 0 017-7l3 3 3-3a5 5 0 017 7z' fill='%23a9e4cd'/%3E%3C/svg%3E">
   <style>
     :root {
       color-scheme: light;
@@ -281,30 +282,183 @@
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
     }
+    /* Care workspace shell; existing role-specific panel layout stays intact. */
+    :root {
+      --paper: #f3f6f8; --surface: #fff; --ink: #233a40; --muted: #637780;
+      --line: #e2e9ec; --forest: #177768; --forest-dark: #105c51;
+      --lime: #e5f4ef; --green-soft: #e7f5ef; --red-soft: #fff0ed;
+      --shadow: 0 4px 22px rgb(25 54 65 / 3%);
+      font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    body { background: var(--paper); background-image: none; }
+    .icon { width: 19px; height: 19px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+    .icon-definitions { position: absolute; width: 0; height: 0; overflow: hidden; }
+    .skip-link { position: fixed; top: -100px; left: 20px; z-index: 20; padding: 12px; background: white; color: var(--forest-dark); }
+    .skip-link:focus { top: 10px; }
+    .sidebar { position: fixed; inset: 0 auto 0 0; width: 232px; z-index: 5; background: #123d38; color: #d5e6e1; display: flex; flex-direction: column; padding: 30px 18px 22px; }
+    .brand { gap: 12px; padding: 0 9px; color: white; font-size: 21px; letter-spacing: -.6px; }
+    .brand-mark { width: 39px; height: 39px; border-radius: 12px; background: #2d5a50; color: #b5e8cd; }
+    .brand-mark .icon { width: 25px; height: 25px; }
+    .brand-subtitle { margin: 8px 0 36px 60px; font-size: 10px; letter-spacing: 1.8px; color: #9ebeb4; text-transform: uppercase; }
+    .nav-label { margin: 0 12px 12px; font-size: 10px; font-weight: 700; letter-spacing: 1.6px; color: #9ebeb4; text-transform: uppercase; }
+    .role-tabs { display: flex; flex-direction: column; gap: 7px; max-width: none; padding: 0; border: 0; background: transparent; }
+    .role-tab { display: flex; align-items: center; gap: 12px; min-height: 47px; padding: 0 14px; border-radius: 9px; color: #c5dbd4; text-align: left; font-size: 13px; font-weight: 600; }
+    .role-tab:hover { background: #204b43; color: white; }
+    .role-tab[aria-selected="true"] { background: #e1f3e9; color: #164e41; box-shadow: none; }
+    .sidebar-footer { margin-top: auto; padding: 18px 12px 0; border-top: 1px solid #356057; }
+    .sidebar-footer strong { display: block; margin: 8px 0; color: #e3f1eb; font-size: 12px; }
+    .sidebar-footer p { margin: 0; font-size: 11px; line-height: 1.65; color: #aac8bd; }
+    .sidebar-footer .icon { color: #9cceba; }
+    .topbar { height: 76px; margin-left: 232px; padding: 0 36px; background: #fff; }
+    .breadcrumb { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+    .breadcrumb strong { color: var(--ink); font-weight: 600; }
+    .top-meta { max-width: 55%; padding: 8px 12px; border: 1px solid var(--line); border-radius: 30px; font-size: 11px; }
+    .top-meta #api-status { overflow-wrap: anywhere; }
+    main { width: auto; max-width: 1680px; margin: 0 0 0 232px; padding: 32px 36px 45px; }
+    .page-heading { margin-bottom: 24px; }
+    .eyebrow { font-size: 10px; letter-spacing: 1.6px; color: #638078; margin-bottom: 10px; }
+    h1 { font: 650 29px/1.2 "Segoe UI", sans-serif; letter-spacing: -.8px; }
+    .heading-note { font-size: 13px; line-height: 1.7; max-width: 610px; }
+    .workspace-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .overview-card { display: flex; align-items: center; gap: 14px; padding: 19px; background: white; border: 1px solid var(--line); border-radius: 12px; }
+    .overview-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; color: #147a69; background: #e8f6f0; flex-shrink: 0; }
+    .overview-card:nth-child(2) .overview-icon { background: #edf2ff; color: #5972b5; }
+    .overview-card:nth-child(3) .overview-icon { background: #fff3df; color: #987024; }
+    .overview-card:nth-child(4) .overview-icon { background: #f1ecfa; color: #8060ac; }
+    .overview-label { margin: 0 0 5px; font-size: 11px; color: var(--muted); }
+    .overview-number { font-size: 25px; line-height: 1.2; font-weight: 650; letter-spacing: -.8px; }
+    .overview-caption { display: block; font-size: 10px; color: var(--muted); margin-top: 4px; }
+    .role-note { display: flex; align-items: center; gap: 7px; margin: 0 0 16px; font-size: 11px; }
+    .role-note .icon { width: 14px; height: 14px; }
+    .notice { display: flex; align-items: center; gap: 10px; padding: 14px 16px; margin-bottom: 18px; border: 1px solid #efc2b8; background: #fff3ef; border-radius: 10px; color: #8d3627; font-size: 13px; overflow-wrap: anywhere; }
+    .layout { gap: 20px; }
+    .panel { border-radius: 13px; }
+    .panel-header { padding: 18px 20px; min-height: 66px; }
+    .panel-title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 650; }
+    .panel-title .icon { color: #5f8a80; width: 18px; height: 18px; }
+    .panel-kicker { background: #f0f5f5; border-radius: 5px; padding: 5px 8px; font-size: 10px; color: #607b7c; white-space: normal; }
+    .panel-body { padding: 20px; }
+    .layout .raft-panel { order: 20; }
+    .raft-panel .activity-list { max-height: 180px; }
+    .raft-panel .microcopy { font-size: 11px; }
+    .field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    label { font-size: 11px; color: #526970; font-weight: 600; }
+    input, textarea, select { border-color: #dbe4e7; border-radius: 8px; font-size: 12px; background: #fcfdfd; }
+    input, select { height: 43px; }
+    input:focus, textarea:focus, select:focus { border-color: var(--forest); box-shadow: 0 0 0 3px #1777681a; }
+    textarea { min-height: 120px; line-height: 1.65; }
+    .icon-button { height: 43px; border-radius: 8px; border-color: #dbe4e7; }
+    .button { min-height: 39px; border-radius: 8px; font-size: 11px; padding: 0 12px; border-color: #dbe4e7; }
+    .button .icon { width: 15px; height: 15px; }
+    .button.accent { background: #edf7f3; border-color: #cce4d9; color: #276b58; }
+    .button.danger { background: #fff7f5; border-color: #f0d9d2; color: #a24837; }
+    .text-button { font-size: 11px; }
+    .microcopy { line-height: 1.7; }
+    .session-strip { flex-wrap: wrap; }
+    .session-stats { background: #fcfdfd; }
+    .stat { padding: 16px 19px; }
+    .stat-label { font-size: 9px; letter-spacing: .7px; line-height: 1.6; }
+    .stat-value { font-size: 12px; }
+    .transcript { min-height: 240px; max-height: 460px; gap: 15px; padding: 20px; background: #f9fbfc; }
+    .empty-state { align-content: center; gap: 10px; font: 13px/1.8 "Segoe UI", sans-serif; color: #778b94; }
+    .empty-state::before { content: ""; width: 35px; height: 25px; border: 2px solid #bfd2d0; border-radius: 9px 9px 9px 2px; margin-bottom: 10px; background: #edf5f3; }
+    .turn { border-radius: 12px 12px 12px 3px; padding: 13px 15px; box-shadow: 0 2px 4px #23454904; }
+    .turn.assistant { border-radius: 12px 12px 3px 12px; background: #eaf5ef; }
+    .turn-text { line-height: 1.7; font-size: 12px; }
+    .activity-item { padding: 16px 18px; border-color: var(--line); }
+    .activity-label, .activity-item strong { overflow-wrap: anywhere; }
+    .empty-activity { padding: 25px 20px; color: #71868c; line-height: 1.8; }
+    .http-badge { border-radius: 5px; padding: 5px 8px; }
+    pre { background: #f3f7f8; border: 1px solid var(--line); padding: 14px; border-radius: 8px; font-size: 11px; }
+    .workspace-footer { display: flex; justify-content: space-between; gap: 20px; padding-top: 25px; margin-top: 12px; color: #778b91; font-size: 10px; line-height: 1.8; }
+    :focus-visible { outline: 3px solid #55a995; outline-offset: 3px; }
+    @media (min-width: 1600px) { main { margin-inline: auto; padding-left: 268px; } }
+    @media (max-width: 1150px) {
+      .sidebar { width: 195px; padding-inline: 12px; } .topbar, main { margin-left: 195px; }
+      main { padding: 26px 22px; } .topbar { padding-inline: 22px; }
+      .workspace-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .brand { font-size: 19px; } .brand-subtitle { margin-left: 55px; }
+    }
+    @media (max-width: 760px) {
+      .sidebar { position: static; width: auto; padding: 18px; }
+      .brand-subtitle, .nav-label, .sidebar-footer { display: none; }
+      .role-tabs { flex-direction: row; margin: 18px 0 0; }
+      .role-tab { flex: 1; justify-content: center; min-height: 42px; gap: 7px; padding: 0 7px; font-size: 11px; }
+      .topbar, main { margin-left: 0; } .topbar { height: 60px; padding-inline: 18px; }
+      main { padding: 24px 18px; } .breadcrumb { font-size: 11px; } h1 { font-size: 25px; }
+      .layout { grid-template-columns: minmax(0, 1fr); }
+      .layout .panel { grid-column: 1 / -1 !important; }
+      .overview-card { padding: 14px; gap: 10px; } .overview-number { font-size: 22px; }
+      .page-heading { align-items: start; } .heading-note { font-size: 12px; }
+      .workspace-footer { flex-direction: column; gap: 4px; }
+    }
+    @media (max-width: 420px) {
+      .field-grid { grid-template-columns: 1fr; }
+      main { padding-inline: 12px; } .overview-icon { width: 30px; height: 34px; }
+      .overview-card { padding: 12px 10px; gap: 8px; } .overview-label { font-size: 10px; }
+      .top-meta { max-width: 65%; } .breadcrumb > span { display: none; }
+    }
   </style>
 </head>
 <body>
+  <a class="skip-link" href="#workspace-title">Skip to workspace</a>
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/><path d="M4 12h4l2-4 3 8 2-4h5"/></symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24"><path d="m7 3 3 5-3 3a15 15 0 0 0 6 6l3-3 5 3-1 4C10 23 1 14 3 4Z"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 5v2"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Z"/><path d="m8 12 3 3 5-6"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 6a8 8 0 0 1 14 6M18 18a8 8 0 0 1-14-6"/></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 11a9 9 0 0 1-9 9H3l1.5-5A9 9 0 1 1 21 11Z"/><path d="M8 10h8M8 14h5"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4M12 2V1"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H5v20h14V7ZM14 2v5h5M8 12h8M8 16h6"/></symbol>
+      <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2 12h5l3-8 4 16 3-8h5"/></symbol>
+      <symbol id="i-nodes" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M12 8v4H5v4M12 12h7v4"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8Z"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    </defs>
+  </svg>
+  <aside class="sidebar" aria-label="Workspace navigation">
+    <div class="brand"><span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-heart"/></svg></span><span class="brand-name">SayangCare</span></div>
+    <p class="brand-subtitle">Connection with care</p>
+    <p class="nav-label">Your workspace</p>
+    <nav class="role-tabs" role="tablist" aria-label="Select SayangCare workspace" aria-orientation="vertical">
+      <button class="role-tab" id="tab-caller" type="button" role="tab" aria-selected="true" aria-controls="role-layout" data-role="caller"><svg class="icon" aria-hidden="true"><use href="#i-phone"/></svg>Caller lab</button>
+      <button class="role-tab" id="tab-volunteer" type="button" role="tab" aria-selected="false" aria-controls="role-layout" data-role="volunteer"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>Volunteer desk</button>
+      <button class="role-tab" id="tab-operator" type="button" role="tab" aria-selected="false" aria-controls="role-layout" data-role="operator"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>Operations</button>
+    </nav>
+    <div class="sidebar-footer">
+      <svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>
+      <strong>A space for human connection</strong>
+      <p>Prototype workspace. Use simulated data only. Not a clinical or emergency service.</p>
+    </div>
+  </aside>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark" aria-hidden="true">s</span><span class="brand-name">SayangCare</span></div>
-    <div class="top-meta"><span id="api-dot" class="status-dot"></span><span id="api-status">Checking API</span></div>
+    <div class="breadcrumb"><svg class="icon" aria-hidden="true"><use href="#i-heart"/></svg><span>Care platform /</span><strong>Workspace</strong></div>
+    <div class="top-meta" role="status" aria-live="polite"><span id="api-dot" class="status-dot"></span><span id="api-status">Checking API</span></div>
   </header>
 
   <main>
     <section class="page-heading">
       <div>
-        <p class="eyebrow">Developer tools / Local environment</p>
-        <h1 id="workspace-title">Caller workspace</h1>
+        <p class="eyebrow">Care, coordinated.</p>
+        <h1 id="workspace-title" tabindex="-1">Caller workspace</h1>
         <p class="heading-note" id="workspace-note">Simulate a caller conversation and review the transcript.</p>
       </div>
       <button class="button" id="health-button" type="button"><span class="arrow" aria-hidden="true">↻</span> Check API</button>
     </section>
 
-    <nav class="role-tabs" role="tablist" aria-label="Select SayangCare workspace">
-      <button class="role-tab" id="tab-caller" type="button" role="tab" aria-selected="true" aria-controls="role-layout" data-role="caller">Caller</button>
-      <button class="role-tab" id="tab-volunteer" type="button" role="tab" aria-selected="false" aria-controls="role-layout" data-role="volunteer">Volunteer</button>
-      <button class="role-tab" id="tab-operator" type="button" role="tab" aria-selected="false" aria-controls="role-layout" data-role="operator">Operator</button>
-    </nav>
-    <p class="microcopy role-note">Workspace selection changes the local dashboard view; it is not user authentication.</p>
+    <section class="workspace-overview" aria-label="Latest workspace snapshot">
+      <div class="overview-card"><span class="overview-icon"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg></span><div><p class="overview-label">Awaiting support</p><span class="overview-number" id="overview-queue">—</span><span class="overview-caption">Latest queue snapshot</span></div></div>
+      <div class="overview-card"><span class="overview-icon"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg></span><div><p class="overview-label">Volunteers on shift</p><span class="overview-number" id="overview-volunteers">—</span><span class="overview-caption">Latest roster snapshot</span></div></div>
+      <div class="overview-card"><span class="overview-icon"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg></span><div><p class="overview-label">Operator alerts</p><span class="overview-number" id="overview-alerts">—</span><span class="overview-caption">Latest alerts snapshot</span></div></div>
+      <div class="overview-card"><span class="overview-icon"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg></span><div><p class="overview-label">Conversation turns</p><span class="overview-number" id="overview-turns">—</span><span class="overview-caption">Selected session only</span></div></div>
+    </section>
+    <div class="notice" id="workspace-error" role="alert" hidden></div>
+    <p class="microcopy role-note"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>Simulation environment · Workspace views are not authentication. Counts update when their data is refreshed.</p>
 
     <div class="layout role-caller" id="role-layout">
       <div class="stack">
@@ -314,7 +468,7 @@
           </div>
           <div class="panel-body">
             <div class="activity-list" id="raft-list"><div class="empty-activity">Loading cluster status…</div></div>
-            <p class="microcopy">Auto-refreshes every 3s. Kill the leader's process and watch a new leader get elected here. Open another node's dashboard from its link; the queue is the same on every node.</p>
+            <p class="microcopy">Cluster status refreshes every 3 seconds. Raft leader-election experiments are for test environments only; use another node's dashboard link to inspect its view.</p>
           </div>
         </section>
 
@@ -338,7 +492,7 @@
                 <input id="recipient" type="tel" value="+6560000000" autocomplete="off">
               </div>
               <div class="field full">
-                <label for="transcript-input">Escalation statement</label>
+                <label for="transcript-input">Caller transcript / simulation statement</label>
                 <textarea id="transcript-input">I want to end my life.</textarea>
               </div>
             </div>
@@ -450,12 +604,44 @@
         </section>
       </div>
     </div>
+    <footer class="workspace-footer"><span>SayangCare · Care coordination &amp; resilience lab</span><span>Simulated conversations. Real attention to reliability.</span></footer>
   </main>
 
   <script>
     const api = "/api/v1";
     const $ = (id) => document.getElementById(id);
     const activity = [];
+    function icon(name) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.classList.add("icon");
+      svg.setAttribute("aria-hidden", "true");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttribute("href", `#i-${name}`);
+      svg.append(use);
+      return svg;
+    }
+    const panelIcons = {
+      "test-panel": "phone", "queue-panel": "list", "session-panel": "file",
+      "roster-panel": "users", "assigned-panel": "shield", "alerts-panel": "bell",
+      "activity-panel": "pulse", "response-panel": "file", "raft-panel": "nodes"
+    };
+    Object.entries(panelIcons).forEach(([panel, name]) => {
+      document.querySelector(`.${panel} .panel-title`).prepend(icon(name));
+    });
+    const buttonIcons = {
+      "health-button": "pulse", "new-id": "refresh", "start-button": "phone",
+      "turn-button": "chat", "hangup-button": "stop", "voice-start-button": "mic",
+      "full-test-button": "play", "queue-button": "refresh", "claim-next-button": "check",
+      "alerts-button": "refresh", "volunteers-button": "refresh", "assigned-button": "file",
+      "acknowledge-button": "check"
+    };
+    Object.entries(buttonIcons).forEach(([id, name]) => {
+      const button = $(id);
+      const arrow = button.querySelector(".arrow");
+      if (arrow) arrow.replaceWith(icon(name));
+      else if (id === "new-id") button.replaceChildren(icon(name));
+      else button.prepend(icon(name));
+    });
     const controls = [...document.querySelectorAll("button")];
     let busy = false;
     let currentRole = "caller";
@@ -490,6 +676,7 @@
       $("acknowledge-button").hidden = currentRole !== "operator";
       $("workspace-title").textContent = roleCopy[currentRole][0];
       $("workspace-note").textContent = roleCopy[currentRole][1];
+      $("role-layout").setAttribute("aria-labelledby", `tab-${currentRole}`);
     }
 
     function freshCallId(prefix = "SIM-") {
@@ -596,10 +783,13 @@
     async function withBusy(action) {
       if (busy) return;
       setBusy(true);
+      $("workspace-error").hidden = true;
       try {
         await action();
       } catch (error) {
         $("api-status").textContent = error.message;
+        $("workspace-error").textContent = error.message;
+        $("workspace-error").hidden = false;
       } finally {
         setBusy(false);
       }
@@ -653,6 +843,7 @@
       $("stat-handoff").textContent = `${handoff}${session.operator_acknowledged ? " · acked" : " · pending"}`;
       $("stat-volunteer").textContent = volunteer;
       const turns = session.transcript?.turns || [];
+      $("overview-turns").textContent = turns.length;
       $("stat-turns").textContent = turns.length;
       const view = $("transcript-view");
       view.replaceChildren();
@@ -689,6 +880,7 @@
       const pending = (data?.pending || []).filter(
         (item) => item.state !== "abandoned" && item.handoff_status !== "abandoned"
       );
+      $("overview-queue").textContent = pending.length;
       if (!pending.length) {
         list.innerHTML = '<div class="empty-activity">No escalated callers waiting.</div>';
         return;
@@ -757,6 +949,7 @@
       const list = $("alerts-list");
       list.replaceChildren();
       const alerts = data?.alerts || [];
+      $("overview-alerts").textContent = alerts.length;
       if (!alerts.length) {
         list.innerHTML = '<div class="empty-activity">No operator alerts yet.</div>';
         return;
@@ -802,6 +995,7 @@
       const list = $("volunteer-list");
       list.replaceChildren();
       const volunteers = data?.volunteers || [];
+      $("overview-volunteers").textContent = volunteers.filter((volunteer) => volunteer.on_shift).length;
       if (!volunteers.length) {
         list.innerHTML = '<div class="empty-activity">No volunteers available.</div>';
         return;
@@ -1100,6 +1294,8 @@
       } catch (error) {
         stopBrowserVoice(error.message);
         $("api-status").textContent = error.message;
+        $("workspace-error").textContent = error.message;
+        $("workspace-error").hidden = false;
       } finally {
         setBusy(false);
         voiceWaitingForReply = false;
@@ -1161,10 +1357,28 @@
     }
 
     document.querySelectorAll(".role-tab").forEach((tab) => {
+      tab.addEventListener("keydown", (event) => {
+        const tabs = [...document.querySelectorAll(".role-tab")];
+        const index = tabs.indexOf(tab);
+        const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
+        let target;
+        if (step) target = tabs[(index + step + tabs.length) % tabs.length];
+        else if (event.key === "Home") target = tabs[0];
+        else if (event.key === "End") target = tabs[tabs.length - 1];
+        if (target) {
+          event.preventDefault();
+          target.focus();
+          target.click();
+        }
+      });
       tab.addEventListener("click", () => withBusy(async () => {
         setRole(tab.dataset.role);
         if (tab.dataset.role === "volunteer" || tab.dataset.role === "operator") await loadQueue();
-        if (tab.dataset.role === "volunteer") await loadAssignedCases(selectedVolunteerId());
+        if (tab.dataset.role === "volunteer") {
+          await loadVolunteers();
+          await loadAssignedCases(selectedVolunteerId());
+        }
+        if (tab.dataset.role === "operator") await loadAlerts();
       }));
     });
     $("volunteer-select").addEventListener("change", () => withBusy(() => loadAssignedCases(selectedVolunteerId())));
