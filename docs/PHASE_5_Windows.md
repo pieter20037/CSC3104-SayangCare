@@ -212,6 +212,12 @@ Invoke-RestMethod "$api/$sid/hangup" -Method Post
 Use these PowerShell-native commands rather than inline JSON with `curl.exe`
 to avoid Windows PowerShell quote-escaping issues.
 
+The dashboard polls the selected Call SID every five seconds. To follow a
+session created by these PowerShell commands, paste `$sid` into the dashboard's
+**Call SID** field (or open `/dashboard?sid=<Call-SID>`). The session record
+will update automatically while the dashboard page is open and visible. The
+dashboard does not discover arbitrary sessions by itself.
+
 The simulator stores active session state in Redis and archives a completed
 session to PostgreSQL. The browser UI is available at
 <http://127.0.0.1:18080/dashboard>.

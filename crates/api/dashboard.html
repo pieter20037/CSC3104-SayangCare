@@ -582,6 +582,7 @@
             <h2 class="panel-title">Session record</h2>
             <div class="session-strip">
               <span class="state-pill" id="state-pill">Not loaded</span>
+              <span class="panel-kicker" id="session-live-status" role="status" aria-live="polite">Auto-refresh every 5 sec</span>
               <button class="button" id="acknowledge-button" type="button">Acknowledge</button>
               <button class="text-button" id="refresh-session" type="button">Refresh</button>
             </div>
@@ -645,6 +646,9 @@
     const controls = [...document.querySelectorAll("button")];
     let busy = false;
     let currentRole = "caller";
+    let autoRefreshRunning = false;
+    let lastRenderedSessionId = null;
+    let lastRenderedSessionVersion = null;
     let voiceRecognition = null;
     let voiceActive = false;
     let voiceWaitingForReply = false;
@@ -681,7 +685,11 @@
 
     function freshCallId(prefix = "SIM-") {
       const value = crypto.randomUUID().replaceAll("-", "").toUpperCase();
-      $("call-id").value = `${prefix}${value}`;
+      const id = `${prefix}${value}`;
+      $("call-id").value = id;
+      syncSessionUrl(id);
+      clearSessionDisplay();
+      $("session-live-status").textContent = `Following ${id} · checks every 5 sec`;
     }
 
     function setBusy(value) {
@@ -803,9 +811,97 @@
 
     async function loadSession() {
       const id = currentId();
+      syncSessionUrl(id);
       const session = await request("Load session", "GET", `${api}/calls/${encodeURIComponent(id)}`);
       renderSession(session);
       return session;
+    }
+
+    function syncSessionUrl(id) {
+      const url = new URL(window.location.href);
+      if (id) url.searchParams.set("sid", id);
+      else url.searchParams.delete("sid");
+      window.history.replaceState(null, "", url);
+    }
+
+    function clearSessionDisplay() {
+      lastRenderedSessionId = null;
+      lastRenderedSessionVersion = null;
+      $("state-pill").textContent = "Not loaded";
+      $("state-pill").className = "state-pill";
+      $("stat-id").textContent = "—";
+      $("stat-version").textContent = "—";
+      $("stat-turns").textContent = "—";
+      $("stat-risk").textContent = "—";
+      $("stat-sentiment").textContent = "Not analyzed";
+      $("stat-handoff").textContent = "—";
+      $("stat-volunteer").textContent = "—";
+      $("overview-turns").textContent = "—";
+      $("transcript-view").innerHTML = '<div class="empty-state">Waiting for the selected session.</div>';
+    }
+
+    async function getSnapshot(path) {
+      const response = await fetch(`${api}${path}`, { signal: AbortSignal.timeout(4000) });
+      const text = await response.text();
+      let data;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error(`Expected JSON from ${path}, received an invalid response.`);
+      }
+      if (!response.ok) {
+        const detail = data?.detail || data?.error || data?.message || `HTTP ${response.status}`;
+        const error = new Error(String(detail));
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    }
+
+    async function refreshSelectedSession(id) {
+      try {
+        const session = await getSnapshot(`/calls/${encodeURIComponent(id)}`);
+        if ($("call-id").value.trim() === id &&
+            (lastRenderedSessionId !== id || lastRenderedSessionVersion !== session.version)) {
+          renderSession(session, true);
+        }
+        return "updated";
+      } catch (error) {
+        if (error.status === 404) return "waiting";
+        throw error;
+      }
+    }
+
+    async function refreshWorkspaceSnapshot() {
+      if (autoRefreshRunning || busy || document.hidden) return;
+      autoRefreshRunning = true;
+      const id = $("call-id").value.trim();
+      const checks = [];
+      if (id) checks.push(refreshSelectedSession(id));
+      if (currentRole === "volunteer") {
+        checks.push(getSnapshot("/volunteers/queue").then(renderQueue));
+        checks.push(getSnapshot("/volunteers").then(renderVolunteers));
+        checks.push(getSnapshot(`/volunteers/${encodeURIComponent(selectedVolunteerId())}/cases`).then(renderAssignedCases));
+      } else if (currentRole === "operator") {
+        checks.push(getSnapshot("/volunteers/queue").then(renderQueue));
+        checks.push(getSnapshot("/operator/alerts").then(renderAlerts));
+      }
+
+      try {
+        const results = await Promise.allSettled(checks);
+        const failed = results.find((result) => result.status === "rejected");
+        if (failed) {
+          $("session-live-status").textContent = `Auto-refresh issue: ${failed.reason.message}`;
+        } else if (!id) {
+          $("session-live-status").textContent = "Enter a Call SID to follow its updates";
+        } else if (results[0]?.status === "fulfilled" && results[0].value === "waiting") {
+          $("session-live-status").textContent = `Waiting for ${id} · checks every 5 sec`;
+        } else {
+          $("session-live-status").textContent = `Live · checked ${new Date().toLocaleTimeString()}`;
+        }
+      } finally {
+        autoRefreshRunning = false;
+      }
     }
 
     async function openCase(sessionId) {
@@ -814,7 +910,11 @@
       $("transcript-view").scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
-    function renderSession(session) {
+    function renderSession(session, preserveScroll = false) {
+      const view = $("transcript-view");
+      const wasAtBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 48;
+      lastRenderedSessionId = session.id;
+      lastRenderedSessionVersion = session.version;
       const state = String(session.state || "unknown").replaceAll("_", " ");
       const handoff = String(session.handoff_status || "not_required").replaceAll("_", " ");
       const volunteer = session.assigned_volunteer_id || "Unassigned";
@@ -845,7 +945,6 @@
       const turns = session.transcript?.turns || [];
       $("overview-turns").textContent = turns.length;
       $("stat-turns").textContent = turns.length;
-      const view = $("transcript-view");
       view.replaceChildren();
       if (!turns.length) {
         const empty = document.createElement("div");
@@ -871,7 +970,7 @@
         item.append(heading, text);
         view.append(item);
       });
-      view.scrollTop = view.scrollHeight;
+      if (!preserveScroll || wasAtBottom) view.scrollTop = view.scrollHeight;
     }
 
     function renderQueue(data) {
@@ -1405,6 +1504,15 @@
       }
     }));
     $("refresh-session").addEventListener("click", () => withBusy(loadSession));
+    $("call-id").addEventListener("input", () => {
+      const id = $("call-id").value.trim();
+      syncSessionUrl(id);
+      clearSessionDisplay();
+      $("session-live-status").textContent = id
+        ? `Following ${id} · checks every 5 sec`
+        : "Enter a Call SID to follow its updates";
+      void refreshWorkspaceSnapshot();
+    });
     $("refresh-queue").addEventListener("click", () => withBusy(loadQueue));
     $("queue-button").addEventListener("click", () => withBusy(loadQueue));
     $("claim-next-button").addEventListener("click", () => withBusy(claimNext));
@@ -1436,7 +1544,9 @@
     });
 
     setRole("caller");
-    freshCallId();
+    const sessionFromUrl = new URL(window.location.href).searchParams.get("sid")?.trim();
+    if (sessionFromUrl) $("call-id").value = sessionFromUrl;
+    else freshCallId();
     pollRaft();
     setInterval(pollRaft, 3000);
     withBusy(async () => {
@@ -1449,6 +1559,7 @@
       $("api-dot").className = "status-dot offline";
       $("api-status").textContent = "API unavailable";
     });
+    setInterval(() => { void refreshWorkspaceSnapshot(); }, 5000);
   </script>
 </body>
 </html>
