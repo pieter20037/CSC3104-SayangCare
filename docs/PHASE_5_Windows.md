@@ -50,6 +50,8 @@ PostgreSQL, Redis, Sentinel, and API, then checks API health, storage readiness,
 and the actual dashboard page. Green check marks mean those checks succeeded.
 Only then does it print **ACCESS THE DASHBOARD HERE:
 http://127.0.0.1:18080/dashboard** and open your browser.
+It waits for API pods to become Ready and retries the local connection if
+Kubernetes briefly replaces a pod during startup.
 
 Keep that terminal open; Ctrl+C closes only its own port-forward, not the
 cluster. It targets the `minikube` context explicitly without changing your
@@ -65,6 +67,10 @@ Set-ExecutionPolicy -Scope Process RemoteSigned
 If Minikube is already running, use `-SkipMinikubeStart`. If port 18080 is
 occupied, keep your existing forward or use `-Port 18081`. Do not run the
 manual API port-forward below on the same port at the same time.
+The launcher also checks Minikube's default Windows install location
+(`C:\Program Files\Kubernetes\Minikube\minikube.exe`) if `minikube` is not on
+the current terminal's `PATH`. If Minikube is installed elsewhere, reopen VS
+Code after installation or add its install folder to `PATH`.
 For a temporary startup check that closes its connection afterward:
 
 ```powershell
@@ -409,6 +415,12 @@ monitoring, and documentation files were added or updated:
 - Added `docs/PHASE_5_LOCAL_RESULTS.md` and the saved k6 summaries
   `docs/phase5-local-baseline.json` and
   `docs/phase5-local-api-failover.json`.
+- Updated `scripts/start-dashboard.ps1` to find Minikube in its default
+  Windows install location when it is missing from the current terminal's
+  `PATH`, wait for API pods to become Ready, and retry transient port-forward
+  exits during startup. The launcher was rerun successfully; health, readiness,
+  and dashboard endpoints all returned HTTP 200 before the services were
+  stopped again.
 - Updated this guide, `docs/PHASE_5_Mac.md`, and `docs/README.md`.
 
 These are local workspace changes and were not committed. The local `.env` and

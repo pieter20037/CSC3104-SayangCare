@@ -47,7 +47,19 @@ try {
     Write-Host "`n$heart SayangCare is booting. Let's get your care workspace ready!" -ForegroundColor Cyan
     $kubectl = (Get-Command kubectl -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     if (-not $SkipMinikubeStart) {
-        $minikube = (Get-Command minikube -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+        $minikubeCommand = Get-Command minikube -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -ne $minikubeCommand) {
+            $minikube = $minikubeCommand.Source
+        }
+        else {
+            $defaultMinikube = Join-Path $env:ProgramFiles 'Kubernetes\Minikube\minikube.exe'
+            if (Test-Path -LiteralPath $defaultMinikube -PathType Leaf) {
+                $minikube = $defaultMinikube
+            }
+            else {
+                throw "Minikube was not found on PATH or at its default install location ($defaultMinikube). Reopen VS Code after installing Minikube, or add its install folder to PATH."
+            }
+        }
         & $minikube start --profile minikube --driver=docker
         if ($LASTEXITCODE -ne 0) {
             throw 'Minikube could not start. Check that Docker Desktop is running.'
@@ -71,13 +83,9 @@ try {
     Wait-ClusterResource 'Waiting for Redis' @('-n', 'sayangcare', 'rollout', 'status', 'statefulset/redis', '--timeout=180s')
     Wait-ClusterResource 'Waiting for Redis Sentinel' @('-n', 'sayangcare', 'rollout', 'status', 'statefulset/redis-sentinel', '--timeout=180s')
     Wait-ClusterResource 'Waiting for the care API' @('-n', 'sayangcare', 'rollout', 'status', 'deployment/sayangcare-api', '--timeout=180s')
+    Wait-ClusterResource 'Waiting for ready API pods' @('-n', 'sayangcare', 'wait', '--for=condition=Ready', 'pod', '-l', 'app=sayangcare-api', '--timeout=180s')
 
     Write-Host "`n$boot Opening your local dashboard connection..." -ForegroundColor Cyan
-    $forward = Start-Process -FilePath $kubectl -ArgumentList @(
-        '--context', 'minikube', '-n', 'sayangcare', 'port-forward',
-        '--address', '127.0.0.1', 'svc/sayangcare-api', "${Port}:80"
-    ) -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-
     Add-Type -AssemblyName System.Net.Http
     $handler = [Net.Http.HttpClientHandler]::new()
     $handler.UseProxy = $false
@@ -88,8 +96,23 @@ try {
     $ready = $false
     $lastIssue = 'Waiting for the port-forward.'
     while ([DateTime]::UtcNow -lt $deadline) {
+        if ($null -eq $forward) {
+            foreach ($log in @($stdout, $stderr)) {
+                if (Test-Path -LiteralPath $log) {
+                    Remove-Item -LiteralPath $log
+                }
+            }
+            $forward = Start-Process -FilePath $kubectl -ArgumentList @(
+                '--context', 'minikube', '-n', 'sayangcare', 'port-forward',
+                '--address', '127.0.0.1', 'svc/sayangcare-api', "${Port}:80"
+            ) -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        }
         if ($forward.HasExited) {
-            throw "Dashboard connection stopped: $(Get-Content $stderr -Raw)"
+            $lastIssue = if (Test-Path -LiteralPath $stderr) { Get-Content $stderr -Raw } else { 'The port-forward exited before the API became reachable.' }
+            $forward.Dispose()
+            $forward = $null
+            Start-Sleep -Seconds 2
+            continue
         }
         Write-Progress -Activity 'SayangCare is booting' -Status 'Checking API, storage, and dashboard...'
         try {
@@ -126,6 +149,12 @@ try {
         }
         catch [Threading.Tasks.TaskCanceledException] {
             $lastIssue = 'An API check timed out.'
+        }
+        if ($forward.HasExited) {
+            $forward.Dispose()
+            $forward = $null
+            Start-Sleep -Seconds 2
+            continue
         }
         Start-Sleep -Seconds 1
     }
