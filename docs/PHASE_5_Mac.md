@@ -2,21 +2,23 @@
 
 For PowerShell commands, see the [Windows guide](./PHASE_5_Windows.md).
 
-This guide records the Phase 5 backlog, what is already available, and how to
-start a local Kubernetes stack and run the checks that exist today.
-The Phase 5 performance and observability work is not all implemented yet; do
-not report planned tests as completed.
+This guide records the Phase 5 backlog, how to start a local Kubernetes stack,
+and how to run its checks. The repository now includes a k6 lifecycle scenario
+and local Grafana dashboard. The results in
+[PHASE_5_LOCAL_RESULTS.md](./PHASE_5_LOCAL_RESULTS.md) are from Windows and are
+not macOS benchmark results. API latency/error histograms and active-session/
+circuit-breaker metrics remain unimplemented.
 
 ## Milestones and Current Status
 
 | ID | Milestone | Status | Current evidence / remaining work |
 | --- | --- | --- | --- |
 | **API-04** | Actix Web instrumentation | **Partial** | `GET /api/v1/metrics` exposes the process-local `sayangcare_http_requests_total` counter. Latency histograms, HTTP error metrics, active session metrics, and breaker metrics are not currently exposed. |
-| **OBS-01** | Prometheus scraping | **Partial** | The local Prometheus and Prometheus Adapter setup scrapes API pod counters and publishes `sayangcare_http_requests_per_second` for the request-rate HPA. Scrapes/exports for active Redis sessions and circuit-breaker state are still needed. |
-| **OBS-02** | Grafana dashboard | **Not done** | There is no checked-in Grafana deployment or dashboard configuration yet. |
-| **TEST-01** | k6 concurrency benchmark | **Not done** | There is no checked-in k6 scenario yet. Create one that performs the full call lifecycle before running a formal 100+ VU benchmark. |
-| **TEST-02** | Pod failover chaos test | **Partial** | API pod replacement, Redis Sentinel failover, and PostgreSQL primary-pod failover were tested separately. The requested mid-call API pod termination during a k6 run remains to be tested. |
-| **TEST-03** | Evaluation metrics gathering | **Partial** | Earlier Phase 4 checks recorded recovery and scaling observations. Phase 5 still needs a repeatable benchmark, collected throughput/latency/error results, recovery measurements, and consistency results in a final evidence table. |
+| **OBS-01** | Prometheus scraping | **Partial** | Local Prometheus scrapes API pod counters and the Adapter publishes `sayangcare_http_requests_per_second`; the request-rate HPA was verified. Active Redis-session and circuit-breaker scrapes are still needed. |
+| **OBS-02** | Grafana dashboard | **Implemented locally** | `k8s/monitoring/grafana-values.yaml` provisions a local request-rate and counter dashboard. Windows deployment was verified; macOS has not been tested. |
+| **TEST-01** | k6 concurrency benchmark | **Validated on Windows** | `tests/k6/call-lifecycle.js` exercises incoming, turn, and hangup with synthetic callers. See the Windows local results report; rerun on macOS to collect Mac-specific numbers. |
+| **TEST-02** | Pod failover chaos test | **Validated on Windows (pod-level)** | An API pod was deleted during a 100-VU lifecycle run; calls continued without failed requests and the Deployment recovered. This is not node-level HA or a macOS test. |
+| **TEST-03** | Evaluation metrics gathering | **Windows local evidence recorded** | Baseline, pod-loss, readiness, scaling, and PostgreSQL/Redis recovery results are in the local results report. A single-node cluster cannot establish node/zone HA. |
 
 The local API HPA configuration includes CPU, memory, and request-rate metrics.
 Its request-rate target is 25 requests/second per API pod.
@@ -35,8 +37,8 @@ Its request-rate target is 25 requests/second per API pod.
   An image loaded into another teammate's Minikube is not available on your Mac.
 - A test cluster only for pod deletion and failover experiments. A single-node
   Minikube cluster cannot demonstrate node-level HA.
-- k6 is needed for TEST-01/TEST-02, but a project k6 script must be written
-  before `k6 run` can execute the call-lifecycle benchmark.
+- k6 and the checked-in `tests/k6/call-lifecycle.js` script are used for
+  TEST-01/TEST-02.
 
 Use simulated caller data only. Do not use real patient/caller data in load
 tests. Docker Desktop must be running, but do not also start Docker Compose or
@@ -104,8 +106,19 @@ helm upgrade --install prometheus prometheus-community/prometheus \
 helm upgrade --install prometheus-adapter prometheus-community/prometheus-adapter \
   --namespace monitoring \
   --values k8s/monitoring/prometheus-adapter-values.yaml
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+if ! kubectl -n monitoring get secret grafana-admin --ignore-not-found -o name | grep -q .; then
+  password="$(openssl rand -base64 32)"
+  kubectl -n monitoring create secret generic grafana-admin \
+    --from-literal=admin-user=admin --from-literal="admin-password=$password"
+fi
+helm upgrade --install grafana grafana/grafana \
+  --namespace monitoring \
+  --values k8s/monitoring/grafana-values.yaml
 kubectl -n monitoring rollout status deployment/prometheus-server
 kubectl -n monitoring rollout status deployment/prometheus-adapter
+kubectl -n monitoring rollout status deployment/grafana
 ```
 
 Apply the request-rate overlay. It includes the Minikube HTTP Ingress settings
@@ -124,6 +137,17 @@ its state.
 The Prometheus Adapter APIService should report `Available=True`. The custom
 metric is available after Prometheus has scraped API traffic; initially it may
 be absent until requests have been made and samples collected.
+Grafana's chart emits a deprecation warning and this local dashboard uses no
+persistent storage; do not treat it as a production installation.
+
+To view the provisioned dashboard, forward Grafana in another Terminal:
+
+```bash
+kubectl -n monitoring port-forward --address 127.0.0.1 svc/grafana 13000:80
+```
+
+Open <http://127.0.0.1:13000>. Anonymous access is read-only and only exposed
+through the localhost port-forward.
 
 ## Run the API and Inspect Metrics
 
@@ -234,10 +258,16 @@ application/production Redis, then run:
 cargo test --locked -p sayangcare-circuit-breaker -p sayangcare-priority-queue -- --ignored
 ```
 
-## Planned k6 and Chaos Run
+## Run k6 and Chaos Checks
 
-**Stop here for now: the k6 benchmark is not implemented yet.**
-The simulated-call commands above work independently of k6.
+The checked-in k6 scenario creates unique synthetic calls, checks the incoming,
+turn, and hangup responses, and pauses each VU for one second between calls.
+For load tests, forward the Ingress controller so traffic can reach multiple
+API replicas; forwarding directly to the API Service selects only one pod:
+
+```bash
+kubectl -n ingress-nginx port-forward --address 127.0.0.1 svc/ingress-nginx-controller 18081:80
+```
 
 If k6 is not installed, install it using Homebrew:
 
@@ -257,17 +287,22 @@ than reinstalling. Homebrew typically uses `/opt/homebrew` on Apple silicon and
 `/usr/local` on Intel Macs. Follow `brew shellenv` instructions for your
 installation, then restart Terminal or VS Code.
 
-Installing k6 does not create the project's load-test script. There is currently
-no checked-in `tests/k6/call-lifecycle.js`, so do not run that path yet.
-The future script must create a unique call SID for each iteration, check every
-response, record latency and errors, and execute incoming, turn, and hangup in
-order. Its target URL must also be configured for the chosen test route.
+Run a short smoke test before increasing concurrency:
 
-Use a short smoke run first, then increase concurrency. Record the script
-revision, VUs, duration, request count, throughput, latency percentiles,
-failure rate, API replica counts, and cluster conditions with each result.
-Do not claim TEST-01 complete until a full lifecycle scenario is implemented
-and its results are saved.
+```bash
+k6 run -e BASE_URL=http://127.0.0.1:18081 -e VUS=2 -e DURATION=10s tests/k6/call-lifecycle.js
+```
+
+For a 100-VU run with a saved JSON summary:
+
+```bash
+k6 run -e BASE_URL=http://127.0.0.1:18081 -e VUS=100 -e DURATION=30s \
+  --summary-export docs/phase5-local-baseline.json tests/k6/call-lifecycle.js
+```
+
+The summary includes p50 (median), p95, p99, request rate, completed
+lifecycles, and errors. Record the script revision, VUs, duration, API image,
+replica counts, and cluster conditions with the result.
 
 For TEST-02, run the k6 scenario against the test cluster and delete one API pod
 while calls are active. First inspect the selected pod:

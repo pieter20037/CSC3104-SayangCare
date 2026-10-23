@@ -12,6 +12,9 @@ The root [README](../README.md) has separate Windows PowerShell and macOS Termin
 - [Phase 2: Raft volunteer queue run guide](PHASE_2.md)
 - [Phase 3: Resilience and live telephony](PHASE_3.md)
 - [Phase 4: Kubernetes deployment and HA validation](PHASE_4_KUBERNETES.md)
+- [Phase 5: Chaos testing, metrics, and final evaluation (Windows)](PHASE_5_Windows.md)
+- [Phase 5: Chaos testing, metrics, and final evaluation (macOS)](PHASE_5_Mac.md)
+- [Verified local Phase 5 results](PHASE_5_LOCAL_RESULTS.md)
 - [Raft leader election demo](RAFT_DEMO_GUIDE.md)
 - [Test execution quick reference](TEST_EXECUTION_QUICK_REFERENCE.md)
 

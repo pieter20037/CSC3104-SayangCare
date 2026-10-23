@@ -2,21 +2,22 @@
 
 For macOS commands, see the [Mac guide](./PHASE_5_Mac.md).
 
-This guide records the Phase 5 backlog, what is already available, and how to
-start the current local Kubernetes stack and run the checks that exist today.
-The Phase 5 performance and observability work is not all implemented yet; do
-not report planned tests as completed.
+This guide records the Phase 5 backlog, how to start the local Kubernetes
+stack, and how to run its checks. Local test results are recorded in
+[PHASE_5_LOCAL_RESULTS.md](./PHASE_5_LOCAL_RESULTS.md). API latency/error
+histograms and active-session/circuit-breaker metrics remain unimplemented; do
+not report them as available.
 
 ## Milestones and Current Status
 
 | ID | Milestone | Status | Current evidence / remaining work |
 | --- | --- | --- | --- |
 | **API-04** | Actix Web instrumentation | **Partial** | `GET /api/v1/metrics` exposes the process-local `sayangcare_http_requests_total` counter. Latency histograms, HTTP error metrics, active session metrics, and breaker metrics are not currently exposed. |
-| **OBS-01** | Prometheus scraping | **Partial** | The local Prometheus and Prometheus Adapter setup scrapes API pod counters and publishes `sayangcare_http_requests_per_second` for the request-rate HPA. Scrapes/exports for active Redis sessions and circuit-breaker state are still needed. |
-| **OBS-02** | Grafana dashboard | **Not done** | There is no checked-in Grafana deployment or dashboard configuration yet. |
-| **TEST-01** | k6 concurrency benchmark | **Not done** | There is no checked-in k6 scenario yet. Create one that performs the full call lifecycle before running a formal 100+ VU benchmark. |
-| **TEST-02** | Pod failover chaos test | **Partial** | API pod replacement, Redis Sentinel failover, and PostgreSQL primary-pod failover were tested separately. The requested mid-call API pod termination during a k6 run remains to be tested. |
-| **TEST-03** | Evaluation metrics gathering | **Partial** | Earlier Phase 4 checks recorded recovery and scaling observations. Phase 5 still needs a repeatable benchmark, collected throughput/latency/error results, recovery measurements, and consistency results in a final evidence table. |
+| **OBS-01** | Prometheus scraping | **Partial** | Local Prometheus scrapes API pod counters and the Adapter publishes `sayangcare_http_requests_per_second`; the request-rate HPA was verified. Active Redis-session and circuit-breaker scrapes are still needed. |
+| **OBS-02** | Grafana dashboard | **Implemented locally** | `k8s/monitoring/grafana-values.yaml` provisions a read-only dashboard with API request-rate and counter panels. Local dashboards are ephemeral. |
+| **TEST-01** | k6 concurrency benchmark | **Validated locally** | `tests/k6/call-lifecycle.js` exercises incoming, turn, and hangup with synthetic callers. A 100-VU benchmark passed; see the local results report. |
+| **TEST-02** | Pod failover chaos test | **Validated locally (pod-level)** | An API pod was deleted during a 100-VU lifecycle run; calls continued without failed requests and the deployment recovered. This is not node-level HA testing. |
+| **TEST-03** | Evaluation metrics gathering | **Local evidence recorded** | Baseline, pod-loss, API/database readiness, replica scaling, and PostgreSQL/Redis pod-recovery results are in the local results report. A single-node cluster cannot establish node/zone HA. |
 
 The local API HPA currently has CPU, memory, and request-rate metrics enabled.
 Its request-rate target is 25 requests/second per API pod.
@@ -27,8 +28,8 @@ Its request-rate target is 25 requests/second per API pod.
 - The repository's Kubernetes manifests and the `sayangcare-api:dev` image.
 - A test cluster only for pod deletion and failover experiments. The current
   Minikube cluster is single-node; these tests cannot demonstrate node-level HA.
-- k6 is needed for TEST-01/TEST-02, but a project k6 script must be written
-  before `k6 run` can execute the call-lifecycle benchmark.
+- k6 and the checked-in `tests/k6/call-lifecycle.js` script are used for
+  TEST-01/TEST-02.
 
 Use simulated caller data only. Do not use real patient/caller data in load
 tests.
@@ -97,8 +98,8 @@ install the CloudNativePG operator as described in
 database or re-create secrets without taking a backup and following that guide's
 migration instructions.
 
-Install the local Prometheus and adapter only if the `monitoring` namespace is
-not already installed:
+install the local Prometheus, adapter, and Grafana only if they are not already
+installed:
 
 
 ```powershell
@@ -110,12 +111,23 @@ helm upgrade --install prometheus prometheus-community/prometheus `
 helm upgrade --install prometheus-adapter prometheus-community/prometheus-adapter `
   --namespace monitoring `
   --values k8s/monitoring/prometheus-adapter-values.yaml
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+if (-not (kubectl --context minikube -n monitoring get secret grafana-admin --ignore-not-found -o name)) {
+  $bytes = New-Object byte[] 32
+  $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+  $rng.GetBytes($bytes)
+  $password = [Convert]::ToBase64String($bytes)
+  kubectl --context minikube -n monitoring create secret generic grafana-admin `
+    --from-literal=admin-user=admin --from-literal="admin-password=$password"
+}
+helm upgrade --install grafana grafana/grafana --namespace monitoring `
+  --values k8s/monitoring/grafana-values.yaml
 kubectl -n monitoring rollout status deployment/prometheus-server
 kubectl -n monitoring rollout status deployment/prometheus-adapter
+kubectl -n monitoring rollout status deployment/grafana
 ```
 
-
---->DARREN: THIS ONE NEED TO RUN:
 Apply the request-rate overlay. It includes the Minikube HTTP Ingress settings
 as well as the request-rate metric:
 
@@ -176,6 +188,16 @@ kubectl -n sayangcare describe hpa sayangcare-api
 
 The Prometheus deployment uses one-hour retention and no persistent volume; it is
 for local testing, not long-term evaluation data storage.
+Grafana is also local-only and non-persistent. The Grafana chart currently emits
+a deprecation warning; it is used here for a disposable local dashboard, not as
+a production monitoring recommendation. Its anonymous viewer is available only
+through a localhost port-forward:
+
+```powershell
+kubectl --context minikube -n monitoring port-forward --address 127.0.0.1 svc/grafana 13000:80
+```
+
+Open <http://127.0.0.1:13000> to view the provisioned SayangCare dashboard.
 
 ## Run a Simulated Call Lifecycle
 
@@ -252,10 +274,13 @@ The launcher was also verified against the running Minikube cluster in
 `-CheckOnly` mode, including temporary port-forward cleanup. An occupied port
 was checked to produce a red failure rather than a false dashboard-ready message.
 
-## Planned k6 and Chaos Run
+## Run k6 and Chaos Checks
 
-**Stop here for now: the k6 benchmark is not implemented yet.**
-The simulated-call commands above work independently of k6.
+The checked-in k6 scenario creates a unique synthetic session for each
+iteration, checks the HTTP status of incoming/turn/hangup, records completed
+lifecycle and request metrics, and pauses each VU for one second between calls.
+Use the Ingress port-forward for load tests so traffic can reach multiple API
+replicas; a Service port-forward selects a single pod.
 
 If k6 is not installed, install it using Windows Package Manager:
 
@@ -279,37 +304,51 @@ If `k6` is still not recognized, try the default installation path directly:
 If this prints a version, k6 is installed; the issue is PATH, not a failed
 installation. You do not need to reinstall it.
 
-Installing k6 does not create the project's load-test script. There is currently
-no checked-in `tests/k6/call-lifecycle.js`, so do not run that path yet.
-The future script must create a unique call SID for each iteration, check every
-response, record latency and errors, and execute incoming, turn, and hangup in
-order. Its target URL must also be configured for the chosen test route.
-
-Use a short smoke run first, then increase concurrency. Record the script
-revision, VUs, duration, request count, throughput, latency percentiles,
-failure rate, API replica counts, and cluster conditions with each result.
-Do not claim TEST-01 complete until a full lifecycle scenario is implemented
-and its results are saved.
-
-For TEST-02, run the k6 scenario against the test cluster and delete one API pod
-while calls are active. First inspect the selected pod:
+Start a load-balanced local Ingress port-forward:
 
 ```powershell
-kubectl -n sayangcare get pods -l app=sayangcare-api
+kubectl --context minikube -n ingress-nginx port-forward --address 127.0.0.1 svc/ingress-nginx-controller 18081:80
+```
+
+Run a short smoke test first:
+
+```powershell
+& "C:\Program Files\k6\k6.exe" run -e BASE_URL=http://127.0.0.1:18081 `
+  -e VUS=2 -e DURATION=10s tests/k6/call-lifecycle.js
+```
+
+Then run the 100-VU benchmark and save its JSON summary:
+
+```powershell
+& "C:\Program Files\k6\k6.exe" run -e BASE_URL=http://127.0.0.1:18081 `
+  -e VUS=100 -e DURATION=30s `
+  --summary-export docs/phase5-local-baseline.json tests/k6/call-lifecycle.js
+```
+
+The summary includes p50 (median), p95, p99, request rate, completed call
+lifecycles, and errors. Save the VU count, duration, image, HPA/replica state,
+and cluster topology with each result; see the existing
+[local results report](./PHASE_5_LOCAL_RESULTS.md) for one verified run.
+
+For TEST-02, run the same script with a separate summary file while deleting
+only a pod in the explicitly selected local `minikube` cluster. In another
+terminal, inspect the candidate:
+
+```powershell
+kubectl --context minikube -n sayangcare get pods -l app=sayangcare-api
 ```
 
 In another terminal, select a pod name from that output and delete only that
 pod:
 
 ```powershell
-kubectl -n sayangcare delete pod API_POD_NAME
-kubectl -n sayangcare rollout status deployment/sayangcare-api
+kubectl --context minikube -n sayangcare delete pod API_POD_NAME
+kubectl --context minikube -n sayangcare rollout status deployment/sayangcare-api
 ```
 
 Capture the k6 failures/latencies during deletion and verify the deployment
-returns to 3/3 ready. A later successful request is not proof that an in-flight
-call survived. Run destructive failover tests only against the disposable test
-cluster, never a production database.
+returns to its HPA desired replica count. Run destructive failover tests only
+against the disposable local cluster, never a production database.
 
 ## Collect Phase 5 Evaluation Results
 
