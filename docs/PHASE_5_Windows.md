@@ -4,16 +4,16 @@ For macOS commands, see the [Mac guide](./PHASE_5_Mac.md).
 
 This guide records the Phase 5 backlog, how to start the local Kubernetes
 stack, and how to run its checks. Local test results are recorded in
-[PHASE_5_LOCAL_RESULTS.md](./PHASE_5_LOCAL_RESULTS.md). API latency/error
-histograms and active-session/circuit-breaker metrics remain unimplemented; do
-not report them as available.
+[PHASE_5_LOCAL_RESULTS.md](./PHASE_5_LOCAL_RESULTS.md). The API now exposes HTTP request counters, response status-category counters, and a request-duration histogram. Prometheus scraping has been verified across
+three API pods. Active-session and circuit-breaker metrics remain unimplemented;
+do not report them as available.
 
 ## Milestones and Current Status
 
 | ID | Milestone | Status | Current evidence / remaining work |
 | --- | --- | --- | --- |
-| **API-04** | Actix Web instrumentation | **Partial** | `GET /api/v1/metrics` exposes the process-local `sayangcare_http_requests_total` counter. Latency histograms, HTTP error metrics, active session metrics, and breaker metrics are not currently exposed. |
-| **OBS-01** | Prometheus scraping | **Partial** | Local Prometheus scrapes API pod counters and the Adapter publishes `sayangcare_http_requests_per_second`; the request-rate HPA was verified. Active Redis-session and circuit-breaker scrapes are still needed. |
+| **API-04** | Actix Web instrumentation | **HTTP metrics implemented and verified; remaining metrics pending** | `GET /api/v1/metrics` exposes `sayangcare_http_requests_total`, `sayangcare_http_requests_by_status_total`, and `sayangcare_http_request_duration_seconds` histogram. Verified using live HTTP requests, including a 404 response, and 14 passing API unit tests. Active-session and circuit-breaker metrics remain outstanding. |
+| **OBS-01** | Prometheus scraping | **API pod scraping verified; additional metrics pending** | Prometheus successfully discovers and scrapes all three SayangCare API pods independently (`3/3 UP`). PromQL verified per-pod request counters, aggregate request rates, and HTTP status-category rates. Active Redis-session and circuit-breaker metrics are not yet exposed for scraping. |
 | **OBS-02** | Grafana dashboard | **Implemented locally** | `k8s/monitoring/grafana-values.yaml` provisions a read-only dashboard with API request-rate and counter panels. Local dashboards are ephemeral. |
 | **TEST-01** | k6 concurrency benchmark | **Validated locally** | `tests/k6/call-lifecycle.js` exercises incoming, turn, and hangup with synthetic callers. A 100-VU benchmark passed; see the local results report. |
 | **TEST-02** | Pod failover chaos test | **Validated locally (pod-level)** | An API pod was deleted during a 100-VU lifecycle run; calls continued without failed requests and the deployment recovered. This is not node-level HA testing. |
@@ -165,9 +165,19 @@ curl.exe --noproxy "*" http://127.0.0.1:18080/api/v1/metrics
 ```
 
 Expected: health and readiness return HTTP 200, readiness reports Redis and
-PostgreSQL as `ok`, and metrics include `sayangcare_http_requests_total`.
-This endpoint currently does **not** provide latency histograms, HTTP error
-rates, active session counts, or circuit-breaker state.
+PostgreSQL as `ok`, and the metrics endpoint exposes:
+
+- `sayangcare_http_requests_total` — cumulative HTTP request count.
+- `sayangcare_http_requests_by_status_total` — HTTP requests grouped by
+  response status category (`2xx`, `3xx`, `4xx`, `5xx`).
+- `sayangcare_http_request_duration_seconds` — HTTP request duration
+  histogram, including cumulative buckets, sum, and count.
+
+The metrics are maintained independently by each API process.
+The `/api/v1/metrics` endpoint is excluded from HTTP request instrumentation
+to avoid counting Prometheus scrapes.
+
+Active-session counts and circuit-breaker state metrics are not yet exposed.
 
 To inspect Prometheus, use a separate terminal:
 
@@ -191,6 +201,46 @@ The request-rate HPA's custom metric can be inspected with:
 kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1/namespaces/sayangcare/pods/*/sayangcare_http_requests_per_second"
 kubectl -n sayangcare describe hpa sayangcare-api
 ```
+
+### Additional HTTP metrics verification
+
+To calculate the total request rate across all API pods:
+
+```promql
+sum(rate(sayangcare_http_requests_total{namespace="sayangcare"}[5m]))
+```
+
+To calculate request rates grouped by HTTP status category:
+
+```promql
+sum by (status) (
+  rate(sayangcare_http_requests_by_status_total{namespace="sayangcare"}[5m])
+)
+```
+
+To estimate the 95th percentile HTTP request duration:
+
+```promql
+histogram_quantile(
+  0.95,
+  sum by (le) (
+    rate(sayangcare_http_request_duration_seconds_bucket{namespace="sayangcare"}[5m])
+  )
+)
+```
+
+Prometheus should discover three independent SayangCare API pod targets
+under the `kubernetes-pods` scrape job, with all three reporting `UP`.
+
+During local verification, Prometheus returned three per-pod request-counter
+series and an aggregate request rate of approximately 0.80 requests/second.
+The status-category query returned approximately 0.80 requests/second for
+`2xx` and zero for the other categories during the evaluated window.
+
+These measurements include Kubernetes health/readiness probes and are not
+representative of full caller-turn or AI inference latency.
+```
+
 
 The Prometheus deployment uses one-hour retention and no persistent volume; it is
 for local testing, not long-term evaluation data storage.

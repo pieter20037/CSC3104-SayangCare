@@ -10,6 +10,7 @@ use actix_web::{
 use futures::future::LocalBoxFuture;
 use std::future::{ready, Ready};
 use uuid::Uuid;
+use std::time::Instant;
 
 const HEADER: &str = "x-request-id";
 
@@ -62,20 +63,32 @@ where
         // Make it available to handlers via extensions.
         req.extensions_mut().insert(RequestIdValue(rid.clone()));
 
+        let start = Instant::now();
         let fut = self.service.call(req);
 
         Box::pin(async move {
             let response = fut.await;
+            let elapsed = start.elapsed().as_secs_f64();
+
             if path != "/api/v1/metrics" {
-                crate::telemetry::record_http_request();
+                let status = match &response {
+                    Ok(res) => res.status().as_u16(),
+                    Err(err) => err.as_response_error().status_code().as_u16(),
+                };
+
+                crate::telemetry::record_http_request(status, elapsed);
             }
+
             let mut res = response?;
+
             if let Ok(value) = HeaderValue::from_str(&rid) {
                 res.headers_mut()
                     .insert(HeaderName::from_static(HEADER), value);
             }
+
             Ok(res)
         })
+
     }
 }
 
