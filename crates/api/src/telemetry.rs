@@ -23,28 +23,48 @@ static LATENCY_COUNT: AtomicU64 = AtomicU64::new(0);
 // Store total latency in microseconds.
 static LATENCY_SUM_US: AtomicU64 = AtomicU64::new(0);
 
+fn status_category(status: u16) -> Option<&'static str> {
+    match status {
+        200..=299 => Some("2xx"),
+        300..=399 => Some("3xx"),
+        400..=499 => Some("4xx"),
+        500..=599 => Some("5xx"),
+        _ => None,
+    }
+}
+
+// Histogram helper
+fn valid_duration(duration_seconds: f64) -> bool {
+    duration_seconds.is_finite() && duration_seconds >= 0.0
+}
+
+fn bucket_contains(duration_seconds: f64, boundary: f64) -> bool {
+    duration_seconds <= boundary
+}
+
+
 pub fn record_http_request(status: u16, duration_seconds: f64) {
     HTTP_REQUESTS_TOTAL.fetch_add(1, Ordering::Relaxed);
 
-    match status {
-        200..=299 => {
+    match status_category(status) {
+        Some("2xx") => {
             HTTP_2XX_TOTAL.fetch_add(1, Ordering::Relaxed);
         }
-        300..=399 => {
+        Some("3xx") => {
             HTTP_3XX_TOTAL.fetch_add(1, Ordering::Relaxed);
         }
-        400..=499 => {
+        Some("4xx") => {
             HTTP_4XX_TOTAL.fetch_add(1, Ordering::Relaxed);
         }
-        500..=599 => {
+        Some("5xx") => {
             HTTP_5XX_TOTAL.fetch_add(1, Ordering::Relaxed);
         }
         _ => {}
     }
 
-    if duration_seconds.is_finite() && duration_seconds >= 0.0 {
+    if valid_duration(duration_seconds) {
         for (index, boundary) in LATENCY_BUCKETS.iter().enumerate() {
-            if duration_seconds <= *boundary {
+            if bucket_contains(duration_seconds, *boundary) {
                 LATENCY_COUNTS[index].fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -138,5 +158,42 @@ mod tests {
         assert!(output.contains("sayangcare_http_request_duration_seconds_bucket"));
         assert!(output.contains("sayangcare_http_request_duration_seconds_sum"));
         assert!(output.contains("sayangcare_http_request_duration_seconds_count"));
+    }
+
+    #[test]
+    fn classifies_http_status_codes_correctly() {
+        assert_eq!(status_category(200), Some("2xx"));
+        assert_eq!(status_category(201), Some("2xx"));
+        assert_eq!(status_category(302), Some("3xx"));
+        assert_eq!(status_category(404), Some("4xx"));
+        assert_eq!(status_category(500), Some("5xx"));
+        assert_eq!(status_category(503), Some("5xx"));
+        assert_eq!(status_category(199), None);
+    }
+
+    #[test]
+    fn histogram_buckets_are_cumulative() {
+        let duration = 0.020; // 20 milliseconds
+
+        assert!(!bucket_contains(duration, 0.005));
+        assert!(!bucket_contains(duration, 0.010));
+
+        assert!(bucket_contains(duration, 0.025));
+        assert!(bucket_contains(duration, 0.050));
+        assert!(bucket_contains(duration, 0.100));
+
+        // Exactly on a bucket boundary should be included.
+        assert!(bucket_contains(0.025, 0.025));
+    }
+
+    #[test]
+    fn rejects_invalid_request_durations() {
+        assert!(valid_duration(0.0));
+        assert!(valid_duration(0.020));
+
+        assert!(!valid_duration(-1.0));
+        assert!(!valid_duration(f64::NAN));
+        assert!(!valid_duration(f64::INFINITY));
+        assert!(!valid_duration(f64::NEG_INFINITY));
     }
 }
