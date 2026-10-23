@@ -375,3 +375,56 @@ if you want to continue later. To stop the cluster without deleting its data:
 ```powershell
 minikube stop
 ```
+
+## Session Handoff: Completed Work and Current State
+
+**Last updated:** 2026-10-23  
+**Checkpoint:** Local Phase 4/5 verification is complete; all project services
+were stopped without deleting the cluster or its data.
+
+### Work completed
+
+- Installed Minikube 1.39.0, Helm 4.3.1, and k6 2.2.0. Started a Docker-backed
+  single-node Minikube cluster with Kubernetes 1.37.0, enabled storage,
+  Metrics Server, and Ingress, and deployed the SayangCare API, PostgreSQL
+  (CloudNativePG), Redis/Sentinel, Prometheus, Prometheus Adapter, and Grafana.
+- Created local test configuration and test-only secrets, built and loaded the
+  API image, and verified the dashboard, health/readiness, monitoring, and
+  request-rate HPA.
+- Ran synthetic 100-VU baseline and API-pod-deletion load tests, plus
+  PostgreSQL primary-promotion and Redis Sentinel-promotion checks. The
+  measurements and limitations are in
+  [PHASE_5_LOCAL_RESULTS.md](./PHASE_5_LOCAL_RESULTS.md).
+- Ran the Rust workspace tests: 72 passed, 0 failed, and 2 were ignored in
+  that run. See the test notes earlier in this guide for the subsequent
+  isolated Redis test results.
+
+### Additional workspace files
+
+The application’s Rust source code was not changed. Supporting Phase 5 test,
+monitoring, and documentation files were added or updated:
+
+- Added `tests/k6/call-lifecycle.js` for synthetic call lifecycle load tests.
+- Added `k8s/monitoring/grafana-values.yaml` for the local Grafana dashboard.
+- Added `docs/PHASE_5_LOCAL_RESULTS.md` and the saved k6 summaries
+  `docs/phase5-local-baseline.json` and
+  `docs/phase5-local-api-failover.json`.
+- Updated this guide, `docs/PHASE_5_Mac.md`, and `docs/README.md`.
+
+These are local workspace changes and were not committed. The local `.env` and
+the test environment were retained; credentials are placeholders, not real
+telephony or inference-provider credentials.
+
+### Where work stopped
+
+At the user's request, the native API process, Kubernetes port-forwards, the
+Minikube cluster, and the project's Docker Compose PostgreSQL and Redis/Sentinel
+containers were stopped. The dashboard, Grafana, Prometheus, and load-test
+ports (8081, 18080, 18081, 13000, and 19090) were verified not to be listening.
+Minikube reports its host, kubelet, and API server stopped.
+
+The Minikube profile, containers, persistent data, local `.env`, and workspace
+files were **not deleted**; Minikube, Helm, and k6 were **not uninstalled**.
+The cluster and Compose services must be started again before opening the
+dashboard. This is a local single-node test setup, not production or
+multi-node/high-availability validation.
