@@ -27,7 +27,9 @@ pub fn verify_twilio_signature(
         return false;
     };
     let Ok(signature) = STANDARD.decode(signature) else {
-        tracing::warn!("Twilio signature validation failed: signature header is not standard base64");
+        tracing::warn!(
+            "Twilio signature validation failed: signature header is not standard base64"
+        );
         return false;
     };
 

@@ -129,7 +129,10 @@ impl TieredSessionStore {
 
         if !matches!(
             session.state,
-            SessionState::Completed | SessionState::Failed | SessionState::Abandoned
+            SessionState::Completed
+                | SessionState::Failed
+                | SessionState::Abandoned
+                | SessionState::Escalated
         ) {
             return Ok(false);
         }
@@ -153,7 +156,7 @@ impl TieredSessionStore {
         }
         if matches!(
             session.state,
-            SessionState::Completed | SessionState::Failed
+            SessionState::Completed | SessionState::Failed | SessionState::Escalated
         ) {
             return Ok(false);
         }
@@ -180,7 +183,10 @@ impl SessionStore for TieredSessionStore {
         if let Some(session) = self.cold.fetch_session(id).await? {
             if matches!(
                 session.state,
-                SessionState::Completed | SessionState::Failed | SessionState::Abandoned
+                SessionState::Completed
+                    | SessionState::Failed
+                    | SessionState::Abandoned
+                    | SessionState::Escalated
             ) {
                 return Ok(Some(session));
             }
@@ -315,6 +321,32 @@ mod tests {
         assert!(hot.get(&older.id).await.unwrap().is_none());
         let archived = cold.fetch_session(&older.id).await.unwrap().unwrap();
         assert_eq!(archived.version, newer.version);
+    }
+
+    #[tokio::test]
+    async fn escalated_archive_failure_recovers_without_abandoning_handoff() {
+        let hot = Arc::new(MemoryHot::default());
+        let cold = Arc::new(FlakyArchive::new(5));
+        let tiered = TieredSessionStore::new(hot.clone(), cold.clone());
+        let mut escalated = session("CA-escalated-recovery");
+        escalated.transition(SessionState::Active).unwrap();
+        escalated.transition(SessionState::Escalated).unwrap();
+        let handoff_before = escalated.handoff_status;
+        let count_before = escalated.escalation_count;
+        hot.put(&escalated).await.unwrap();
+        assert!(tiered.flush_to_cold(&escalated).await.is_err());
+        assert!(hot.get(&escalated.id).await.unwrap().is_some());
+        let cutoff = Utc::now() + chrono::Duration::minutes(1);
+        assert!(!tiered
+            .abandon_if_inactive(&escalated.id, cutoff)
+            .await
+            .unwrap());
+        assert!(tiered.recover_terminal(&escalated.id).await.unwrap());
+        let stored = cold.fetch_session(&escalated.id).await.unwrap().unwrap();
+        assert_eq!(stored.state, SessionState::Escalated);
+        assert_eq!(stored.handoff_status, handoff_before);
+        assert_eq!(stored.escalation_count, count_before);
+        assert!(hot.get(&escalated.id).await.unwrap().is_none());
     }
 
     #[tokio::test]

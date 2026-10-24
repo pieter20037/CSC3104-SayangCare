@@ -265,15 +265,17 @@ pub async fn gather(
         if was_escalated {
             if current_turn_is_high_risk {
                 session.record_repeated_risk();
-                state.record_alert(
-                    "repeated_risk",
-                    &session.id.0,
-                    None,
-                    format!(
-                        "Repeated high-risk language on live call {} requires operator review.",
-                        session.id.0
-                    ),
-                );
+                state
+                    .record_alert(
+                        "repeated_risk",
+                        &session.id.0,
+                        None,
+                        format!(
+                            "Repeated high-risk language on live call {} requires operator review.",
+                            session.id.0
+                        ),
+                    )
+                    .await;
             }
         } else {
             if let Err(error) = session.transition(sayangcare_core::domain::SessionState::Escalated)
@@ -281,15 +283,17 @@ pub async fn gather(
                 warn!(error = %error, call_sid = %call_sid, "failed to transition high-risk call to escalated");
                 return twiml_error("I want to connect you with a human supporter, but our system is having trouble. Please contact local emergency services or someone you trust now.");
             }
-            state.record_alert(
-                "escalated",
-                &session.id.0,
-                None,
-                format!(
-                    "Live call {} escalated at risk level {}.",
-                    session.id.0, session.risk.level.0
-                ),
-            );
+            state
+                .record_alert(
+                    "escalated",
+                    &session.id.0,
+                    None,
+                    format!(
+                        "Live call {} escalated at risk level {}.",
+                        session.id.0, session.risk.level.0
+                    ),
+                )
+                .await;
         }
 
         if !was_escalated || current_turn_is_high_risk {

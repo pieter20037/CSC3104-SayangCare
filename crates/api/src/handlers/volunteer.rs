@@ -217,7 +217,8 @@ pub async fn claim(
             };
 
             if assigned_session.state != sayangcare_core::domain::SessionState::Escalated
-                || assigned_session.handoff_status != sayangcare_core::domain::HandoffStatus::Pending
+                || assigned_session.handoff_status
+                    != sayangcare_core::domain::HandoffStatus::Pending
             {
                 let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
                 return HttpResponse::Conflict().json(serde_json::json!({
@@ -275,15 +276,17 @@ pub async fn claim(
             }
 
             if assigned_session.is_simulated || sid.0.starts_with("SIM-") || body.simulate {
-                state.record_alert(
-                    "assigned",
-                    &sid.0,
-                    Some(&body.volunteer_id),
-                    format!(
+                state
+                    .record_alert(
+                        "assigned",
+                        &sid.0,
+                        Some(&body.volunteer_id),
+                        format!(
                         "Volunteer {} claimed simulated session {}; no live phone call was placed.",
                         body.volunteer_id, sid.0
                     ),
-                );
+                    )
+                    .await;
             } else {
                 let dispatch_result = async {
                     let from_number = state
@@ -337,7 +340,7 @@ pub async fn claim(
                             &sid.0,
                             Some(&body.volunteer_id),
                             format!("Volunteer {} claimed session {} and outbound dispatch {} was started.", body.volunteer_id, sid.0, outbound_sid),
-                        );
+                        ).await;
                     }
                     Err(error) => {
                         tracing::warn!(error = %error, session_id = %sid, volunteer_id = %body.volunteer_id, "outbound volunteer dispatch failed");
@@ -351,7 +354,7 @@ pub async fn claim(
                                 &sid.0,
                                 Some(&body.volunteer_id),
                                 format!("Outbound dispatch failed for session {}; the existing-call TwiML handoff was attempted instead.", sid.0),
-                            ),
+                            ).await,
                             Err(fallback_error) => {
                                 tracing::warn!(error = %fallback_error, session_id = %sid, volunteer_id = %body.volunteer_id, "existing-call TwiML handoff fallback failed");
                                 state.record_alert(
@@ -359,7 +362,7 @@ pub async fn claim(
                                     &sid.0,
                                     Some(&body.volunteer_id),
                                     format!("Outbound dispatch for session {} failed; fallback operator review is required.", sid.0),
-                                );
+                                ).await;
                             }
                         }
                     }
@@ -429,15 +432,17 @@ pub async fn resolve_case(
         tracing::warn!(error = %error, session_id = %sid, volunteer_id = %volunteer_id, "failed to clear resolved queue claim");
     }
 
-    state.record_alert(
-        "resolved",
-        &session_id,
-        Some(&volunteer_id),
-        format!(
-            "Volunteer {} resolved case {} after live handoff review.",
-            volunteer_id, session_id
-        ),
-    );
+    state
+        .record_alert(
+            "resolved",
+            &session_id,
+            Some(&volunteer_id),
+            format!(
+                "Volunteer {} resolved case {} after live handoff review.",
+                volunteer_id, session_id
+            ),
+        )
+        .await;
 
     HttpResponse::Ok().json(ResolveCaseResponse {
         session_id: session_id.clone(),
@@ -447,9 +452,13 @@ pub async fn resolve_case(
 }
 
 pub async fn list_alerts(state: web::Data<Arc<AppState>>) -> impl Responder {
-    HttpResponse::Ok().json(AlertsResponse {
-        alerts: state.list_alerts(),
-    })
+    match state.list_alerts().await {
+        Ok(alerts) => HttpResponse::Ok().json(AlertsResponse { alerts }),
+        Err(error) => {
+            tracing::error!(error = %error, "failed to list operator alerts");
+            HttpResponse::ServiceUnavailable().finish()
+        }
+    }
 }
 
 pub async fn transfer_case(
@@ -504,15 +513,17 @@ pub async fn transfer_case(
             .await
         {
             tracing::warn!(error = %error, session_id = %sid, from_volunteer = %volunteer_id, to_volunteer = %next_volunteer.id, "live call transfer failed");
-            state.record_alert(
-                "transfer_failed",
-                &session_id,
-                Some(&volunteer_id),
-                format!(
-                    "Transfer of live session {} to {} failed: {}",
-                    session_id, next_volunteer.id, error
-                ),
-            );
+            state
+                .record_alert(
+                    "transfer_failed",
+                    &session_id,
+                    Some(&volunteer_id),
+                    format!(
+                        "Transfer of live session {} to {} failed: {}",
+                        session_id, next_volunteer.id, error
+                    ),
+                )
+                .await;
             return HttpResponse::BadGateway().json(serde_json::json!({
                 "error": "live call redirect failed",
                 "detail": error.to_string(),
@@ -583,15 +594,17 @@ pub async fn transfer_case(
         return HttpResponse::Conflict().finish();
     }
 
-    state.record_alert(
-        "transferred",
-        &session_id,
-        Some(&next_volunteer.id),
-        format!(
-            "Volunteer {} transferred session {} to volunteer {}.",
-            volunteer_id, session_id, next_volunteer.id
-        ),
-    );
+    state
+        .record_alert(
+            "transferred",
+            &session_id,
+            Some(&next_volunteer.id),
+            format!(
+                "Volunteer {} transferred session {} to volunteer {}.",
+                volunteer_id, session_id, next_volunteer.id
+            ),
+        )
+        .await;
 
     HttpResponse::Ok().json(TransferCaseResponse {
         session_id: session_id.clone(),

@@ -9,8 +9,8 @@ use actix_web::{
 };
 use futures::future::LocalBoxFuture;
 use std::future::{ready, Ready};
-use uuid::Uuid;
 use std::time::Instant;
+use uuid::Uuid;
 
 const HEADER: &str = "x-request-id";
 
@@ -88,7 +88,6 @@ where
 
             Ok(res)
         })
-
     }
 }
 
