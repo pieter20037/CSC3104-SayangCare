@@ -56,7 +56,6 @@ pub struct AppState {
     pub telephony: Arc<dyn TelephonyProvider>,
     pub inference: Option<Arc<dyn InferenceService>>,
     pub volunteers: Arc<RwLock<HashMap<String, Volunteer>>>,
-    pub alerts: Arc<RwLock<Vec<OperatorAlert>>>,
     pub config: AppConfig,
 }
 
@@ -197,8 +196,6 @@ impl AppState {
             ),
         ])));
 
-        let alerts = Arc::new(RwLock::new(Vec::new()));
-
         Ok(Self {
             hot_sessions: hot,
             postgres: pg_pool,
@@ -212,19 +209,18 @@ impl AppState {
             telephony,
             inference,
             volunteers,
-            alerts,
             config,
         })
     }
 
-    pub fn record_alert(
+    /// Persist alerts in PostgreSQL so all API replicas share the same history.
+    pub async fn record_alert(
         &self,
         kind: &str,
         session_id: &str,
         volunteer_id: Option<&str>,
         message: impl Into<String>,
     ) {
-        let mut alerts = self.alerts.write().expect("operator alert lock poisoned");
         let alert = OperatorAlert {
             id: Uuid::new_v4().to_string(),
             kind: kind.to_string(),
@@ -233,17 +229,41 @@ impl AppState {
             message: message.into(),
             created_at: Utc::now(),
         };
-        alerts.insert(0, alert);
-        alerts.truncate(25);
+        if let Err(error) = sqlx::query(
+            "INSERT INTO operator_alerts (id, kind, session_id, volunteer_id, message, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING"
+        )
+        .bind(&alert.id)
+        .bind(&alert.kind)
+        .bind(&alert.session_id)
+        .bind(&alert.volunteer_id)
+        .bind(&alert.message)
+        .bind(alert.created_at)
+        .execute(&self.postgres)
+        .await {
+            tracing::error!(error = %error, alert_id = %alert.id, session_id, "operator alert persistence failed");
+        }
     }
 
-    pub fn list_alerts(&self) -> Vec<OperatorAlert> {
-        self.alerts
-            .read()
-            .expect("operator alert lock poisoned")
-            .iter()
-            .cloned()
-            .collect()
+    pub async fn list_alerts(&self) -> Result<Vec<OperatorAlert>, sqlx::Error> {
+        let rows: Vec<(String, String, String, Option<String>, String, DateTime<Utc>)> =
+            sqlx::query_as(
+                "SELECT id, kind, session_id, volunteer_id, message, created_at FROM operator_alerts ORDER BY created_at DESC, id DESC LIMIT 25"
+            )
+            .fetch_all(&self.postgres)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, kind, session_id, volunteer_id, message, created_at)| OperatorAlert {
+                    id,
+                    kind,
+                    session_id,
+                    volunteer_id,
+                    message,
+                    created_at,
+                },
+            )
+            .collect())
     }
 
     pub fn spawn_background_tasks(self: &Arc<Self>, cancel: CancellationToken) {
@@ -322,7 +342,7 @@ impl AppState {
                             &session_id,
                             Some(&volunteer_id),
                             format!("Stale assignment expired for session {} and was returned to the volunteer queue.", session_id),
-                        );
+                        ).await;
                     } else if session.handoff_status != HandoffStatus::Pending
                         || session.assigned_volunteer_id.is_some()
                     {

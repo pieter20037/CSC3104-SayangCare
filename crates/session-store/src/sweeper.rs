@@ -31,6 +31,11 @@ impl OrphanedSessionSweeper {
                 SessionState::Completed | SessionState::Failed | SessionState::Abandoned => {
                     self.tiered.recover_terminal(&session.id).await
                 }
+                // An escalated call may still be active. Only archive after inactivity;
+                // never convert its pending handoff into Abandoned.
+                SessionState::Escalated if session.updated_at < cutoff => {
+                    self.tiered.recover_terminal(&session.id).await
+                }
                 _ if session.updated_at < cutoff => {
                     self.tiered.abandon_if_inactive(&session.id, cutoff).await
                 }

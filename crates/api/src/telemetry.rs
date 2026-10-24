@@ -1,4 +1,3 @@
-
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -12,11 +11,9 @@ static HTTP_4XX_TOTAL: AtomicU64 = AtomicU64::new(0);
 static HTTP_5XX_TOTAL: AtomicU64 = AtomicU64::new(0);
 
 // Cumulative histogram bucket boundaries (seconds).
-const LATENCY_BUCKETS: [f64; 8] =
-    [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0];
+const LATENCY_BUCKETS: [f64; 8] = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0];
 
-static LATENCY_COUNTS: [AtomicU64; 8] =
-    [const { AtomicU64::new(0) }; 8];
+static LATENCY_COUNTS: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
 
 static LATENCY_COUNT: AtomicU64 = AtomicU64::new(0);
 
@@ -41,7 +38,6 @@ fn valid_duration(duration_seconds: f64) -> bool {
 fn bucket_contains(duration_seconds: f64, boundary: f64) -> bool {
     duration_seconds <= boundary
 }
-
 
 pub fn record_http_request(status: u16, duration_seconds: f64) {
     HTTP_REQUESTS_TOTAL.fetch_add(1, Ordering::Relaxed);
@@ -86,7 +82,7 @@ pub fn prometheus_metrics() -> String {
 
     output.push_str(
         "# HELP sayangcare_http_requests_by_status_total HTTP requests by status category.\n\
-         # TYPE sayangcare_http_requests_by_status_total counter\n"
+         # TYPE sayangcare_http_requests_by_status_total counter\n",
     );
 
     for (status, counter) in [
@@ -104,7 +100,7 @@ pub fn prometheus_metrics() -> String {
 
     output.push_str(
         "# HELP sayangcare_http_request_duration_seconds HTTP request duration in seconds.\n\
-         # TYPE sayangcare_http_request_duration_seconds histogram\n"
+         # TYPE sayangcare_http_request_duration_seconds histogram\n",
     );
 
     for (index, boundary) in LATENCY_BUCKETS.iter().enumerate() {

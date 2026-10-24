@@ -242,7 +242,7 @@ pub async fn turn(
                         session.id.0,
                         session.escalation_count
                     ),
-                );
+                ).await;
             }
         } else {
             if let Err(e) = session.transition(sayangcare_core::domain::SessionState::Escalated) {
@@ -258,7 +258,7 @@ pub async fn turn(
                     session.id.0,
                     session.risk.level.0
                 ),
-            );
+            ).await;
         }
 
         if !was_escalated || current_turn_is_high_risk {
@@ -315,15 +315,17 @@ pub async fn acknowledge_operator(
         return HttpResponse::Conflict().finish();
     }
 
-    state.record_alert(
-        "acknowledged",
-        &sid.0,
-        session.assigned_volunteer_id.as_deref(),
-        format!(
-            "Operator acknowledged session {} after escalation review.",
-            sid.0
-        ),
-    );
+    state
+        .record_alert(
+            "acknowledged",
+            &sid.0,
+            session.assigned_volunteer_id.as_deref(),
+            format!(
+                "Operator acknowledged session {} after escalation review.",
+                sid.0
+            ),
+        )
+        .await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "session_id": sid.0,
