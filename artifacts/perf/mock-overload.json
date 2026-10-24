@@ -1,0 +1,124 @@
+{
+  "scenario": "mock-overload",
+  "mode": "mock-ai",
+  "calls": 16,
+  "workers": 16,
+  "ai_limit_per_process": 2,
+  "response_budget_ms": 5000,
+  "sentiment_mock_ms": 20,
+  "reply_mock_ms": 500,
+  "p50_turn_ms": 12.95970001956448,
+  "p95_turn_ms": 580.3598999627866,
+  "p99_turn_ms": 580.3598999627866,
+  "max_turn_ms": 580.3598999627866,
+  "audio_fallbacks": 14,
+  "rows": [
+    {
+      "session_id": "SIM-PERF-163ee6a7-2e00-4714-b281-0637b30770b3",
+      "turn_ms": 12.851300009060651,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-67e8ac0a-f2f4-4b62-b6db-2a69948ce48f",
+      "turn_ms": 12.673500052187592,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-69883ecf-6c6b-4ee8-9b29-f6227e7ac73b",
+      "turn_ms": 560.1092000142671,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-e5993cf1-ed7b-4a9a-b382-cb6bd2805465",
+      "turn_ms": 11.186499963514507,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-0d34c6a1-b7a8-44ad-ac14-416b2a1146da",
+      "turn_ms": 9.781199973076582,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-bc735b60-87a4-40c7-ac3b-fa572b1cf2de",
+      "turn_ms": 17.66539999516681,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-3aa608eb-d9b6-4e56-93f9-30ff737b83bc",
+      "turn_ms": 580.3598999627866,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-ba419332-ae54-4d86-a5b5-464a684cb87e",
+      "turn_ms": 12.95970001956448,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-76772639-ad4e-4b6d-9e98-39f414f3d64c",
+      "turn_ms": 14.46189999114722,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-d4224ddd-1148-4c4a-8617-50380d9a01ec",
+      "turn_ms": 9.605699975509197,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-6035e181-123d-450b-b574-ec0382e4868d",
+      "turn_ms": 15.257899998687208,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-f76f66da-2f16-4e00-8190-448a2b745bf4",
+      "turn_ms": 22.15169998817146,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-dc8126a2-2237-4d8b-a8ac-d0ba0437c0f4",
+      "turn_ms": 11.607300024479628,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-773cb201-afd9-4405-bfdb-a8f7cc7c736e",
+      "turn_ms": 16.533499991055578,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-446072d8-a618-44ce-9e54-f01df159f598",
+      "turn_ms": 9.833699965383857,
+      "state": "degraded",
+      "audio_fallback": true
+    },
+    {
+      "session_id": "SIM-PERF-b834663d-08a1-4aa8-8181-9cb39960c430",
+      "turn_ms": 14.382800029125065,
+      "state": "degraded",
+      "audio_fallback": true
+    }
+  ],
+  "stage_mean_ms": {
+    "breaker_lookup": 0.044,
+    "breaker_record": 3.961,
+    "reply": 518.951,
+    "reply_admission": 1.928,
+    "sentiment": 27.357,
+    "sentiment_admission": 3.074,
+    "storage_read": 2.327,
+    "storage_write": 3.027,
+    "total": 77.044
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-24",
+  "timezone": "Asia/Singapore",
+  "branch": "PERF01",
+  "baseline_commit": "ba644424d2d7f74705ad63cd9c5408a217db760b",
+  "source_status": "uncommitted PERF-01/02 implementation",
+  "rust_source_sha256": "0529ab3b7d8d3b844f789d4e9a66c1ee9dee7dd637151e5feee6de09eb889fe9",
+  "profile": "debug",
+  "workspace_tests_passed": 85,
+  "workspace_tests_ignored": 2,
+  "synthetic_lifecycles": 66,
+  "real_provider_validation": "not run",
+  "kubernetes_changed": false
+}

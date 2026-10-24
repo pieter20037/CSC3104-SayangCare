@@ -2,6 +2,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum CoreError {
+    #[error("{0} deadline exceeded")]
+    DeadlineExceeded(&'static str),
     #[error("Session not found: {0}")]
     SessionNotFound(String),
 

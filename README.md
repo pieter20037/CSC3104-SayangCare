@@ -868,6 +868,14 @@ send a non-crisis Call Lab turn, then fetch `/api/v1/calls/{sid}` to inspect
 `latest_sentiment`. Live Groq scoring and Twilio behavior still need integration
 validation.
 
+## PERF-01/02 Caller-Turn Latency and Guardrails
+
+Stage timings, response budgets, bounded AI concurrency, and pool-capacity checks
+extend the existing API-04 exporter. See [configuration, reproducible validation,
+and OBS/API-04 integration notes](docs/PERF_01_02.md). This implementation does
+not change Kubernetes replicas, HPA limits, or database pool sizes. Initial
+limits require real-provider and Kubernetes load validation before final tuning.
+
 ## Known Limitations
 
 - The Raft queue backend is opt-in (`SAYANGCARE__QUEUE__BACKEND=raft`); Redis remains the default. Raft cluster membership is static, there is no Kubernetes StatefulSet/headless-service manifest for it yet (Phase 4), and Raft state is only persisted when `RAFT_DATA_DIR` is set.

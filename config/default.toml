@@ -19,3 +19,10 @@ half_open_after_secs = 10
 
 [telephony]
 public_base_url = "https://sayangcare.example.com"
+[performance]
+response_budget_ms = 5000
+persistence_reserve_ms = 1000
+sentiment_timeout_ms = 800
+reply_timeout_ms = 3000
+coordination_timeout_ms = 200
+max_ai_turns = 8

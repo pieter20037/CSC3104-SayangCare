@@ -1,0 +1,22 @@
+
+
+HpaMaxReplicas         : 20
+PoolPerPod             : 4
+RolloutSurge           : 1
+ExtraTerminatingPods   : 1
+ApiConnections         : 88
+ReservedConnections    : 16
+Required               : 104
+DatabaseMaxConnections : 100
+Fits                   : False
+ProjectionOnly         : False
+
+
+Connection budget exceeded: reduce per-pod pools or HPA ceiling, or increase verified DB capacity
+At C:\Users\engli\Downloads\SayangCareV2\CSC3104-SayangCare\scripts\check-pool-capacity.ps1:42 char:46
++ ... nections) { throw 'Connection budget exceeded: reduce per-pod pools o ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Connection budg...ied DB capacity:String) [], RuntimeException
+    + FullyQualifiedErrorId : Connection budget exceeded: reduce per-pod pools or HPA ceiling, or increase verified DB 
+    capacity
+ 

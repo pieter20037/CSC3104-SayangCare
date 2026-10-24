@@ -52,6 +52,13 @@ where
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let path = req.path().to_owned();
+        let mut turn_timer = if path == "/twilio/gather" {
+            Some(crate::perf_metrics::StageTimer::new("twilio", "total"))
+        } else if path.starts_with("/api/v1/calls/") && path.ends_with("/turn") {
+            Some(crate::perf_metrics::StageTimer::new("json", "total"))
+        } else {
+            None
+        };
         let incoming = req
             .headers()
             .get(HEADER)
@@ -68,6 +75,13 @@ where
 
         Box::pin(async move {
             let response = fut.await;
+            if let Some(timer) = turn_timer.as_mut() {
+                timer.outcome(match &response {
+                    Ok(response) if response.status().is_success() => "ok",
+                    Ok(response) if response.status().is_client_error() => "client_error",
+                    _ => "error",
+                });
+            }
             let elapsed = start.elapsed().as_secs_f64();
 
             if path != "/api/v1/metrics" {

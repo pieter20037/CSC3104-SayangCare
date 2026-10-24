@@ -57,7 +57,13 @@ fn readiness_status(redis_ready: bool, postgres_ready: bool) -> actix_web::http:
 
 /// Prometheus scrape endpoint.
 /// Wire `prometheus` or `metrics-exporter-prometheus` here later.
-pub async fn metrics() -> impl Responder {
+pub async fn metrics(state: web::Data<Arc<AppState>>) -> impl Responder {
+    crate::perf_metrics::metrics()
+        .pg_size
+        .set(state.postgres.size() as i64);
+    crate::perf_metrics::metrics()
+        .pg_idle
+        .set(state.postgres.num_idle() as i64);
     HttpResponse::Ok()
         .insert_header(("content-type", "text/plain; version=0.0.4"))
         .body(crate::telemetry::prometheus_metrics())

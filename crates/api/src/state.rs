@@ -44,6 +44,7 @@ pub struct OperatorAlert {
 }
 
 pub struct AppState {
+    pub ai_slots: crate::performance::AiSlots,
     pub hot_sessions: Arc<RedisSessionStore>,
     pub postgres: sqlx::PgPool,
     pub sessions: Arc<dyn SessionStore>,
@@ -61,6 +62,10 @@ pub struct AppState {
 
 impl AppState {
     pub async fn bootstrap(config: AppConfig) -> CoreResult<Self> {
+        config
+            .performance
+            .validate()
+            .map_err(|e| sayangcare_core::CoreError::Storage(e.to_string()))?;
         // --- Hot store (Redis Sentinel) ---
         let redis = RedisConnectionProvider::from_config(
             config.redis.master_url.as_deref(),
@@ -113,7 +118,7 @@ impl AppState {
                 window_size: 60,
             },
             redis.clone(),
-            "sayangcare:circuit-breaker",
+            &config.circuit_breaker.key_prefix,
             probe_lease_ms,
         ));
 
@@ -197,6 +202,7 @@ impl AppState {
         ])));
 
         Ok(Self {
+            ai_slots: crate::performance::AiSlots::new(config.performance.max_ai_turns),
             hot_sessions: hot,
             postgres: pg_pool,
             sessions: tiered.clone(),
@@ -221,6 +227,21 @@ impl AppState {
         volunteer_id: Option<&str>,
         message: impl Into<String>,
     ) {
+        if let Err(error) = self
+            .try_record_alert(kind, session_id, volunteer_id, message)
+            .await
+        {
+            tracing::error!(%error, session_id, "operator alert persistence failed");
+        }
+    }
+
+    pub async fn try_record_alert(
+        &self,
+        kind: &str,
+        session_id: &str,
+        volunteer_id: Option<&str>,
+        message: impl Into<String>,
+    ) -> CoreResult<()> {
         let alert = OperatorAlert {
             id: Uuid::new_v4().to_string(),
             kind: kind.to_string(),
@@ -229,7 +250,7 @@ impl AppState {
             message: message.into(),
             created_at: Utc::now(),
         };
-        if let Err(error) = sqlx::query(
+        sqlx::query(
             "INSERT INTO operator_alerts (id, kind, session_id, volunteer_id, message, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING"
         )
         .bind(&alert.id)
@@ -239,9 +260,8 @@ impl AppState {
         .bind(&alert.message)
         .bind(alert.created_at)
         .execute(&self.postgres)
-        .await {
-            tracing::error!(error = %error, alert_id = %alert.id, session_id, "operator alert persistence failed");
-        }
+        .await.map_err(|error| sayangcare_core::CoreError::Storage(format!("operator alert persistence failed: {error}")))?;
+        Ok(())
     }
 
     pub async fn list_alerts(&self) -> Result<Vec<OperatorAlert>, sqlx::Error> {

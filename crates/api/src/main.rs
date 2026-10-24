@@ -17,6 +17,8 @@ mod fallback;
 mod handlers;
 mod inference;
 mod middleware;
+mod perf_metrics;
+mod performance;
 mod sentiment;
 mod state;
 mod telemetry;

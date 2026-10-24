@@ -146,6 +146,7 @@ pub async fn gather(
     request: HttpRequest,
     form: web::Form<HashMap<String, String>>,
 ) -> impl Responder {
+    let budget = crate::performance::TurnBudget::new("twilio", &state.config.performance);
     if !valid_twilio_request(&request, &form, &state) {
         warn!("rejected Twilio gather webhook with invalid signature");
         return HttpResponse::Forbidden().finish();
@@ -161,7 +162,10 @@ pub async fn gather(
         .unwrap_or_else(|| "(silence)".to_string());
 
     // Load current session.
-    let mut session = match state.sessions.get(&sid).await {
+    let mut session = match budget
+        .storage("storage_read", state.sessions.get(&sid))
+        .await
+    {
         Ok(Some(s)) => s,
         Ok(None) => {
             warn!(call_sid = %call_sid, "session missing on gather");
@@ -206,37 +210,13 @@ pub async fn gather(
     let mut use_audio = false;
     let assistant_reply = if escalated {
         "Thank you for telling me. Don't worry, I've alerted a human volunteer. They'll speak with you as soon as one is available. Please stay with me while we connect you.".to_string()
-    } else if let Some(inference) = state.inference.as_ref() {
-        let sentiment_breaker = state.breakers.get("llm-sentiment").await;
-        let reply_breaker = state.breakers.get("llm-reply").await;
-        match reply_breaker.acquire_permit().await {
-            Err(_) => {
-                // Circuit is Open, or another recovery probe is running.
+    } else if state.inference.is_some() {
+        match crate::sentiment::reply_for_turn(&state, &budget, &mut session, &caller_turn).await {
+            Ok(reply) => reply,
+            Err(error) => {
+                tracing::warn!(%error, session_id = %session.id, "AI unavailable; using bounded audio fallback");
                 use_audio = true;
                 crate::fallback::HOLDING_MESSAGE.to_string()
-            }
-            Ok(permit) => {
-                match crate::sentiment::generate_reply(
-                    inference.as_ref(),
-                    sentiment_breaker.as_ref(),
-                    reply_breaker.as_ref(),
-                    permit,
-                    &mut session,
-                    &caller_turn,
-                )
-                .await
-                {
-                    Ok(reply) => reply,
-                    Err(error) => {
-                        warn!(
-                            error = %error,
-                            call_sid = %call_sid,
-                            "Groq reply failed; using deterministic fallback"
-                        );
-                        "I'm here with you. Please tell me a little more about what is happening."
-                            .to_string()
-                    }
-                }
             }
         }
     } else {
@@ -265,17 +245,18 @@ pub async fn gather(
         if was_escalated {
             if current_turn_is_high_risk {
                 session.record_repeated_risk();
-                state
-                    .record_alert(
-                        "repeated_risk",
-                        &session.id.0,
-                        None,
-                        format!(
-                            "Repeated high-risk language on live call {} requires operator review.",
-                            session.id.0
-                        ),
-                    )
-                    .await;
+                let alert = state.try_record_alert(
+                    "repeated_risk",
+                    &session.id.0,
+                    None,
+                    format!(
+                        "Repeated high-risk language on live call {} requires operator review.",
+                        session.id.0
+                    ),
+                );
+                if let Err(error) = budget.auxiliary("alerts", alert).await {
+                    tracing::error!(%error, session_id = %session.id, "bounded operator alert write failed");
+                }
             }
         } else {
             if let Err(error) = session.transition(sayangcare_core::domain::SessionState::Escalated)
@@ -283,30 +264,43 @@ pub async fn gather(
                 warn!(error = %error, call_sid = %call_sid, "failed to transition high-risk call to escalated");
                 return twiml_error("I want to connect you with a human supporter, but our system is having trouble. Please contact local emergency services or someone you trust now.");
             }
-            state
-                .record_alert(
-                    "escalated",
-                    &session.id.0,
-                    None,
-                    format!(
-                        "Live call {} escalated at risk level {}.",
-                        session.id.0, session.risk.level.0
-                    ),
-                )
-                .await;
+            let alert = state.try_record_alert(
+                "escalated",
+                &session.id.0,
+                None,
+                format!(
+                    "Live call {} escalated at risk level {}.",
+                    session.id.0, session.risk.level.0
+                ),
+            );
+            if let Err(error) = budget.auxiliary("alerts", alert).await {
+                tracing::error!(%error, session_id = %session.id, "bounded operator alert write failed");
+            }
         }
 
         if !was_escalated || current_turn_is_high_risk {
-            if let Err(error) = state
-                .queue
-                .enqueue(session.id.clone(), session.risk.level.0, chrono::Utc::now())
+            if let Err(error) = budget
+                .auxiliary(
+                    "queue",
+                    state.queue.enqueue(
+                        session.id.clone(),
+                        session.risk.level.0,
+                        chrono::Utc::now(),
+                    ),
+                )
                 .await
             {
                 warn!(error = %error, call_sid = %call_sid, "failed to enqueue high-risk live call");
             }
         }
     }
-    if let Err(e) = state.sessions.update_cas(&session, expected).await {
+    if let Err(e) = budget
+        .storage(
+            "storage_write",
+            state.sessions.update_cas(&session, expected),
+        )
+        .await
+    {
         warn!(error = %e, "CAS failed on gather — retrying next turn");
         return twiml_error("Your session changed concurrently. Please try again.");
     }
