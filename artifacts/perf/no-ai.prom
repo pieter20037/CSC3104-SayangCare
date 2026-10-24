@@ -1,0 +1,93 @@
+# HELP sayangcare_http_requests_total Total HTTP requests served by this API process.
+# TYPE sayangcare_http_requests_total counter
+sayangcare_http_requests_total 101
+# HELP sayangcare_http_requests_by_status_total HTTP requests by status category.
+# TYPE sayangcare_http_requests_by_status_total counter
+sayangcare_http_requests_by_status_total{status="2xx"} 101
+sayangcare_http_requests_by_status_total{status="3xx"} 0
+sayangcare_http_requests_by_status_total{status="4xx"} 0
+sayangcare_http_requests_by_status_total{status="5xx"} 0
+# HELP sayangcare_http_request_duration_seconds HTTP request duration in seconds.
+# TYPE sayangcare_http_request_duration_seconds histogram
+sayangcare_http_request_duration_seconds_bucket{le="0.005"} 58
+sayangcare_http_request_duration_seconds_bucket{le="0.01"} 81
+sayangcare_http_request_duration_seconds_bucket{le="0.025"} 98
+sayangcare_http_request_duration_seconds_bucket{le="0.05"} 101
+sayangcare_http_request_duration_seconds_bucket{le="0.1"} 101
+sayangcare_http_request_duration_seconds_bucket{le="0.25"} 101
+sayangcare_http_request_duration_seconds_bucket{le="0.5"} 101
+sayangcare_http_request_duration_seconds_bucket{le="1"} 101
+sayangcare_http_request_duration_seconds_bucket{le="+Inf"} 101
+sayangcare_http_request_duration_seconds_sum 0.71395
+sayangcare_http_request_duration_seconds_count 101
+# HELP sayangcare_ai_turns_in_flight AI turn slots occupied in this API process.
+# TYPE sayangcare_ai_turns_in_flight gauge
+sayangcare_ai_turns_in_flight 0
+# HELP sayangcare_caller_turn_stage_duration_seconds Caller turn stage durations; total includes all measured stages.
+# TYPE sayangcare_caller_turn_stage_duration_seconds histogram
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.001"} 0
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.005"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.01"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.025"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.05"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="3"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="4"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="12"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="24"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="+Inf"} 20
+sayangcare_caller_turn_stage_duration_seconds_sum{outcome="ok",path="json",stage="storage_read"} 0.041004700000000005
+sayangcare_caller_turn_stage_duration_seconds_count{outcome="ok",path="json",stage="storage_read"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.001"} 0
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.005"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.01"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.025"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.05"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="3"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="4"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="12"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="24"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="+Inf"} 20
+sayangcare_caller_turn_stage_duration_seconds_sum{outcome="ok",path="json",stage="storage_write"} 0.04146559999999999
+sayangcare_caller_turn_stage_duration_seconds_count{outcome="ok",path="json",stage="storage_write"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.001"} 0
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.005"} 14
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.01"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.025"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.05"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="3"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="4"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="12"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="24"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="+Inf"} 20
+sayangcare_caller_turn_stage_duration_seconds_sum{outcome="ok",path="json",stage="total"} 0.0952658
+sayangcare_caller_turn_stage_duration_seconds_count{outcome="ok",path="json",stage="total"} 20
+# HELP sayangcare_postgres_pool_connections Connections in this API process pool at last scrape.
+# TYPE sayangcare_postgres_pool_connections gauge
+sayangcare_postgres_pool_connections 2
+# HELP sayangcare_postgres_pool_idle Idle connections in this API process pool at last scrape.
+# TYPE sayangcare_postgres_pool_idle gauge
+sayangcare_postgres_pool_idle 2

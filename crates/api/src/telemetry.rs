@@ -128,6 +128,7 @@ pub fn prometheus_metrics() -> String {
         count
     ));
 
+    output.push_str(&crate::perf_metrics::metrics().render());
     output
 }
 
@@ -191,5 +192,22 @@ mod tests {
         assert!(!valid_duration(f64::NAN));
         assert!(!valid_duration(f64::INFINITY));
         assert!(!valid_duration(f64::NEG_INFINITY));
+    }
+
+    #[test]
+    fn perf_metrics_preserve_api04_export_contract() {
+        let mut timer = crate::perf_metrics::StageTimer::new("json", "total");
+        timer.outcome("ok");
+        drop(timer);
+        let output = prometheus_metrics();
+        assert!(output.contains("sayangcare_caller_turn_stage_duration_seconds_bucket"));
+        assert!(output.contains("sayangcare_http_requests_by_status_total"));
+        assert!(output.contains("sayangcare_http_request_duration_seconds_bucket"));
+        assert_eq!(
+            output
+                .matches("# TYPE sayangcare_http_requests_total counter")
+                .count(),
+            1
+        );
     }
 }

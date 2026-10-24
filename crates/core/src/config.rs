@@ -11,6 +11,50 @@ pub struct AppConfig {
     pub ai: AiConfig,
     #[serde(default)]
     pub queue: QueueConfig,
+    #[serde(default)]
+    pub performance: PerformanceConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct PerformanceConfig {
+    pub response_budget_ms: u64,
+    pub persistence_reserve_ms: u64,
+    pub sentiment_timeout_ms: u64,
+    pub reply_timeout_ms: u64,
+    pub coordination_timeout_ms: u64,
+    pub max_ai_turns: usize,
+}
+
+impl Default for PerformanceConfig {
+    fn default() -> Self {
+        Self {
+            response_budget_ms: 5000,
+            persistence_reserve_ms: 1000,
+            sentiment_timeout_ms: 800,
+            reply_timeout_ms: 3000,
+            coordination_timeout_ms: 200,
+            max_ai_turns: 8,
+        }
+    }
+}
+
+impl PerformanceConfig {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.response_budget_ms > self.persistence_reserve_ms,
+            "response budget must exceed persistence reserve"
+        );
+        anyhow::ensure!(
+            self.persistence_reserve_ms > 0
+                && self.sentiment_timeout_ms > 0
+                && self.reply_timeout_ms > 0
+                && self.coordination_timeout_ms > 0
+                && self.max_ai_turns > 0,
+            "performance limits must be positive"
+        );
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -85,6 +129,8 @@ pub struct PostgresConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CircuitBreakerConfig {
+    #[serde(default = "default_breaker_prefix")]
+    pub key_prefix: String,
     /// Base error rate threshold; adapted by sentiment severity.
     pub base_error_rate: f64,
     /// Base latency threshold in ms; adapted by sentiment severity.
@@ -167,4 +213,8 @@ mod tests {
             ["127.0.0.1:26379", "127.0.0.2:26379"]
         );
     }
+}
+
+fn default_breaker_prefix() -> String {
+    "sayangcare:circuit-breaker".into()
 }

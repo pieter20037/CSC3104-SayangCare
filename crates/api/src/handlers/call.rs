@@ -1,6 +1,5 @@
 use crate::state::AppState;
 use actix_web::{web, HttpResponse, Responder};
-use sayangcare_circuit_breaker::BreakerHandle;
 use sayangcare_core::domain::{CallerId, Session, SessionId, Turn};
 use sayangcare_core::CoreError;
 use serde::{Deserialize, Serialize};
@@ -119,9 +118,13 @@ pub async fn turn(
     path: web::Path<String>,
     body: web::Json<TurnRequest>,
 ) -> impl Responder {
+    let budget = crate::performance::TurnBudget::new("json", &state.config.performance);
     let sid = sayangcare_core::domain::SessionId(path.into_inner());
 
-    let mut session = match state.sessions.get(&sid).await {
+    let mut session = match budget
+        .storage("storage_read", state.sessions.get(&sid))
+        .await
+    {
         Ok(Some(s)) => s,
         Ok(None) => return HttpResponse::NotFound().finish(),
         Err(e) => {
@@ -171,40 +174,13 @@ pub async fn turn(
     let mut use_audio = false;
     let assistant_response = if escalated {
         response_for_risk(session.risk.level.0).to_string()
-    } else if let Some(inference) = state.inference.as_ref() {
-        let sentiment_breaker = state.breakers.get("llm-sentiment").await;
-        let reply_breaker = state.breakers.get("llm-reply").await;
-
-        match reply_breaker.acquire_permit().await {
-            Err(_) => {
-                // Circuit is Open, or another recovery probe is running.
+    } else if state.inference.is_some() {
+        match crate::sentiment::reply_for_turn(&state, &budget, &mut session, &caller_turn).await {
+            Ok(reply) => reply,
+            Err(error) => {
+                tracing::warn!(%error, session_id = %session.id, "AI unavailable; using bounded audio fallback");
                 use_audio = true;
                 crate::fallback::HOLDING_MESSAGE.to_string()
-            }
-
-            Ok(permit) => {
-                match crate::sentiment::generate_reply(
-                    inference.as_ref(),
-                    sentiment_breaker.as_ref(),
-                    reply_breaker.as_ref(),
-                    permit,
-                    &mut session,
-                    &caller_turn,
-                )
-                .await
-                {
-                    Ok(reply) => reply,
-
-                    Err(error) => {
-                        tracing::warn!(
-                            error = %error,
-                            session_id = %session.id,
-                            "Groq reply failed; using deterministic fallback"
-                        );
-
-                        response_for_risk(session.risk.level.0).to_string()
-                    }
-                }
             }
         }
     } else {
@@ -233,7 +209,7 @@ pub async fn turn(
         if was_escalated {
             if current_turn_is_high_risk {
                 session.record_repeated_risk();
-                state.record_alert(
+                let alert = state.try_record_alert(
                     "repeated_risk",
                     &session.id.0,
                     None,
@@ -242,14 +218,17 @@ pub async fn turn(
                         session.id.0,
                         session.escalation_count
                     ),
-                ).await;
+                );
+                if let Err(error) = budget.auxiliary("alerts", alert).await {
+                    tracing::error!(%error, session_id = %session.id, "bounded operator alert write failed");
+                }
             }
         } else {
             if let Err(e) = session.transition(sayangcare_core::domain::SessionState::Escalated) {
                 tracing::warn!(error = %e, session_id = %session.id, "failed to escalate session");
                 return HttpResponse::Conflict().finish();
             }
-            state.record_alert(
+            let alert = state.try_record_alert(
                 "escalated",
                 &session.id.0,
                 None,
@@ -258,14 +237,21 @@ pub async fn turn(
                     session.id.0,
                     session.risk.level.0
                 ),
-            ).await;
+            );
+            if let Err(error) = budget.auxiliary("alerts", alert).await {
+                tracing::error!(%error, session_id = %session.id, "bounded operator alert write failed");
+            }
         }
 
         if !was_escalated || current_turn_is_high_risk {
             let queue_priority = session.risk.level.0.min(5);
-            if let Err(e) = state
-                .queue
-                .enqueue(session.id.clone(), queue_priority, chrono::Utc::now())
+            if let Err(e) = budget
+                .auxiliary(
+                    "queue",
+                    state
+                        .queue
+                        .enqueue(session.id.clone(), queue_priority, chrono::Utc::now()),
+                )
                 .await
             {
                 tracing::warn!(error = %e, session_id = %session.id, "failed to queue escalated session");
@@ -273,7 +259,13 @@ pub async fn turn(
         }
     }
 
-    if let Err(e) = state.sessions.update_cas(&session, expected).await {
+    if let Err(e) = budget
+        .storage(
+            "storage_write",
+            state.sessions.update_cas(&session, expected),
+        )
+        .await
+    {
         tracing::warn!(error = %e, "CAS update failed");
         return match e {
             CoreError::VersionConflict { .. } => HttpResponse::Conflict().finish(),

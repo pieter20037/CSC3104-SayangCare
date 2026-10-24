@@ -70,3 +70,6 @@ k8s/*-secret.yaml
 kubeconfig
 # Local Raft node state
 data/
+
+__pycache__/
+*.pyc

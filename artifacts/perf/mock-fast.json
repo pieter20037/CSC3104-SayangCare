@@ -1,0 +1,148 @@
+{
+  "scenario": "mock-fast",
+  "mode": "mock-ai",
+  "calls": 20,
+  "workers": 1,
+  "ai_limit_per_process": 2,
+  "response_budget_ms": 5000,
+  "sentiment_mock_ms": 20,
+  "reply_mock_ms": 50,
+  "p50_turn_ms": 103.50839997408912,
+  "p95_turn_ms": 143.14320002449676,
+  "p99_turn_ms": 152.34259999124333,
+  "max_turn_ms": 152.34259999124333,
+  "audio_fallbacks": 0,
+  "rows": [
+    {
+      "session_id": "SIM-PERF-7a851658-5a1c-4e65-b255-3203c725f3fb",
+      "turn_ms": 95.29179998207837,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-2df3678f-5f10-4b36-9fe7-ab1abea1e944",
+      "turn_ms": 130.21519995527342,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-c93a9235-509e-4017-8ada-eea2b539c832",
+      "turn_ms": 92.42699999595061,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-ebdf93af-6afe-4a12-b32c-0dbbfbeae433",
+      "turn_ms": 118.19030001061037,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-24324910-6e23-48b1-b2d1-f0f83c318133",
+      "turn_ms": 118.3053000131622,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-239a121c-0e24-4afd-95cd-5d0738175cdf",
+      "turn_ms": 91.69869998004287,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-511d5fcf-f7f1-452a-a660-970ebf132b14",
+      "turn_ms": 112.83439997350797,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-7250e79f-f6f9-4072-ac3e-ef6165dd06de",
+      "turn_ms": 103.50839997408912,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-a9a7c3ad-deb6-46e2-bb7c-22d58d42d745",
+      "turn_ms": 95.58839997043833,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-6d9906b8-e08d-4c5e-89a8-e73aff8bd70f",
+      "turn_ms": 152.34259999124333,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-bc857151-a8d3-4bc3-a9c7-fccbc22768ca",
+      "turn_ms": 94.38409999711439,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-dd19afde-0f24-4a75-a03c-557393ad5026",
+      "turn_ms": 110.40730000240728,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-cf7a087a-ce41-4a50-8fdb-b81ef05e2046",
+      "turn_ms": 92.72580000106245,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-99dd7b6d-d847-4639-a082-c548b9c6b3ca",
+      "turn_ms": 143.14320002449676,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-ed58298f-924e-464f-a689-5aa6a7152b03",
+      "turn_ms": 90.93000000575557,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-7b9028db-b998-4102-b24b-d90bf3101a1e",
+      "turn_ms": 93.3019999647513,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-fcb954e0-2f5c-48a4-9e67-f0f97976a597",
+      "turn_ms": 91.68070001760498,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-fdb3dda3-e0e4-400f-8b8f-b132a939f466",
+      "turn_ms": 130.82700001541525,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-0dfb9220-07cf-4299-865e-1a5adb755a7c",
+      "turn_ms": 108.04799996549264,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-28c7c5ae-96b5-4a30-9852-266876107d6c",
+      "turn_ms": 104.4287999975495,
+      "state": "active",
+      "audio_fallback": false
+    }
+  ],
+  "stage_mean_ms": {
+    "breaker_lookup": 0.029,
+    "breaker_record": 4.308,
+    "reply": 53.571,
+    "reply_admission": 1.904,
+    "sentiment": 23.778,
+    "sentiment_admission": 1.813,
+    "storage_read": 2.176,
+    "storage_write": 5.489,
+    "total": 98.379
+  }
+}
