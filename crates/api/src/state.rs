@@ -16,6 +16,7 @@ use sayangcare_session_store::{
     VolunteerBindingStore,
 };
 use sayangcare_telephony::TwilioProvider;
+use sayangcare_circuit_breaker::BreakerHandle;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -292,6 +293,61 @@ impl AppState {
             self.tiered.clone(),
         ))
         .spawn(cancel.clone());
+
+        // OBS-01: Periodically collect Redis session metrics.
+        // How it works: every 30 seconds, the collector:
+        // 1. Retrieves sessions using your existing scan_sessions() function.
+        // 2. Classifies them into active sessions and archive backlog.
+        // 3. Updates both Prometheus gauges.
+        // 4. Logs a warning if the Redis scan fails, without incorrectly reporting zero sessions.
+        let hot_sessions = self.hot_sessions.clone();
+        let cancel_metrics = cancel.clone();
+        let breakers = self.breakers.clone();
+
+        tokio::spawn(async move {
+            let mut tick = interval(Duration::from_secs(30));
+
+            loop {
+                tokio::select! {
+                    _ = cancel_metrics.cancelled() => {
+                        info!("operational metrics collector shutting down");
+                        break;
+                    }
+
+                    _ = tick.tick() => {
+                        match hot_sessions.scan_sessions().await {
+                            Ok(sessions) => {
+                                let (active, backlog) =
+                                    crate::telemetry::classify_sessions(
+                                        &sessions,
+                                        Utc::now(),
+                                    );
+
+                                crate::telemetry::record_session_metrics(
+                                    active,
+                                    backlog,
+                                );
+                            }
+
+                            Err(err) => {
+                                tracing::warn!(
+                                    error = %err,
+                                    "failed to collect Redis session metrics"
+                                );
+                            }
+                        }
+
+                        let breaker = breakers.get("llm-inference").await;
+                        let state = breaker.current_state().await;
+
+                        crate::telemetry::record_circuit_breaker_state(
+                            "llm-inference",
+                            state,
+                        );
+                    }
+                }
+            }
+        });
 
         let state = self.clone();
         let cancel_reaper = cancel.clone();

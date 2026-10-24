@@ -1,7 +1,11 @@
-use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, Opts, Registry, TextEncoder};
+use prometheus::{
+    HistogramOpts, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry, TextEncoder,
+};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use sayangcare_core::domain::{Session, SessionState};
 
 // Existing total request counter.
 static HTTP_REQUESTS_TOTAL: AtomicU64 = AtomicU64::new(0);
@@ -77,6 +81,133 @@ impl HttpRouteMetrics {
 fn http_route_metrics() -> &'static HttpRouteMetrics {
     static METRICS: OnceLock<HttpRouteMetrics> = OnceLock::new();
     METRICS.get_or_init(HttpRouteMetrics::new)
+}
+
+// Operational Metrics functions takes the sessions retrieved from Redis and returns two numbers:
+// active: sessions that are still active or recently updated
+// backlog: sessions that are terminated or have been inactive long enough to qualify for archival/recovery.
+pub struct OperationalMetrics {
+    registry: Registry,
+    active_sessions: IntGauge,
+    archive_backlog: IntGauge,
+    circuit_breaker_state: IntGaugeVec,
+}
+
+impl OperationalMetrics {
+    fn new() -> Self {
+        let registry = Registry::new();
+
+        let active_sessions = IntGauge::new(
+            "sayangcare_redis_active_sessions",
+            "Number of active sessions currently stored in Redis.",
+        )
+        .expect("static active sessions gauge");
+
+        let archive_backlog = IntGauge::new(
+            "sayangcare_archive_backlog",
+            "Number of Redis sessions eligible for archival or recovery.",
+        )
+        .expect("static archive backlog gauge");
+
+        let circuit_breaker_state = IntGaugeVec::new(
+            Opts::new(
+                "sayangcare_circuit_breaker_state",
+                "Current circuit breaker state: 0=Closed, 1=Open, 2=HalfOpen.",
+            ),
+            &["breaker"],
+        )
+        .expect("static circuit breaker state gauge");
+
+        registry
+            .register(Box::new(circuit_breaker_state.clone()))
+            .expect("register circuit breaker state gauge");
+
+        registry
+            .register(Box::new(active_sessions.clone()))
+            .expect("register active sessions gauge");
+
+        registry
+            .register(Box::new(archive_backlog.clone()))
+            .expect("register archive backlog gauge");
+
+        Self {
+            registry,
+            active_sessions,
+            archive_backlog,
+            circuit_breaker_state,
+        }
+    }
+
+    fn render(&self) -> String {
+        TextEncoder::new()
+            .encode_to_string(&self.registry.gather())
+            .expect("encode operational metrics")
+    }
+}
+
+fn operational_metrics() -> &'static OperationalMetrics {
+    static METRICS: OnceLock<OperationalMetrics> = OnceLock::new();
+    METRICS.get_or_init(OperationalMetrics::new)
+}
+
+pub fn record_session_metrics(active: i64, backlog: i64) {
+    let metrics = operational_metrics();
+
+    metrics.active_sessions.set(active);
+    metrics.archive_backlog.set(backlog);
+}
+
+pub fn record_circuit_breaker_state(
+    breaker: &str,
+    state: sayangcare_circuit_breaker::CircuitState,
+) {
+    use sayangcare_circuit_breaker::CircuitState;
+
+    let value = match state {
+        CircuitState::Closed => 0,
+        CircuitState::Open => 1,
+        CircuitState::HalfOpen => 2,
+    };
+
+    operational_metrics()
+        .circuit_breaker_state
+        .with_label_values(&[breaker])
+        .set(value);
+}
+
+const SESSION_INACTIVITY_MINUTES: i64 = 5;
+
+pub fn classify_sessions(
+    sessions: &[Session],
+    now: DateTime<Utc>,
+) -> (i64, i64) {
+    let cutoff = now - ChronoDuration::minutes(SESSION_INACTIVITY_MINUTES);
+
+    let mut active = 0_i64;
+    let mut backlog = 0_i64;
+
+    for session in sessions {
+        match session.state {
+            SessionState::Completed
+            | SessionState::Failed
+            | SessionState::Abandoned => {
+                backlog += 1;
+            }
+
+            SessionState::Initiated
+            | SessionState::Active
+            | SessionState::Degraded
+            | SessionState::Escalated => {
+                if session.updated_at < cutoff {
+                    backlog += 1;
+                } else {
+                    active += 1;
+                }
+            }
+        }
+    }
+
+    (active, backlog)
 }
 
 pub fn record_http_route_request(
@@ -211,6 +342,7 @@ pub fn prometheus_metrics() -> String {
     ));
 
     output.push_str(&http_route_metrics().render());
+    output.push_str(&operational_metrics().render());
     output.push_str(&crate::perf_metrics::metrics().render());
     output
 }
@@ -328,5 +460,107 @@ mod tests {
         assert!(output.contains(
             "sayangcare_http_request_duration_by_route_seconds_count"
         ));
+    }
+
+    #[test]
+    fn operational_gauges_export_expected_values() {
+        let metrics = OperationalMetrics::new();
+
+        metrics.active_sessions.set(3);
+        metrics.archive_backlog.set(2);
+
+        let output = metrics.render();
+
+        assert!(output.contains("sayangcare_redis_active_sessions 3"));
+        assert!(output.contains("sayangcare_archive_backlog 2"));
+    }
+
+    #[test]
+    fn classifies_active_and_archive_backlog_sessions() {
+        use sayangcare_core::domain::CallerId;
+
+        let now = Utc::now();
+
+        let make_session = |state: SessionState, minutes_ago: i64| {
+            let caller = CallerId {
+                phone_number: "+6500000000".to_string(),
+                display_name: None,
+            };
+
+            let mut session = Session::new(caller);
+            session.state = state;
+            session.updated_at = now - ChronoDuration::minutes(minutes_ago);
+            session
+        };
+
+        let sessions = vec![
+            // Recently updated sessions count as active.
+            make_session(SessionState::Initiated, 1),
+            make_session(SessionState::Active, 2),
+            make_session(SessionState::Degraded, 3),
+            make_session(SessionState::Escalated, 1),
+
+            // Terminal sessions count towards archive backlog.
+            make_session(SessionState::Completed, 0),
+            make_session(SessionState::Failed, 0),
+            make_session(SessionState::Abandoned, 0),
+
+            // Inactive sessions are eligible for archival.
+            make_session(SessionState::Active, 10),
+            make_session(SessionState::Escalated, 6),
+
+            // Exactly five minutes old is not yet past the cutoff.
+            make_session(SessionState::Active, 5),
+        ];
+
+        let (active, backlog) = classify_sessions(&sessions, now);
+
+        assert_eq!(active, 5);
+        assert_eq!(backlog, 5);
+    }
+
+    #[test]
+    fn circuit_breaker_gauge_exports_states() {
+        use sayangcare_circuit_breaker::CircuitState;
+
+        let metrics = OperationalMetrics::new();
+
+        metrics
+            .circuit_breaker_state
+            .with_label_values(&["llm-inference"])
+            .set(0);
+
+        let output = metrics.render();
+
+        assert!(output.contains(
+            "sayangcare_circuit_breaker_state{breaker=\"llm-inference\"} 0"
+        ));
+
+        metrics
+            .circuit_breaker_state
+            .with_label_values(&["llm-inference"])
+            .set(1);
+
+        let output = metrics.render();
+
+        assert!(output.contains(
+            "sayangcare_circuit_breaker_state{breaker=\"llm-inference\"} 1"
+        ));
+
+        metrics
+            .circuit_breaker_state
+            .with_label_values(&["llm-inference"])
+            .set(2);
+
+        let output = metrics.render();
+
+        assert!(output.contains(
+            "sayangcare_circuit_breaker_state{breaker=\"llm-inference\"} 2"
+        ));
+
+        // Confirm the public circuit-breaker state values remain consistent.
+        assert_eq!(CircuitState::Closed as u8, 0);
+        assert_eq!(CircuitState::Open as u8, 1);
+        assert_eq!(CircuitState::HalfOpen as u8, 2);
     }
 }
