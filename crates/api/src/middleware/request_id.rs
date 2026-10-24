@@ -52,6 +52,7 @@ where
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let path = req.path().to_owned();
+        let method = req.method().as_str().to_owned();
         let mut turn_timer = if path == "/twilio/gather" {
             Some(crate::perf_metrics::StageTimer::new("twilio", "total"))
         } else if path.starts_with("/api/v1/calls/") && path.ends_with("/turn") {
@@ -84,13 +85,29 @@ where
             }
             let elapsed = start.elapsed().as_secs_f64();
 
+            let route = match &response {
+                Ok(res) => res.request().match_pattern(),
+                Err(_) => None,
+            };
+
+            let route = route.unwrap_or_else(|| "unmatched".to_string());
+
             if path != "/api/v1/metrics" {
                 let status = match &response {
                     Ok(res) => res.status().as_u16(),
                     Err(err) => err.as_response_error().status_code().as_u16(),
                 };
 
+                // Preserve the existing HTTP metrics.
                 crate::telemetry::record_http_request(status, elapsed);
+
+                // Record the new route-level HTTP metrics.
+                crate::telemetry::record_http_route_request(
+                    &route,
+                    &method,
+                    status,
+                    elapsed,
+                );
             }
 
             let mut res = response?;
