@@ -1,4 +1,6 @@
+use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, Opts, Registry, TextEncoder};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 // Existing total request counter.
@@ -19,6 +21,86 @@ static LATENCY_COUNT: AtomicU64 = AtomicU64::new(0);
 
 // Store total latency in microseconds.
 static LATENCY_SUM_US: AtomicU64 = AtomicU64::new(0);
+
+pub struct HttpRouteMetrics {
+    registry: Registry,
+    requests: IntCounterVec,
+    duration: HistogramVec,
+}
+
+impl HttpRouteMetrics {
+    fn new() -> Self {
+        let registry = Registry::new();
+
+        let requests = IntCounterVec::new(
+            Opts::new(
+                "sayangcare_http_requests_by_route_total",
+                "HTTP requests grouped by route, method and status.",
+            ),
+            &["route", "method", "status"],
+        )
+        .expect("static HTTP counter");
+
+        let duration = HistogramVec::new(
+            HistogramOpts::new(
+                "sayangcare_http_request_duration_by_route_seconds",
+                "HTTP request duration grouped by route and method.",
+            )
+            .buckets(vec![
+                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0,
+                2.5, 5.0, 10.0,
+            ]),
+            &["route", "method"],
+        )
+        .expect("static HTTP histogram");
+
+        registry.register(Box::new(requests.clone()))
+            .expect("register HTTP counter");
+
+        registry.register(Box::new(duration.clone()))
+            .expect("register HTTP histogram");
+
+        Self {
+            registry,
+            requests,
+            duration,
+        }
+    }
+
+    fn render(&self) -> String {
+        TextEncoder::new()
+            .encode_to_string(&self.registry.gather())
+            .expect("encode HTTP metrics")
+    }
+}
+
+fn http_route_metrics() -> &'static HttpRouteMetrics {
+    static METRICS: OnceLock<HttpRouteMetrics> = OnceLock::new();
+    METRICS.get_or_init(HttpRouteMetrics::new)
+}
+
+pub fn record_http_route_request(
+    route: &str,
+    method: &str,
+    status: u16,
+    duration_seconds: f64,
+) {
+    let metrics = http_route_metrics();
+
+    let status_label = status.to_string();
+
+    metrics
+        .requests
+        .with_label_values(&[route, method, &status_label])
+        .inc();
+
+    if valid_duration(duration_seconds) {
+        metrics
+            .duration
+            .with_label_values(&[route, method])
+            .observe(duration_seconds);
+    }
+}
 
 fn status_category(status: u16) -> Option<&'static str> {
     match status {
@@ -128,6 +210,7 @@ pub fn prometheus_metrics() -> String {
         count
     ));
 
+    output.push_str(&http_route_metrics().render());
     output.push_str(&crate::perf_metrics::metrics().render());
     output
 }
@@ -209,5 +292,41 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn route_metrics_record_status_method_and_route() {
+        let metrics = HttpRouteMetrics::new();
+
+        metrics
+            .requests
+            .with_label_values(&["/api/v1/health", "GET", "200"])
+            .inc();
+
+        let output = metrics.render();
+
+        assert!(output.contains(
+            "sayangcare_http_requests_by_route_total{method=\"GET\",route=\"/api/v1/health\",status=\"200\"} 1"
+        ));
+    }
+
+    #[test]
+    fn route_histogram_records_duration() {
+        let metrics = HttpRouteMetrics::new();
+
+        metrics
+            .duration
+            .with_label_values(&["/api/v1/health", "GET"])
+            .observe(0.020);
+
+        let output = metrics.render();
+
+        assert!(output.contains(
+            "sayangcare_http_request_duration_by_route_seconds_bucket"
+        ));
+        assert!(output.contains("le=\"0.025\""));
+        assert!(output.contains(
+            "sayangcare_http_request_duration_by_route_seconds_count"
+        ));
     }
 }
