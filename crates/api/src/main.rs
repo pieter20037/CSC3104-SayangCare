@@ -16,6 +16,7 @@ use tracing_actix_web::TracingLogger;
 mod fallback;
 mod handlers;
 mod inference;
+mod handoff_recovery;
 mod middleware;
 mod perf_metrics;
 mod performance;

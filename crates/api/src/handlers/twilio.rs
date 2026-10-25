@@ -245,15 +245,7 @@ pub async fn gather(
         if was_escalated {
             if current_turn_is_high_risk {
                 session.record_repeated_risk();
-                let alert = state.try_record_alert(
-                    "repeated_risk",
-                    &session.id.0,
-                    None,
-                    format!(
-                        "Repeated high-risk language on live call {} requires operator review.",
-                        session.id.0
-                    ),
-                );
+                let alert = state.recover_risk_alerts(&session);
                 if let Err(error) = budget.auxiliary("alerts", alert).await {
                     tracing::error!(%error, session_id = %session.id, "bounded operator alert write failed");
                 }

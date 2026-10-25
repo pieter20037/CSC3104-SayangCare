@@ -1,0 +1,182 @@
+# HELP sayangcare_http_requests_total Total HTTP requests served by this API process.
+# TYPE sayangcare_http_requests_total counter
+sayangcare_http_requests_total 101
+# HELP sayangcare_http_requests_by_status_total HTTP requests by status category.
+# TYPE sayangcare_http_requests_by_status_total counter
+sayangcare_http_requests_by_status_total{status="2xx"} 101
+sayangcare_http_requests_by_status_total{status="3xx"} 0
+sayangcare_http_requests_by_status_total{status="4xx"} 0
+sayangcare_http_requests_by_status_total{status="5xx"} 0
+# HELP sayangcare_http_request_duration_seconds HTTP request duration in seconds.
+# TYPE sayangcare_http_request_duration_seconds histogram
+sayangcare_http_request_duration_seconds_bucket{le="0.005"} 72
+sayangcare_http_request_duration_seconds_bucket{le="0.01"} 87
+sayangcare_http_request_duration_seconds_bucket{le="0.025"} 100
+sayangcare_http_request_duration_seconds_bucket{le="0.05"} 101
+sayangcare_http_request_duration_seconds_bucket{le="0.1"} 101
+sayangcare_http_request_duration_seconds_bucket{le="0.25"} 101
+sayangcare_http_request_duration_seconds_bucket{le="0.5"} 101
+sayangcare_http_request_duration_seconds_bucket{le="1"} 101
+sayangcare_http_request_duration_seconds_bucket{le="+Inf"} 101
+sayangcare_http_request_duration_seconds_sum 0.50789
+sayangcare_http_request_duration_seconds_count 101
+# HELP sayangcare_http_request_duration_by_route_seconds HTTP request duration grouped by route and method.
+# TYPE sayangcare_http_request_duration_by_route_seconds histogram
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="0.005"} 35
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="0.01"} 40
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="0.025"} 40
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="0.05"} 40
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="0.1"} 40
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="0.25"} 40
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="0.5"} 40
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="1"} 40
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="2.5"} 40
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="5"} 40
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="10"} 40
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/calls/{sid}",le="+Inf"} 40
+sayangcare_http_request_duration_by_route_seconds_sum{method="GET",route="/api/v1/calls/{sid}"} 0.13920339999999998
+sayangcare_http_request_duration_by_route_seconds_count{method="GET",route="/api/v1/calls/{sid}"} 40
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="0.005"} 0
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="0.01"} 1
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="0.025"} 1
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="0.05"} 1
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="0.1"} 1
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="0.25"} 1
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="0.5"} 1
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="1"} 1
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="2.5"} 1
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="5"} 1
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="10"} 1
+sayangcare_http_request_duration_by_route_seconds_bucket{method="GET",route="/api/v1/ready",le="+Inf"} 1
+sayangcare_http_request_duration_by_route_seconds_sum{method="GET",route="/api/v1/ready"} 0.0051783
+sayangcare_http_request_duration_by_route_seconds_count{method="GET",route="/api/v1/ready"} 1
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="0.005"} 19
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="0.01"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="0.025"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="0.05"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="0.1"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="0.25"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="0.5"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="1"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="2.5"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="5"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="10"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/incoming",le="+Inf"} 20
+sayangcare_http_request_duration_by_route_seconds_sum{method="POST",route="/api/v1/calls/incoming"} 0.051507199999999996
+sayangcare_http_request_duration_by_route_seconds_count{method="POST",route="/api/v1/calls/incoming"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="0.005"} 0
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="0.01"} 6
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="0.025"} 19
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="0.05"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="0.1"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="0.25"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="0.5"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="1"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="2.5"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="5"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="10"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/hangup",le="+Inf"} 20
+sayangcare_http_request_duration_by_route_seconds_sum{method="POST",route="/api/v1/calls/{sid}/hangup"} 0.23050890000000002
+sayangcare_http_request_duration_by_route_seconds_count{method="POST",route="/api/v1/calls/{sid}/hangup"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="0.005"} 18
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="0.01"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="0.025"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="0.05"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="0.1"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="0.25"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="0.5"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="1"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="2.5"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="5"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="10"} 20
+sayangcare_http_request_duration_by_route_seconds_bucket{method="POST",route="/api/v1/calls/{sid}/turn",le="+Inf"} 20
+sayangcare_http_request_duration_by_route_seconds_sum{method="POST",route="/api/v1/calls/{sid}/turn"} 0.08153739999999998
+sayangcare_http_request_duration_by_route_seconds_count{method="POST",route="/api/v1/calls/{sid}/turn"} 20
+# HELP sayangcare_http_requests_by_route_total HTTP requests grouped by route, method and status.
+# TYPE sayangcare_http_requests_by_route_total counter
+sayangcare_http_requests_by_route_total{method="GET",route="/api/v1/calls/{sid}",status="200"} 40
+sayangcare_http_requests_by_route_total{method="GET",route="/api/v1/ready",status="200"} 1
+sayangcare_http_requests_by_route_total{method="POST",route="/api/v1/calls/incoming",status="200"} 20
+sayangcare_http_requests_by_route_total{method="POST",route="/api/v1/calls/{sid}/hangup",status="200"} 20
+sayangcare_http_requests_by_route_total{method="POST",route="/api/v1/calls/{sid}/turn",status="200"} 20
+# HELP sayangcare_archive_backlog Number of Redis sessions eligible for archival or recovery.
+# TYPE sayangcare_archive_backlog gauge
+sayangcare_archive_backlog 0
+# HELP sayangcare_circuit_breaker_state Current circuit breaker state: 0=Closed, 1=Open, 2=HalfOpen.
+# TYPE sayangcare_circuit_breaker_state gauge
+sayangcare_circuit_breaker_state{breaker="llm-reply"} 0
+sayangcare_circuit_breaker_state{breaker="llm-sentiment"} 0
+# HELP sayangcare_redis_active_sessions Number of active sessions currently stored in Redis.
+# TYPE sayangcare_redis_active_sessions gauge
+sayangcare_redis_active_sessions 0
+# HELP sayangcare_ai_turns_in_flight AI turn slots occupied in this API process.
+# TYPE sayangcare_ai_turns_in_flight gauge
+sayangcare_ai_turns_in_flight 0
+# HELP sayangcare_caller_turn_stage_duration_seconds Caller turn stage durations; total includes all measured stages.
+# TYPE sayangcare_caller_turn_stage_duration_seconds histogram
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.001"} 0
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.005"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.01"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.025"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.05"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="0.8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="3"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="4"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="12"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="24"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_read",le="+Inf"} 20
+sayangcare_caller_turn_stage_duration_seconds_sum{outcome="ok",path="json",stage="storage_read"} 0.0346704
+sayangcare_caller_turn_stage_duration_seconds_count{outcome="ok",path="json",stage="storage_read"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.001"} 0
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.005"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.01"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.025"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.05"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="0.8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="3"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="4"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="12"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="24"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="storage_write",le="+Inf"} 20
+sayangcare_caller_turn_stage_duration_seconds_sum{outcome="ok",path="json",stage="storage_write"} 0.0364637
+sayangcare_caller_turn_stage_duration_seconds_count{outcome="ok",path="json",stage="storage_write"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.001"} 0
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.005"} 18
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.01"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.025"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.05"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="0.8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="1"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="2"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="3"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="4"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="5"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="8"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="12"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="24"} 20
+sayangcare_caller_turn_stage_duration_seconds_bucket{outcome="ok",path="json",stage="total",le="+Inf"} 20
+sayangcare_caller_turn_stage_duration_seconds_sum{outcome="ok",path="json",stage="total"} 0.0826825
+sayangcare_caller_turn_stage_duration_seconds_count{outcome="ok",path="json",stage="total"} 20
+# HELP sayangcare_postgres_pool_connections Connections in this API process pool at last scrape.
+# TYPE sayangcare_postgres_pool_connections gauge
+sayangcare_postgres_pool_connections 2
+# HELP sayangcare_postgres_pool_idle Idle connections in this API process pool at last scrape.
+# TYPE sayangcare_postgres_pool_idle gauge
+sayangcare_postgres_pool_idle 2

@@ -1,0 +1,66 @@
+{
+  "scenario": "mock-slow-sentiment",
+  "mode": "mock-ai",
+  "calls": 5,
+  "workers": 1,
+  "ai_limit_per_process": 2,
+  "response_budget_ms": 5000,
+  "sentiment_mock_ms": 1200,
+  "reply_mock_ms": 50,
+  "p50_turn_ms": 868.7689000507817,
+  "p95_turn_ms": 885.9437999781221,
+  "p99_turn_ms": 885.9437999781221,
+  "max_turn_ms": 885.9437999781221,
+  "audio_fallbacks": 0,
+  "rows": [
+    {
+      "session_id": "SIM-PERF-1c1d76e4-e3cf-4f3b-a59e-febbdb34ca3f",
+      "turn_ms": 882.5444999965839,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-226ec4c3-fcc2-4e96-8091-f0ee2e26177b",
+      "turn_ms": 868.7689000507817,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-619313e9-7df3-4de9-80d7-51c898ee71a2",
+      "turn_ms": 885.9437999781221,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-af98ec2f-1262-4161-af9d-c49d58ba21f7",
+      "turn_ms": 73.36899999063462,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-f9c90cde-32d2-473c-8879-78de5628dad8",
+      "turn_ms": 74.49030003044754,
+      "state": "active",
+      "audio_fallback": false
+    }
+  ],
+  "stage_mean_ms": {
+    "sentiment_admission": 1.159,
+    "breaker_lookup": 0.017,
+    "breaker_record": 2.092,
+    "reply": 52.857,
+    "reply_admission": 1.277,
+    "storage_read": 1.648,
+    "storage_write": 1.526,
+    "total": 546.443,
+    "sentiment": 805.363
+  },
+  "ai_stage_outcomes": {
+    "reply": {
+      "ok": 5
+    },
+    "sentiment": {
+      "timeout": 3
+    }
+  }
+}

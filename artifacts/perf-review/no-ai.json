@@ -1,0 +1,143 @@
+{
+  "scenario": "no-ai",
+  "mode": "deterministic-no-ai",
+  "calls": 20,
+  "workers": 1,
+  "ai_limit_per_process": 2,
+  "response_budget_ms": 5000,
+  "sentiment_mock_ms": null,
+  "reply_mock_ms": null,
+  "p50_turn_ms": 17.164100019726902,
+  "p95_turn_ms": 26.964900025632232,
+  "p99_turn_ms": 29.415199998766184,
+  "max_turn_ms": 29.415199998766184,
+  "audio_fallbacks": 0,
+  "rows": [
+    {
+      "session_id": "SIM-PERF-42729065-8e6a-45f1-a6df-88f1720ebf2c",
+      "turn_ms": 29.415199998766184,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-d1c5fce6-2342-400b-8c20-a95e5a0cd33c",
+      "turn_ms": 17.2500999760814,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-6b4c7ddb-5d36-47aa-95ba-ba104c8fcd7b",
+      "turn_ms": 15.976900001987815,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-d4097a3d-4097-45d2-9d64-921e67dd57ae",
+      "turn_ms": 17.49479997670278,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-cd7f1874-313b-422c-8d80-db2b98b38bfd",
+      "turn_ms": 17.82670000102371,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-d6584a9b-6d2d-4e9d-8bb6-b7c3b8c9ead6",
+      "turn_ms": 17.807000025641173,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-7d188510-49a4-4964-bef7-9e6faa99f8c3",
+      "turn_ms": 18.427099974360317,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-57f77cd7-52a4-4f8c-8f98-c72e4ae169c0",
+      "turn_ms": 17.825599992647767,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-5ab8e733-d790-48ff-9b7e-358f0af324ac",
+      "turn_ms": 21.900599997024983,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-2b5eb68a-410f-464a-872e-ffcacfc00fb4",
+      "turn_ms": 6.562600028701127,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-57d15939-3a2a-4933-8ab2-c8e64055da16",
+      "turn_ms": 15.736700035631657,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-dee97151-8767-48d8-938a-53d8dbb25525",
+      "turn_ms": 16.855699999723583,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-48abca2d-0921-4b1f-8c65-abcdf171d2bc",
+      "turn_ms": 16.30980003392324,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-0b4d3fe4-f051-49d6-ad7e-def6deb09375",
+      "turn_ms": 17.020100029185414,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-38776c69-4af1-4a5b-a9ce-b1bfd6946a17",
+      "turn_ms": 16.055599960964173,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-a6d94185-a038-470d-b1b1-7c9c255b0b76",
+      "turn_ms": 3.8626999594271183,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-f97ebc30-8c1f-4c3b-9084-c414529a9c8c",
+      "turn_ms": 15.570999996270984,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-58c14320-1097-415f-beef-f1ca0311e742",
+      "turn_ms": 17.164100019726902,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-f8f7c48c-474f-4f3e-9e30-411c5cbf2971",
+      "turn_ms": 17.520299996249378,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-70cb6385-e5f7-496e-9f9e-9fade2013ed8",
+      "turn_ms": 26.964900025632232,
+      "state": "active",
+      "audio_fallback": false
+    }
+  ],
+  "stage_mean_ms": {
+    "storage_read": 1.734,
+    "storage_write": 1.823,
+    "total": 4.134
+  },
+  "ai_stage_outcomes": {}
+}

@@ -27,9 +27,9 @@ data:
   SAYANGCARE__REDIS__MASTER_NAME: "sayangcare-master"
 
   # Postgres URL is assembled by the HA routing patch from sayangcare-secrets.
-  # 4 per API pod keeps the 20-replica HPA ceiling within PostgreSQL's default
-  # max_connections of 100, leaving capacity for migrations and administration.
-  SAYANGCARE__POSTGRES__MAX_CONNECTIONS: "4"
+  # (20 HPA + 1 surge + 1 terminating) * 3 + 16 reserved = 82 connections.
+  # Leaves headroom under the recorded PostgreSQL max_connections of 100.
+  SAYANGCARE__POSTGRES__MAX_CONNECTIONS: "3"
 
   # Circuit breaker defaults
   SAYANGCARE__CIRCUIT_BREAKER__BASE_ERROR_RATE: "0.25"

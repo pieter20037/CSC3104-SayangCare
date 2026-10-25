@@ -244,7 +244,13 @@ impl AppState {
         message: impl Into<String>,
     ) -> CoreResult<()> {
         let alert = OperatorAlert {
-            id: Uuid::new_v4().to_string(),
+            // Initial escalation is one event per call; retries across replicas
+            // must not produce duplicate dashboard alerts.
+            id: if kind == "escalated" {
+                format!("escalated:{session_id}")
+            } else {
+                Uuid::new_v4().to_string()
+            },
             kind: kind.to_string(),
             session_id: session_id.to_string(),
             volunteer_id: volunteer_id.map(str::to_string),
@@ -252,7 +258,7 @@ impl AppState {
             created_at: Utc::now(),
         };
         sqlx::query(
-            "INSERT INTO operator_alerts (id, kind, session_id, volunteer_id, message, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING"
+            "INSERT INTO operator_alerts (id, kind, session_id, volunteer_id, message, created_at) SELECT $1, $2, $3, $4, $5, $6 WHERE $2 <> 'escalated' OR NOT EXISTS (SELECT 1 FROM operator_alerts WHERE session_id = $3 AND kind = 'escalated') ON CONFLICT (id) DO NOTHING"
         )
         .bind(&alert.id)
         .bind(&alert.kind)
@@ -262,6 +268,18 @@ impl AppState {
         .bind(alert.created_at)
         .execute(&self.postgres)
         .await.map_err(|error| sayangcare_core::CoreError::Storage(format!("operator alert persistence failed: {error}")))?;
+        Ok(())
+    }
+
+    /// A saved escalation counter is also the retry intent for repeated-risk
+    /// alerts. Stable per-event IDs make cancellation after commit safe to replay.
+    pub async fn recover_risk_alerts(&self, session: &sayangcare_core::domain::Session) -> CoreResult<()> {
+        self.try_record_alert("escalated", &session.id.0, None,
+            format!("Session {} requires human support at risk level {}.", session.id, session.risk.level.0)).await?;
+        sqlx::query("INSERT INTO operator_alerts (id, kind, session_id, message, created_at) SELECT 'repeated_risk:' || $1 || ':' || event::text, 'repeated_risk', $1, 'Repeated high-risk language requires operator review.', $3 FROM generate_series(2, $2::integer) AS event ON CONFLICT (id) DO NOTHING")
+            .bind(&session.id.0).bind(i32::from(session.escalation_count)).bind(session.updated_at)
+            .execute(&self.postgres).await
+            .map_err(|e| sayangcare_core::CoreError::Storage(format!("repeated risk alert recovery: {e}")))?;
         Ok(())
     }
 
@@ -358,6 +376,9 @@ impl AppState {
             loop {
                 tokio::select! {
                     _ = tick.tick() => {
+                        if let Err(err) = state.reconcile_pending_handoffs().await {
+                            tracing::warn!(error = %err, "pending handoff reconciliation failed");
+                        }
                         if let Err(err) = state.requeue_stale_handoffs().await {
                             tracing::warn!(error = %err, "stale handoff reaper failed");
                         }
@@ -389,6 +410,45 @@ impl AppState {
         }
 
         info!("background tasks started");
+    }
+
+    /// Saved session state is the retry intent, so API replacement does not
+    /// lose a timed-out enqueue. Queue implementations preserve active claims.
+    async fn reconcile_pending_handoffs(&self) -> CoreResult<()> {
+        for candidate in self.hot_sessions.scan_sessions().await? {
+            // Re-read immediately before replay: the scan may predate a claim
+            // or a hangup. Redis/Raft enqueue also protects existing claims.
+            let Some(session) = self.sessions.get(&candidate.id).await? else {
+                continue;
+            };
+            if session.escalation_count == 0 {
+                continue;
+            }
+            let alert = self.recover_risk_alerts(&session);
+            let queue = async {
+                if crate::handoff_recovery::needs_recovery(&session) {
+                    self.queue.enqueue(session.id.clone(), session.risk.level.0.min(5), session.created_at).await
+                } else {
+                    Ok(())
+                }
+            };
+            let (queued, alerted) = crate::handoff_recovery::replay(queue, alert).await;
+            if let Err(error) = queued {
+                tracing::warn!(%error, session_id = %session.id, "pending queue repair will retry");
+            }
+            if let Err(error) = alerted {
+                tracing::warn!(%error, session_id = %session.id, "pending escalation alert repair will retry");
+            }
+        }
+        // Calls can end before the next scan. Recover their initial alert from
+        // the durable archive without putting ended calls back in the queue.
+        sqlx::query("INSERT INTO operator_alerts (id, kind, session_id, message, created_at) SELECT 'escalated:' || s.id, 'escalated', s.id, 'Archived escalated call requires operator review.', s.updated_at FROM sessions s WHERE s.escalation_count > 0 AND NOT EXISTS (SELECT 1 FROM operator_alerts a WHERE a.session_id = s.id AND a.kind = 'escalated') LIMIT 100 ON CONFLICT (id) DO NOTHING")
+            .execute(&self.postgres).await
+            .map_err(|e| sayangcare_core::CoreError::Storage(format!("archived escalation alert recovery: {e}")))?;
+        sqlx::query("INSERT INTO operator_alerts (id, kind, session_id, message, created_at) SELECT 'repeated_risk:' || s.id || ':' || event::text, 'repeated_risk', s.id, 'Repeated high-risk language requires operator review.', s.updated_at FROM sessions s CROSS JOIN LATERAL generate_series(2, s.escalation_count) AS event WHERE NOT EXISTS (SELECT 1 FROM operator_alerts a WHERE a.id = 'repeated_risk:' || s.id || ':' || event::text) LIMIT 100 ON CONFLICT (id) DO NOTHING")
+            .execute(&self.postgres).await
+            .map_err(|e| sayangcare_core::CoreError::Storage(format!("archived repeated risk alert recovery: {e}")))?;
+        Ok(())
     }
 
     async fn requeue_stale_handoffs(&self) -> CoreResult<()> {

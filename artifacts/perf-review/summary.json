@@ -1,0 +1,159 @@
+[
+  {
+    "scenario": "no-ai",
+    "mode": "deterministic-no-ai",
+    "calls": 20,
+    "workers": 1,
+    "ai_limit_per_process": 2,
+    "response_budget_ms": 5000,
+    "sentiment_mock_ms": null,
+    "reply_mock_ms": null,
+    "p50_turn_ms": 17.164100019726902,
+    "p95_turn_ms": 26.964900025632232,
+    "p99_turn_ms": 29.415199998766184,
+    "max_turn_ms": 29.415199998766184,
+    "audio_fallbacks": 0,
+    "stage_mean_ms": {
+      "storage_read": 1.734,
+      "storage_write": 1.823,
+      "total": 4.134
+    },
+    "ai_stage_outcomes": {}
+  },
+  {
+    "scenario": "mock-fast",
+    "mode": "mock-ai",
+    "calls": 20,
+    "workers": 1,
+    "ai_limit_per_process": 2,
+    "response_budget_ms": 5000,
+    "sentiment_mock_ms": 20,
+    "reply_mock_ms": 50,
+    "p50_turn_ms": 99.18259998084977,
+    "p95_turn_ms": 110.22269999375567,
+    "p99_turn_ms": 113.61860000761226,
+    "max_turn_ms": 113.61860000761226,
+    "audio_fallbacks": 0,
+    "stage_mean_ms": {
+      "breaker_lookup": 0.018,
+      "breaker_record": 2.202,
+      "reply": 53.104,
+      "reply_admission": 1.34,
+      "sentiment": 23.275,
+      "sentiment_admission": 1.211,
+      "storage_read": 1.825,
+      "storage_write": 1.513,
+      "total": 87.407
+    },
+    "ai_stage_outcomes": {
+      "reply": {
+        "ok": 20
+      },
+      "sentiment": {
+        "ok": 20
+      }
+    }
+  },
+  {
+    "scenario": "mock-slow-sentiment",
+    "mode": "mock-ai",
+    "calls": 5,
+    "workers": 1,
+    "ai_limit_per_process": 2,
+    "response_budget_ms": 5000,
+    "sentiment_mock_ms": 1200,
+    "reply_mock_ms": 50,
+    "p50_turn_ms": 868.7689000507817,
+    "p95_turn_ms": 885.9437999781221,
+    "p99_turn_ms": 885.9437999781221,
+    "max_turn_ms": 885.9437999781221,
+    "audio_fallbacks": 0,
+    "stage_mean_ms": {
+      "sentiment_admission": 1.159,
+      "breaker_lookup": 0.017,
+      "breaker_record": 2.092,
+      "reply": 52.857,
+      "reply_admission": 1.277,
+      "storage_read": 1.648,
+      "storage_write": 1.526,
+      "total": 546.443,
+      "sentiment": 805.363
+    },
+    "ai_stage_outcomes": {
+      "reply": {
+        "ok": 5
+      },
+      "sentiment": {
+        "timeout": 3
+      }
+    }
+  },
+  {
+    "scenario": "mock-slow-reply",
+    "mode": "mock-ai",
+    "calls": 5,
+    "workers": 1,
+    "ai_limit_per_process": 2,
+    "response_budget_ms": 5000,
+    "sentiment_mock_ms": 20,
+    "reply_mock_ms": 4000,
+    "p50_turn_ms": 3036.975099996198,
+    "p95_turn_ms": 3061.6716000367887,
+    "p99_turn_ms": 3061.6716000367887,
+    "max_turn_ms": 3061.6716000367887,
+    "audio_fallbacks": 5,
+    "stage_mean_ms": {
+      "reply_admission": 1.332,
+      "breaker_lookup": 0.017,
+      "breaker_record": 2.602,
+      "sentiment": 22.947,
+      "sentiment_admission": 1.056,
+      "storage_read": 1.576,
+      "storage_write": 1.374,
+      "total": 1826.655,
+      "reply": 3006.292
+    },
+    "ai_stage_outcomes": {
+      "sentiment": {
+        "ok": 3
+      },
+      "reply": {
+        "timeout": 3
+      }
+    }
+  },
+  {
+    "scenario": "mock-overload",
+    "mode": "mock-ai",
+    "calls": 16,
+    "workers": 16,
+    "ai_limit_per_process": 2,
+    "response_budget_ms": 5000,
+    "sentiment_mock_ms": 20,
+    "reply_mock_ms": 500,
+    "p50_turn_ms": 9.376200032420456,
+    "p95_turn_ms": 579.4024000060745,
+    "p99_turn_ms": 579.4024000060745,
+    "max_turn_ms": 579.4024000060745,
+    "audio_fallbacks": 14,
+    "stage_mean_ms": {
+      "breaker_lookup": 0.019,
+      "breaker_record": 2.247,
+      "reply": 521.945,
+      "reply_admission": 2.447,
+      "sentiment": 25.652,
+      "sentiment_admission": 1.894,
+      "storage_read": 1.88,
+      "storage_write": 1.895,
+      "total": 74.483
+    },
+    "ai_stage_outcomes": {
+      "reply": {
+        "ok": 2
+      },
+      "sentiment": {
+        "ok": 2
+      }
+    }
+  }
+]
