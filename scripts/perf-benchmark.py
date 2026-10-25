@@ -48,6 +48,29 @@ def stage_means(text):
             for stage, values in stages.items() if values['count']}
 
 
+def stage_outcomes(text):
+    outcomes = {}
+    for line in text.splitlines():
+        match = re.match(r'sayangcare_caller_turn_stage_duration_seconds_count\{([^}]+)\} ([\d.eE+-]+)$', line)
+        if not match:
+            continue
+        labels = dict(re.findall(r'(\w+)="([^"]*)"', match[1]))
+        if labels.get('path') != 'json' or labels.get('stage') not in ('sentiment', 'reply'):
+            continue
+        stage = outcomes.setdefault(labels['stage'], {})
+        outcome = labels['outcome']
+        stage[outcome] = stage.get(outcome, 0) + int(float(match[2]))
+    return outcomes
+
+
+def validate_real_ai(text, rows):
+    outcomes = stage_outcomes(text)
+    assert outcomes.get('sentiment', {}).get('ok', 0) > 0, 'No successful sentiment operation; real AI validation failed'
+    assert outcomes.get('reply', {}).get('ok', 0) > 0, 'No successful reply operation; real AI validation failed'
+    assert any(not row['audio_fallback'] for row in rows), 'All real AI turns used audio fallback'
+    return outcomes
+
+
 def webhook(base, path, parameters):
     signed = base + path + ''.join(key + parameters[key] for key in sorted(parameters))
     signature = base64.b64encode(hmac.new(b'test', signed.encode(), hashlib.sha1).digest()).decode()
@@ -153,8 +176,6 @@ def run(args, name, database, sentiment_ms, reply_ms, count, workers, use_ai, re
             with urllib.request.urlopen(base + '/api/v1/metrics', timeout=5) as response:
                 metric_bytes = response.read()
                 (output / f'{name}.prom').write_bytes(metric_bytes)
-                if real_ai:
-                    assert b'stage="sentiment"' in metric_bytes or b'stage="reply"' in metric_bytes, 'No model operation observed: check configured provider/key'
             if not real_ai:
                 # Signed Twilio smoke checks run AFTER the measurement snapshot.
                 sid = 'SIM-PERF-VOICE-' + str(uuid4())
@@ -186,8 +207,11 @@ def run(args, name, database, sentiment_ms, reply_ms, count, workers, use_ai, re
               'p99_turn_ms': quantile(latencies, .99), 'max_turn_ms': max(latencies),
               'audio_fallbacks': sum(row['audio_fallback'] for row in rows), 'rows': rows}
     result['stage_mean_ms'] = stage_means(metric_bytes.decode())
+    result['ai_stage_outcomes'] = stage_outcomes(metric_bytes.decode())
     (output / f'{name}.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(json.dumps({k: v for k, v in result.items() if k != 'rows'}), flush=True)
+    if real_ai:
+        validate_real_ai(metric_bytes.decode(), rows)
     assert max(latencies) < 5500, 'turn exceeded 5s budget plus 500ms local scheduling allowance'
     return result
 
