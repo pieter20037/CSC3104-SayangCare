@@ -1,0 +1,18 @@
+﻿{
+    "prefix":  "SIM-K6-unique-DURABLE-20261026-024836908-72289c83-",
+    "session_count":  1160,
+    "distinct_count":  1160,
+    "exact_2_turns":  1160,
+    "caller_text":  1160,
+    "assistant_speaker":  1160,
+    "terminal_state_counts":  {
+                                  "completed":  1160
+                              },
+    "version_range":  {
+                          "min":  3,
+                          "max":  3
+                      },
+    "checkpoint_count":  1160,
+    "checkpoint_pending":  0,
+    "source":  "PostgreSQL via kubectl --context=minikube -n sayangcare"
+}

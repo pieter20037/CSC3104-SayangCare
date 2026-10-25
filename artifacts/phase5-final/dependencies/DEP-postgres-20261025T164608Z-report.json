@@ -1,0 +1,164 @@
+{
+    "run_id":  "DEP-postgres-20261025T164608Z",
+    "dependency":  "postgres",
+    "context":  "minikube",
+    "namespace":  "sayangcare",
+    "vus":  30,
+    "duration":  "60s",
+    "fault":  {
+                  "deleted_pod":  "sayangcare-db-2",
+                  "utc":  "2026-10-25T16:46:21.3354421Z"
+              },
+    "recovery":  {
+                     "utc":  "2026-10-25T16:47:24.8054075Z",
+                     "primary":  "sayangcare-db-1",
+                     "seconds":  63.472
+                 },
+    "audit":  {
+                  "rows":  1582,
+                  "distinct_ids":  1582,
+                  "invalid_transcripts":  0,
+                  "nonterminal":  0,
+                  "min_version":  3,
+                  "max_version":  3
+              },
+    "error":  null,
+    "k6_exit_code":  99,
+    "samples":  [
+                    {
+                        "utc":  "2026-10-25T16:46:21.8975330Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:24.2056824Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:26.7076612Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:29.2020661Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:31.4771293Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:33.7400071Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:36.0389482Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:38.3162584Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:40.7073057Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:42.9868695Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:45.2531734Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:47.5809429Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:49.8615563Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:52.3012488Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:54.6105795Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:56.9123088Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:46:59.2262036Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:47:01.5286396Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:47:03.9106947Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:47:06.4011346Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:47:10.8046448Z",
+                        "primary":  "sayangcare-db-2",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:47:15.2033635Z",
+                        "primary":  "sayangcare-db-1",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:47:19.6030540Z",
+                        "primary":  "sayangcare-db-1",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:47:22.4051921Z",
+                        "primary":  "sayangcare-db-1",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:47:24.8054075Z",
+                        "primary":  "sayangcare-db-1",
+                        "ready":  true
+                    }
+                ],
+    "primary_before":  "sayangcare-db-2",
+    "primary_uid_before":  "c8abfc1d-055d-45f9-a82e-7935871bb793",
+    "lifecycle_iterations":  1582,
+    "lifecycle_success_rate":  0.9917825537294563,
+    "http_failure_rate":  0.006137865911237016,
+    "http_p95_ms":  96.53922499999999,
+    "http_p99_ms":  211.90300000000212,
+    "remaining_hot_keys":  0,
+    "archived_all_iterations":  true,
+    "availability_thresholds_passed":  false
+}

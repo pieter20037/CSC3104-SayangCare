@@ -8,6 +8,9 @@ The root [README](../README.md) has separate Windows PowerShell and macOS Termin
 
 ## Running and Testing
 
+- [Phase 6: Guided follow-up testing (Windows)](PHASE6_Windows.md)
+- [Phase 6: Guided follow-up testing (macOS)](PHASE6_MAC.md)
+- [Professor consultation: progress, concepts, evidence and questions](consultation.md)
 - [Phase 1: Session lifecycle and recovery](PHASE_1_TEST_GUIDE.md)
 - [Phase 2: Raft volunteer queue run guide](PHASE_2.md)
 - [Phase 3: Resilience and live telephony](PHASE_3.md)

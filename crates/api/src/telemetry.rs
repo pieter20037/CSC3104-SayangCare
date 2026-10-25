@@ -1,11 +1,11 @@
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use prometheus::{
     HistogramOpts, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry, TextEncoder,
 };
+use sayangcare_core::domain::{Session, SessionState};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use sayangcare_core::domain::{Session, SessionState};
 
 // Existing total request counter.
 static HTTP_REQUESTS_TOTAL: AtomicU64 = AtomicU64::new(0);
@@ -51,17 +51,18 @@ impl HttpRouteMetrics {
                 "HTTP request duration grouped by route and method.",
             )
             .buckets(vec![
-                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0,
-                2.5, 5.0, 10.0,
+                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
             ]),
             &["route", "method"],
         )
         .expect("static HTTP histogram");
 
-        registry.register(Box::new(requests.clone()))
+        registry
+            .register(Box::new(requests.clone()))
             .expect("register HTTP counter");
 
-        registry.register(Box::new(duration.clone()))
+        registry
+            .register(Box::new(duration.clone()))
             .expect("register HTTP histogram");
 
         Self {
@@ -177,10 +178,7 @@ pub fn record_circuit_breaker_state(
 
 const SESSION_INACTIVITY_MINUTES: i64 = 5;
 
-pub fn classify_sessions(
-    sessions: &[Session],
-    now: DateTime<Utc>,
-) -> (i64, i64) {
+pub fn classify_sessions(sessions: &[Session], now: DateTime<Utc>) -> (i64, i64) {
     let cutoff = now - ChronoDuration::minutes(SESSION_INACTIVITY_MINUTES);
 
     let mut active = 0_i64;
@@ -188,9 +186,7 @@ pub fn classify_sessions(
 
     for session in sessions {
         match session.state {
-            SessionState::Completed
-            | SessionState::Failed
-            | SessionState::Abandoned => {
+            SessionState::Completed | SessionState::Failed | SessionState::Abandoned => {
                 backlog += 1;
             }
 
@@ -210,12 +206,7 @@ pub fn classify_sessions(
     (active, backlog)
 }
 
-pub fn record_http_route_request(
-    route: &str,
-    method: &str,
-    status: u16,
-    duration_seconds: f64,
-) {
+pub fn record_http_route_request(route: &str, method: &str, status: u16, duration_seconds: f64) {
     let metrics = http_route_metrics();
 
     let status_label = status.to_string();
@@ -453,13 +444,9 @@ mod tests {
 
         let output = metrics.render();
 
-        assert!(output.contains(
-            "sayangcare_http_request_duration_by_route_seconds_bucket"
-        ));
+        assert!(output.contains("sayangcare_http_request_duration_by_route_seconds_bucket"));
         assert!(output.contains("le=\"0.025\""));
-        assert!(output.contains(
-            "sayangcare_http_request_duration_by_route_seconds_count"
-        ));
+        assert!(output.contains("sayangcare_http_request_duration_by_route_seconds_count"));
     }
 
     #[test]
@@ -499,16 +486,13 @@ mod tests {
             make_session(SessionState::Active, 2),
             make_session(SessionState::Degraded, 3),
             make_session(SessionState::Escalated, 1),
-
             // Terminal sessions count towards archive backlog.
             make_session(SessionState::Completed, 0),
             make_session(SessionState::Failed, 0),
             make_session(SessionState::Abandoned, 0),
-
             // Inactive sessions are eligible for archival.
             make_session(SessionState::Active, 10),
             make_session(SessionState::Escalated, 6),
-
             // Exactly five minutes old is not yet past the cutoff.
             make_session(SessionState::Active, 5),
         ];
@@ -527,11 +511,7 @@ mod tests {
 
         // Verify both circuit breakers export all three states.
         for breaker_name in ["llm-sentiment", "llm-reply"] {
-            for (value, expected_state) in [
-                (0, "Closed"),
-                (1, "Open"),
-                (2, "HalfOpen"),
-            ] {
+            for (value, expected_state) in [(0, "Closed"), (1, "Open"), (2, "HalfOpen")] {
                 metrics
                     .circuit_breaker_state
                     .with_label_values(&[breaker_name])

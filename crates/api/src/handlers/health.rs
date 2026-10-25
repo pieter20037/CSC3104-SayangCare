@@ -1,5 +1,6 @@
 use crate::state::AppState;
 use actix_web::{web, HttpResponse, Responder};
+use sayangcare_circuit_breaker::BreakerHandle;
 use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
@@ -56,8 +57,25 @@ fn readiness_status(redis_ready: bool, postgres_ready: bool) -> actix_web::http:
 }
 
 /// Prometheus scrape endpoint.
-/// Wire `prometheus` or `metrics-exporter-prometheus` here later.
 pub async fn metrics(state: web::Data<Arc<AppState>>) -> impl Responder {
+    // Background snapshots can miss short recovery probes; refresh on scrape.
+    let refresh = async {
+        for name in ["llm-sentiment", "llm-reply"] {
+            let breaker = state.breakers.get(name).await;
+            crate::telemetry::record_circuit_breaker_state(name, breaker.current_state().await);
+        }
+    };
+    if tokio::time::timeout(
+        Duration::from_millis(state.config.performance.coordination_timeout_ms),
+        refresh,
+    )
+    .await
+    .is_err()
+    {
+        tracing::warn!("metrics circuit-breaker refresh timed out");
+        return HttpResponse::ServiceUnavailable()
+            .body("circuit-breaker metrics refresh timed out");
+    }
     crate::perf_metrics::metrics()
         .pg_size
         .set(state.postgres.size() as i64);

@@ -6,21 +6,46 @@ use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
 
-/// Combines Redis (hot) + Postgres (cold).
-///
-/// Write path: hot first (fast), then async archive on completion.
-/// Read path: hot -> cold fallback (rehydration).
+/// Combines a versioned session store with the terminal PostgreSQL archive.
+/// Production uses PostgreSQL checkpoints as commit authority and Redis as
+/// a best-effort projection; `new` also supports a direct hot-store backend.
 pub struct TieredSessionStore {
     hot: Arc<dyn SessionStore>,
     cold: Arc<dyn ArchiveStore>,
+    checkpoints: Option<Arc<crate::PostgresSessionStore>>,
 }
 
 impl TieredSessionStore {
     pub fn new(hot: Arc<dyn SessionStore>, cold: Arc<dyn ArchiveStore>) -> Self {
-        Self { hot, cold }
+        Self {
+            hot,
+            cold,
+            checkpoints: None,
+        }
     }
 
-    /// Flush a completed session to cold storage without blocking the caller.
+    pub fn with_checkpoints(
+        checkpoints: Arc<crate::PostgresSessionStore>,
+        cold: Arc<dyn ArchiveStore>,
+    ) -> Self {
+        Self {
+            hot: checkpoints.clone(),
+            cold,
+            checkpoints: Some(checkpoints),
+        }
+    }
+
+    pub async fn recovery_sessions(
+        &self,
+        redis: &crate::RedisSessionStore,
+    ) -> CoreResult<Vec<Session>> {
+        if let Some(checkpoints) = &self.checkpoints {
+            return checkpoints.recovery_sessions().await;
+        }
+        redis.scan_sessions().await
+    }
+
+    /// Flush a completed session to cold storage before confirming completion.
     /// Called from the session completion path.
     pub async fn flush_to_cold(&self, session: &Session) -> CoreResult<()> {
         const MAX_ATTEMPTS: u32 = 5;
@@ -38,7 +63,7 @@ impl TieredSessionStore {
                     );
 
                     // Archive first; atomically delete only the archived version.
-                    // A concurrent update must remain in Redis for the next recovery scan.
+                    // A concurrent update must remain available for the next recovery scan.
                     let deleted = self
                         .hot
                         .delete_if_version(&session.id, session.version)
@@ -47,13 +72,13 @@ impl TieredSessionStore {
                         info!(
                             session_id = %session.id,
                             version = session.version,
-                            "Redis session cleanup successful"
+                            "archived session version retired from active recovery"
                         );
                     } else {
                         warn!(
                             session_id = %session.id,
                             archived_version = session.version,
-                            "Redis cleanup skipped: session missing or version changed"
+                            "archive cleanup skipped: session missing or version changed"
                         );
                     }
 
@@ -120,7 +145,7 @@ impl TieredSessionStore {
         Ok(true)
     }
 
-    /// Retry archival of a terminal session left in Redis after a failed flush.
+    /// Retry archival of a terminal session retained after a failed flush.
     /// Read from hot storage only: the cold fallback must not rehydrate a session.
     pub async fn recover_terminal(&self, id: &SessionId) -> CoreResult<bool> {
         let Some(session) = self.hot.get(id).await? else {

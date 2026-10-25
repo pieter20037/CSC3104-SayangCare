@@ -1,0 +1,99 @@
+{
+  "scenario": "real-ai",
+  "mode": "real-ai",
+  "calls": 10,
+  "workers": 1,
+  "ai_limit_per_process": 2,
+  "response_budget_ms": 5000,
+  "sentiment_mock_ms": null,
+  "reply_mock_ms": null,
+  "p50_turn_ms": 1126.8331999963266,
+  "p95_turn_ms": 1443.025900000066,
+  "p99_turn_ms": 1443.025900000066,
+  "max_turn_ms": 1443.025900000066,
+  "audio_fallbacks": 0,
+  "rows": [
+    {
+      "session_id": "SIM-PERF-e823cd49-3519-428e-82d5-9b128f6ddbcb",
+      "turn_ms": 1443.025900000066,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-bc446a34-712a-4f50-90da-054cecae921a",
+      "turn_ms": 1109.6252999996068,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-55bd526b-a4d0-4ea0-9945-dc3171fb2644",
+      "turn_ms": 903.2248000003165,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-e1aac6d9-51dd-4952-8266-4db718703829",
+      "turn_ms": 1163.0433000027551,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-cf889d13-687f-4b4e-8f6a-3a5349a7ed1e",
+      "turn_ms": 1126.8331999963266,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-945fe8ad-a277-4de8-99c3-e67d55bb4997",
+      "turn_ms": 1120.3801999945426,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-a94747ea-b9b3-4196-a55d-eb65b575abac",
+      "turn_ms": 810.1967000038712,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-a9a71c81-1625-40a2-8517-909435e8e5bf",
+      "turn_ms": 1229.6487999992678,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-8113218d-6c17-45e4-a75f-5cb629fee93e",
+      "turn_ms": 1342.7576000030967,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-9bd85f6d-7cac-4a9f-b975-d945eefa96aa",
+      "turn_ms": 1224.2409999962547,
+      "state": "active",
+      "audio_fallback": false
+    }
+  ],
+  "stage_mean_ms": {
+    "breaker_lookup": 0.029,
+    "breaker_record": 9.137,
+    "reply": 514.432,
+    "reply_admission": 4.161,
+    "sentiment": 570.95,
+    "sentiment_admission": 2.875,
+    "storage_read": 6.614,
+    "storage_write": 19.035,
+    "total": 1137.378
+  },
+  "ai_stage_outcomes": {
+    "reply": {
+      "ok": 10
+    },
+    "sentiment": {
+      "ok": 10
+    }
+  },
+  "validation_passed": true,
+  "provider_host": "api.groq.com",
+  "model": "openai/gpt-oss-20b"
+}

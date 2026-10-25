@@ -1,0 +1,16 @@
+{
+  "experiment": "api-pod-replacement",
+  "run_id": "20261025T162139Z",
+  "generated_prefix": "SIM-K6-PODLOSS-20261025T162139Z",
+  "started_utc": "2026-10-25T16:21:39.343781Z",
+  "namespace": "sayangcare",
+  "forward_target": "-n ingress-nginx svc/ingress-nginx-controller 18181:80",
+  "base_url": "http://127.0.0.1:18181",
+  "vus": 100,
+  "duration": "90s",
+  "forward_started_utc": "2026-10-25T16:21:39.358756Z",
+  "forward_pid": 34396,
+  "forward_alive_before": true,
+  "forward_cleanup_utc": "2026-10-25T16:22:11.141548Z",
+  "forward_exit_code": 3221225794
+}

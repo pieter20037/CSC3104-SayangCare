@@ -1,0 +1,18 @@
+{
+    "run_id":  "LIFE-pod-failover-20261025T192750Z",
+    "mode":  "pod-failover",
+    "vus":  100,
+    "duration":  "60s",
+    "k6_exit_code":  -1,
+    "fault":  {
+                  "utc":  "2026-10-25T19:28:02.1096000Z",
+                  "uid":  "87200067-b8f2-4fcc-b6ba-3a7f23a692b4",
+                  "pod":  "sayangcare-api-8659b7b878-6m28p"
+              },
+    "replacement_ready_seconds":  null,
+    "audit":  null,
+    "error":  "Cannot index into a null array.",
+    "image_ids":  [
+                      "sha256:fdf15c0346e4a42a6bbe3c047a1fc4d308f9782da7c845345d86e30767057b69"
+                  ]
+}

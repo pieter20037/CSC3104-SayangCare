@@ -17,7 +17,8 @@ pub async fn replay(
     alert: impl Future<Output = CoreResult<()>>,
 ) -> (CoreResult<()>, CoreResult<()>) {
     async fn bounded(work: impl Future<Output = CoreResult<()>>) -> CoreResult<()> {
-        timeout(Duration::from_secs(2), work).await
+        timeout(Duration::from_secs(2), work)
+            .await
             .map_err(|_| CoreError::DeadlineExceeded("handoff_recovery"))?
     }
     tokio::join!(bounded(queue), bounded(alert))
@@ -35,7 +36,8 @@ mod tests {
         let (queue, alert) = replay(std::future::pending(), async {
             alerted.store(true, Ordering::SeqCst);
             Ok(())
-        }).await;
+        })
+        .await;
         assert!(queue.is_err());
         assert!(alert.is_ok());
         assert!(alerted.load(Ordering::SeqCst));
@@ -52,7 +54,10 @@ mod tests {
 
     #[test]
     fn recovery_excludes_assigned_resolved_and_ended_calls() {
-        let mut session = Session::new(CallerId { phone_number: "test".into(), display_name: None });
+        let mut session = Session::new(CallerId {
+            phone_number: "test".into(),
+            display_name: None,
+        });
         assert!(!needs_recovery(&session));
         session.state = SessionState::Escalated;
         session.handoff_status = HandoffStatus::Pending;

@@ -102,12 +102,7 @@ where
                 crate::telemetry::record_http_request(status, elapsed);
 
                 // Record the new route-level HTTP metrics.
-                crate::telemetry::record_http_route_request(
-                    &route,
-                    &method,
-                    status,
-                    elapsed,
-                );
+                crate::telemetry::record_http_route_request(&route, &method, status, elapsed);
             }
 
             let mut res = response?;

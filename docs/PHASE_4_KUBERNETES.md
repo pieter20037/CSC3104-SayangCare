@@ -6,6 +6,16 @@ See the [CloudNativePG installation guide](https://cloudnative-pg.io/docs/1.30/i
 
 ## Local Minikube Setup
 
+The Minikube overlay limits CloudNativePG `smartShutdownTimeout` to five
+seconds (base: 45). Persistent API connections can otherwise hold smart
+shutdown open during primary deletion. After this interval CNPG uses fast
+shutdown, terminating connections; it is not an immediate/unclean shutdown.
+The 90-second total stop/WAL-flush allowance and required synchronous replica
+acknowledgment are unchanged. This only targets graceful pod-deletion recovery,
+not node/network failures or zero-error availability. For planned maintenance,
+switch the primary before deleting it. See
+[CNPG shutdown control](https://cloudnative-pg.io/docs/1.28/instance_manager/#shutdown-control).
+
 The local workflow runs simulated calls without a public hostname, TLS certificate, or real Twilio credentials. The external-cluster sections below are optional for this demo. Docker builds the Rust application inside the image, so a separate host Rust installation is not required.
 
 ### Windows prerequisites (first time only)

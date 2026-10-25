@@ -25,6 +25,35 @@ struct ChatRequest<'a> {
     messages: Vec<ChatMessage<'a>>,
     temperature: f32,
     max_tokens: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    include_reasoning: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<ResponseFormat>,
+}
+
+#[derive(Serialize)]
+struct ResponseFormat {
+    #[serde(rename = "type")]
+    kind: &'static str,
+}
+
+impl<'a> ChatRequest<'a> {
+    fn new(model: &'a str, messages: Vec<ChatMessage<'a>>, max_tokens: u16, json: bool) -> Self {
+        let reasoning_model = model.starts_with("openai/gpt-oss-");
+        Self {
+            model,
+            messages,
+            temperature: 0.3,
+            max_tokens,
+            reasoning_effort: reasoning_model.then_some("low"),
+            include_reasoning: reasoning_model.then_some(false),
+            response_format: json.then_some(ResponseFormat {
+                kind: "json_object",
+            }),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -41,6 +70,8 @@ struct ChatResponse {
 #[derive(Deserialize)]
 struct Choice {
     message: ResponseMessage,
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -84,13 +115,9 @@ impl GroqInference {
         &self,
         messages: Vec<ChatMessage<'_>>,
         max_tokens: u16,
+        json: bool,
     ) -> CoreResult<String> {
-        let request = ChatRequest {
-            model: &self.model,
-            messages,
-            temperature: 0.3,
-            max_tokens,
-        };
+        let request = ChatRequest::new(&self.model, messages, max_tokens, json);
         let response = self
             .client
             .post(&self.endpoint)
@@ -113,11 +140,19 @@ impl GroqInference {
             .json()
             .await
             .map_err(|error| CoreError::Inference(format!("invalid Groq response: {error}")))?;
-        result
+        let choice = result
             .choices
             .into_iter()
             .next()
-            .and_then(|choice| choice.message.content)
+            .ok_or_else(|| CoreError::Inference("Groq returned no choices".to_string()))?;
+        if choice.finish_reason.as_deref() == Some("length") {
+            return Err(CoreError::Inference(
+                "Groq exhausted its output-token budget before completing the response".into(),
+            ));
+        }
+        choice
+            .message
+            .content
             .map(|content| content.trim().to_string())
             .filter(|content| !content.is_empty())
             .ok_or_else(|| CoreError::Inference("Groq returned no assistant text".to_string()))
@@ -142,7 +177,7 @@ impl InferenceService for GroqInference {
                 content: &turn.text,
             });
         }
-        self.complete(messages, 180).await
+        self.complete(messages, 512, false).await
     }
 
     async fn score_sentiment(&self, text: &str) -> CoreResult<SentimentSignal> {
@@ -159,10 +194,15 @@ impl InferenceService for GroqInference {
                 content: &instruction,
             },
         ];
-        let response = self.complete(messages, 100).await?;
+        let response = self.complete(messages, 512, true).await?;
         let parsed: SentimentResult = serde_json::from_str(&response).map_err(|error| {
             CoreError::Inference(format!("invalid sentiment JSON from Groq: {error}"))
         })?;
+        if !parsed.valence.is_finite() || !parsed.arousal.is_finite() {
+            return Err(CoreError::Inference(
+                "Groq sentiment contains non-finite values".into(),
+            ));
+        }
         let distress_markers = parsed
             .distress_markers
             .iter()
@@ -208,5 +248,29 @@ mod tests {
     fn missing_key_disables_provider_without_breaking_local_startup() {
         let provider = GroqInference::new(&AiConfig::default()).unwrap();
         assert!(provider.is_none());
+    }
+
+    #[test]
+    fn reasoning_sentiment_request_reserves_completion_and_requests_json() {
+        let value = serde_json::to_value(super::ChatRequest::new(
+            "openai/gpt-oss-20b",
+            vec![],
+            512,
+            true,
+        ))
+        .unwrap();
+        assert_eq!(value["reasoning_effort"], "low");
+        assert_eq!(value["include_reasoning"], false);
+        assert_eq!(value["response_format"]["type"], "json_object");
+        assert_eq!(value["max_tokens"], 512);
+    }
+
+    #[test]
+    fn nonreasoning_models_do_not_receive_reasoning_specific_options() {
+        let value = serde_json::to_value(super::ChatRequest::new("allam-2-7b", vec![], 512, false))
+            .unwrap();
+        assert!(value.get("reasoning_effort").is_none());
+        assert!(value.get("include_reasoning").is_none());
+        assert!(value.get("response_format").is_none());
     }
 }

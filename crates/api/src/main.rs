@@ -15,8 +15,8 @@ use tracing_actix_web::TracingLogger;
 
 mod fallback;
 mod handlers;
-mod inference;
 mod handoff_recovery;
+mod inference;
 mod middleware;
 mod perf_metrics;
 mod performance;
@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
         "SayangCare starting"
     );
 
-    // 4. Bootstrap AppState. Any failure here is fatal — we can't serve
+    // 4. Bootstrap AppState. Any failure here is fatal Ã¢â‚¬â€ we can't serve
     //    traffic without storage or telephony.
     let state = match AppState::bootstrap(config.clone()).await {
         Ok(s) => Arc::new(s),
@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
     let server = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(state_for_server.clone()))
-            // JSON payload limit — transcripts are small but bound them anyway.
+            // JSON payload limit Ã¢â‚¬â€ transcripts are small but bound them anyway.
             .app_data(web::JsonConfig::default().limit(256 * 1024))
             // Path extractor max length (SessionId is a UUID-ish string).
             .app_data(web::PathConfig::default())
@@ -160,7 +160,8 @@ async fn main() -> anyhow::Result<()> {
             )
     })
     .workers(config.server.workers)
-    .shutdown_timeout(25) // < terminationGracePeriodSeconds in k8s (30)
+    .disable_signals()
+    .shutdown_timeout(20) // Leaves room for the 5-second preStop within the 30-second grace.
     .bind(&bind_addr)?;
 
     info!(%bind_addr, "HTTP server bound");
@@ -173,30 +174,30 @@ async fn main() -> anyhow::Result<()> {
         config.server.port
     );
 
-    let handle = server.run();
-
-    // 7. Wait for either server exit or shutdown signal.
-    let cancel_on_signal = async {
-        shutdown_signal().await;
-        info!("shutdown signal received; draining connections");
-        shutdown.cancel();
-    };
-
-    tokio::select! {
-        res = handle => {
-            if let Err(e) = res {
-                error!(error = %e, "server error");
-                return Err(e.into());
-            }
-        }
-        _ = cancel_on_signal => {
-            // Graceful: give in-flight requests up to shutdown_timeout to finish.
-            // (Actix handles this internally once run() returns.)
-        }
-    }
+    serve_until_shutdown(server.run(), shutdown, shutdown_signal()).await?;
 
     info!("SayangCare shut down cleanly");
     Ok(())
+}
+
+async fn serve_until_shutdown(
+    mut server: actix_web::dev::Server,
+    shutdown: CancellationToken,
+    signal: impl std::future::Future<Output = ()>,
+) -> std::io::Result<()> {
+    let control = server.handle();
+    tokio::select! {
+        result = &mut server => {
+            shutdown.cancel();
+            result
+        }
+        _ = signal => {
+            info!("shutdown signal received; draining connections");
+            shutdown.cancel();
+            let (_, result) = tokio::join!(control.stop(true), server);
+            result
+        }
+    }
 }
 
 /// Resolves when SIGINT (Ctrl-C) or SIGTERM (k8s pod deletion) arrives.
@@ -221,5 +222,72 @@ async fn shutdown_signal() {
     tokio::select! {
         _ = ctrl_c => warn!("SIGINT received"),
         _ = terminate => warn!("SIGTERM received"),
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+    use actix_web::HttpResponse;
+    use std::net::TcpListener;
+    use std::time::Duration;
+    use tokio::sync::{oneshot, Notify};
+
+    #[actix_web::test]
+    async fn shutdown_waits_for_an_in_flight_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let entered = Arc::new(Notify::new());
+        let notify = entered.clone();
+        let server = HttpServer::new(move || {
+            let notify = notify.clone();
+            App::new().route(
+                "/",
+                web::get().to(move || {
+                    let notify = notify.clone();
+                    async move {
+                        notify.notify_one();
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        HttpResponse::Ok().body("finished")
+                    }
+                }),
+            )
+        })
+        .workers(1)
+        .disable_signals()
+        .shutdown_timeout(2)
+        .listen(listener)
+        .unwrap()
+        .run();
+        let shutdown = CancellationToken::new();
+        let token = shutdown.clone();
+        let (send, receive) = oneshot::channel();
+        let serving = actix_web::rt::spawn(serve_until_shutdown(server, token, async {
+            receive.await.unwrap();
+        }));
+        let request = actix_web::rt::spawn(async move {
+            reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap()
+                .get(format!("http://{address}/"))
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
+        });
+        tokio::time::timeout(Duration::from_secs(3), entered.notified())
+            .await
+            .unwrap();
+        send.send(()).unwrap();
+        assert_eq!(request.await.unwrap(), "finished");
+        tokio::time::timeout(Duration::from_secs(10), serving)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(shutdown.is_cancelled());
     }
 }

@@ -13,6 +13,17 @@ resources:
   - ../../base
 
 patches:
+  # Bound smart shutdown with persistent API pools; retain the base's full
+  # stop/WAL-flush allowance and synchronous commit durability.
+  - target:
+      group: postgresql.cnpg.io
+      version: v1
+      kind: Cluster
+      name: sayangcare-db
+    patch: |-
+      - op: replace
+        path: /spec/smartShutdownTimeout
+        value: 5
   - target:
       kind: Ingress
       name: sayangcare-api

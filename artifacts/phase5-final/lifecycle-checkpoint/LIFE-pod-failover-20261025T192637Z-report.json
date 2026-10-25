@@ -1,0 +1,14 @@
+{
+    "run_id":  "LIFE-pod-failover-20261025T192637Z",
+    "mode":  "pod-failover",
+    "vus":  100,
+    "duration":  "60s",
+    "k6_exit_code":  null,
+    "fault":  null,
+    "replacement_ready_seconds":  null,
+    "audit":  null,
+    "error":  "Exception calling \"Start\" with \"0\" argument(s): \"Only one usage of each socket address (protocol/network address/port) is normally permitted\"",
+    "image_ids":  [
+                      "sha256:fdf15c0346e4a42a6bbe3c047a1fc4d308f9782da7c845345d86e30767057b69"
+                  ]
+}

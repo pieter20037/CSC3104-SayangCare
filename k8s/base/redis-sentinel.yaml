@@ -211,6 +211,28 @@ spec:
               sentinel parallel-syncs sayangcare-master 1
               EOF
               fi
+              # Sentinel rewrites persisted topology; duplicate endpoints can prevent restart.
+              awk '
+                $1 == "sentinel" && $2 == "monitor" { master[$3] = $4 ":" $5 }
+                { lines[NR] = $0 }
+                END {
+                  for (i = 1; i <= NR; i++) {
+                    split(lines[i], fields)
+                    if (fields[1] == "sentinel" && fields[2] == "known-replica") {
+                      endpoint = fields[4] ":" fields[5]
+                      key = fields[3] ":" endpoint
+                      if (endpoint == master[fields[3]] || seen[key]++) continue
+                    }
+                    print lines[i]
+                  }
+                }
+              ' /data/sentinel.conf > /data/sentinel.conf.checked
+              if ! cmp -s /data/sentinel.conf /data/sentinel.conf.checked; then
+                cp /data/sentinel.conf "/data/sentinel.conf.before-repair-$(date +%s)"
+                cat /data/sentinel.conf.checked > /data/sentinel.conf
+                echo "Removed duplicate Sentinel replica endpoints; original configuration backed up."
+              fi
+              rm /data/sentinel.conf.checked
               exec redis-sentinel /data/sentinel.conf
           ports:
             - containerPort: 26379

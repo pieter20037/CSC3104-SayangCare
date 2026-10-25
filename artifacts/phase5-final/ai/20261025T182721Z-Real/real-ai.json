@@ -1,0 +1,57 @@
+{
+  "scenario": "real-ai",
+  "mode": "real-ai",
+  "calls": 3,
+  "workers": 1,
+  "ai_limit_per_process": 2,
+  "response_budget_ms": 5000,
+  "sentiment_mock_ms": null,
+  "reply_mock_ms": null,
+  "p50_turn_ms": 1042.5169999944046,
+  "p95_turn_ms": 1147.493399999803,
+  "p99_turn_ms": 1147.493399999803,
+  "max_turn_ms": 1147.493399999803,
+  "audio_fallbacks": 0,
+  "rows": [
+    {
+      "session_id": "SIM-PERF-4dda96cd-3b8e-4633-ad4e-128d9dc07b32",
+      "turn_ms": 1147.493399999803,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-941b3e57-2439-4d59-a3c8-ef4bd9d5747b",
+      "turn_ms": 1034.0754999997444,
+      "state": "active",
+      "audio_fallback": false
+    },
+    {
+      "session_id": "SIM-PERF-15caf8f6-b3d2-4a82-ad66-8bd64ce7e962",
+      "turn_ms": 1042.5169999944046,
+      "state": "active",
+      "audio_fallback": false
+    }
+  ],
+  "stage_mean_ms": {
+    "breaker_lookup": 0.028,
+    "breaker_record": 6.943,
+    "reply": 483.292,
+    "reply_admission": 3.674,
+    "sentiment": 533.773,
+    "sentiment_admission": 2.991,
+    "storage_read": 8.923,
+    "storage_write": 20.645,
+    "total": 1068.402
+  },
+  "ai_stage_outcomes": {
+    "reply": {
+      "ok": 3
+    },
+    "sentiment": {
+      "ok": 3
+    }
+  },
+  "validation_passed": true,
+  "provider_host": "api.groq.com",
+  "model": "openai/gpt-oss-20b"
+}

@@ -21,7 +21,7 @@ impl OrphanedSessionSweeper {
     pub async fn sweep_once(&self) -> Result<usize, sayangcare_core::CoreError> {
         const INACTIVITY: ChronoDuration = ChronoDuration::minutes(5);
         let cutoff = Utc::now() - INACTIVITY;
-        let sessions = self.hot.scan_sessions().await?;
+        let sessions = self.tiered.recovery_sessions(&self.hot).await?;
         let mut archived = 0;
 
         for session in sessions {

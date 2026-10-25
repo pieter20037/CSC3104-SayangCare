@@ -1,5 +1,6 @@
 use crate::inference::GroqInference;
 use chrono::{DateTime, Utc};
+use sayangcare_circuit_breaker::BreakerHandle;
 use sayangcare_circuit_breaker::{BreakerConfig, BreakerRegistry, SentimentAdaptivePolicy};
 use sayangcare_core::config::AppConfig;
 use sayangcare_core::domain::{HandoffStatus, SessionId};
@@ -16,7 +17,6 @@ use sayangcare_session_store::{
     VolunteerBindingStore,
 };
 use sayangcare_telephony::TwilioProvider;
-use sayangcare_circuit_breaker::BreakerHandle;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -83,6 +83,7 @@ impl AppState {
         // --- Cold store (Postgres) ---
         let pg_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(config.postgres.max_connections)
+            .acquire_timeout(Duration::from_secs(2))
             .connect(&config.postgres.url)
             .await
             .map_err(|e| sayangcare_core::CoreError::Storage(format!("pg pool: {e}")))?;
@@ -93,7 +94,14 @@ impl AppState {
         let archive = Arc::new(PostgresArchiveStore::new(pg_pool.clone()));
         let volunteer_bindings = Arc::new(VolunteerBindingStore::new(pg_pool.clone()));
 
-        let tiered = Arc::new(TieredSessionStore::new(hot.clone(), archive.clone()));
+        let checkpoints = Arc::new(sayangcare_session_store::PostgresSessionStore::new(
+            pg_pool.clone(),
+            hot.clone(),
+        ));
+        let tiered = Arc::new(TieredSessionStore::with_checkpoints(
+            checkpoints,
+            archive.clone(),
+        ));
 
         // --- Circuit breaker ---
         let policy = Arc::new(SentimentAdaptivePolicy::new(
@@ -273,9 +281,20 @@ impl AppState {
 
     /// A saved escalation counter is also the retry intent for repeated-risk
     /// alerts. Stable per-event IDs make cancellation after commit safe to replay.
-    pub async fn recover_risk_alerts(&self, session: &sayangcare_core::domain::Session) -> CoreResult<()> {
-        self.try_record_alert("escalated", &session.id.0, None,
-            format!("Session {} requires human support at risk level {}.", session.id, session.risk.level.0)).await?;
+    pub async fn recover_risk_alerts(
+        &self,
+        session: &sayangcare_core::domain::Session,
+    ) -> CoreResult<()> {
+        self.try_record_alert(
+            "escalated",
+            &session.id.0,
+            None,
+            format!(
+                "Session {} requires human support at risk level {}.",
+                session.id, session.risk.level.0
+            ),
+        )
+        .await?;
         sqlx::query("INSERT INTO operator_alerts (id, kind, session_id, message, created_at) SELECT 'repeated_risk:' || $1 || ':' || event::text, 'repeated_risk', $1, 'Repeated high-risk language requires operator review.', $3 FROM generate_series(2, $2::integer) AS event ON CONFLICT (id) DO NOTHING")
             .bind(&session.id.0).bind(i32::from(session.escalation_count)).bind(session.updated_at)
             .execute(&self.postgres).await
@@ -415,7 +434,7 @@ impl AppState {
     /// Saved session state is the retry intent, so API replacement does not
     /// lose a timed-out enqueue. Queue implementations preserve active claims.
     async fn reconcile_pending_handoffs(&self) -> CoreResult<()> {
-        for candidate in self.hot_sessions.scan_sessions().await? {
+        for candidate in self.tiered.recovery_sessions(&self.hot_sessions).await? {
             // Re-read immediately before replay: the scan may predate a claim
             // or a hangup. Redis/Raft enqueue also protects existing claims.
             let Some(session) = self.sessions.get(&candidate.id).await? else {
@@ -427,7 +446,13 @@ impl AppState {
             let alert = self.recover_risk_alerts(&session);
             let queue = async {
                 if crate::handoff_recovery::needs_recovery(&session) {
-                    self.queue.enqueue(session.id.clone(), session.risk.level.0.min(5), session.created_at).await
+                    self.queue
+                        .enqueue(
+                            session.id.clone(),
+                            session.risk.level.0.min(5),
+                            session.created_at,
+                        )
+                        .await
                 } else {
                     Ok(())
                 }

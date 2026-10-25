@@ -1,0 +1,405 @@
+{
+    "run_id":  "DEP-redis-20261025T165254Z",
+    "dependency":  "redis",
+    "context":  "minikube",
+    "namespace":  "sayangcare",
+    "vus":  30,
+    "duration":  "60s",
+    "fault":  {
+                  "deleted_pod":  "redis-2",
+                  "utc":  "2026-10-25T16:53:06.4375339Z"
+              },
+    "recovery":  null,
+    "audit":  null,
+    "error":  "No different healthy primary observed within the recovery timeout.",
+    "k6_exit_code":  null,
+    "samples":  [
+                    {
+                        "utc":  "2026-10-25T16:53:07.3389040Z",
+                        "primary":  "redis-2",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:09.6814030Z",
+                        "primary":  "redis-2",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:12.2772906Z",
+                        "primary":  "redis-2",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:14.7039786Z",
+                        "primary":  "redis-2",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:17.0746909Z",
+                        "primary":  "redis-2",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:19.4137428Z",
+                        "primary":  "redis-2",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:21.7344083Z",
+                        "primary":  "redis-2",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:24.1232269Z",
+                        "primary":  "redis-2",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:26.4707993Z",
+                        "primary":  "redis-2",
+                        "ready":  false
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:28.7604512Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:31.2844106Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:33.5991895Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:35.9482904Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:38.3043530Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:40.6683966Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:43.0252172Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:45.3809379Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:47.7954100Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:50.1085280Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:52.5119813Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:54.9106271Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:57.2624461Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:53:59.7087801Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:02.0286178Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:04.3611297Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:06.6735893Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:09.0102650Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:11.3317485Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:13.6229858Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:15.9596011Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:18.3111573Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:20.6174867Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:22.9250700Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:25.2603864Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:27.5683403Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:29.8846823Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:32.2318357Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:34.5961398Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:36.9127787Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:39.3023279Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:41.6073285Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:43.9312374Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:46.2780737Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:48.5958800Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:50.9385567Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:53.3244438Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:55.6629797Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:54:57.9914358Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:00.3552793Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:02.7278021Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:05.1692380Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:07.4728237Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:09.8178059Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:12.1607482Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:14.5254672Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:16.8512033Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:19.2060207Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:21.5513130Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:23.9051630Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:26.2909324Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:28.6075859Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:30.9106572Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:33.3067357Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:35.6583212Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:37.9913660Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:40.3206683Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:42.6583293Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:45.0680382Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:47.4132386Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:49.7405273Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:52.0565558Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:54.3947949Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:56.7564114Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:55:59.1213258Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:56:01.5041053Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:56:03.8500219Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    },
+                    {
+                        "utc":  "2026-10-25T16:56:06.1867847Z",
+                        "primary":  "redis-2",
+                        "ready":  true
+                    }
+                ],
+    "primary_before":  "redis-2",
+    "primary_uid_before":  "7217a087-a33e-4057-8883-446cf7f3bb09"
+}

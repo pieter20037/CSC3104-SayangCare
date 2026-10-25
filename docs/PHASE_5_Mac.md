@@ -15,14 +15,18 @@ metrics along with active-session and circuit-breaker gauges.
 | --- | --- | --- | --- |
 | **API-04** | Actix Web instrumentation | **Implemented** | `GET /api/v1/metrics` exposes HTTP status counters, per-route request counts/histograms, active-session/archive-backlog gauges, and breaker state. |
 | **OBS-01** | Prometheus scraping | **Verified locally** | Local Prometheus scrapes API metrics and the Adapter publishes `sayangcare_http_requests_per_second`; active-session and breaker metrics are also exported. |
-| **OBS-02** | Grafana dashboard | **Implemented locally** | `k8s/monitoring/grafana-values.yaml` provisions a local request-rate and counter dashboard. Windows deployment was verified; macOS has not been tested. |
-| **TEST-01** | k6 concurrency benchmark | **Earlier HTTP-status run recorded; stronger checks ready to rerun** | The current scenario verifies response bodies and transcript retrieval after archival. Earlier Windows summaries predate those checks. |
-| **TEST-02** | Pod failover chaos test | **Earlier pod-level run recorded; consistency checks ready to rerun** | Use the current archive consistency/retry metrics for a repeat. This is not node-level HA or a macOS test. |
+| **OBS-02** | Grafana dashboard | **Installed and verified on Windows Minikube** | Seven panels and the Prometheus query connection were verified on 26 October; macOS execution has not been tested. |
+| **TEST-01** | k6 concurrency benchmark | **Checkpoint baseline passed on Windows** | Native exit 0; 100 VUs / 30 s: 1,358 lifecycles, zero HTTP/check failures; SQL confirms all archives; HTTP p95/p99 997.87/1,155.75 ms. Not macOS measurements. |
+| **TEST-02** | Pod failover chaos test | **Post-checkpoint Windows rerun passed** | Native exit 0 after graceful-shutdown fix; 100 VUs / 60 s, 2,090 lifecycles, zero HTTP failures; independent SQL verified every transcript; replacement Ready 10.112 s. Not node-level HA or a macOS test. |
 | **TEST-03** | Evaluation metrics gathering | **Windows local evidence recorded** | Baseline, pod-loss, readiness, scaling, and PostgreSQL/Redis recovery results are in the local results report. A single-node cluster cannot establish node/zone HA. |
-| **TEST-05** | HPA scaling performance evaluation | **Timed evaluation harness added; new results pending** | The Windows runner records replica timing and pairs HPA samples with k6 latency/error summaries; macOS-specific evaluation is not recorded. |
+| **TEST-04** | Dependency recovery under load | **Windows recovery passes; PostgreSQL availability fails** | Redis promotion preserved all 2,149 lifecycles without errors. Local smart-shutdown tuning reduced PostgreSQL recovery to 27.943 s and HTTP failures to 1.600%; acknowledged operations survived; native exit 99. |
+| **PERF-LIVE** | Real AI-provider latency | **Ten-turn Windows live gate passed** | Groq sentiment/replies 10/10 each, no audio fallback; median 1,126.83 ms, maximum 1,443.03 ms. Small sample, not a production percentile benchmark. |
+| **FIX-03** | Shared operator alerts | **Verified on Windows Minikube** | The same nonempty alert survived an API pod replacement, with one durable row before/after. |
+| **TEST-05** | HPA scaling performance evaluation | **Corrected-image Windows scaling measured; load gates fail** | Native exit 99; 3,421 iterations; replicas 3 -> 5 -> 3; desired increase 71.3 s, Ready increase 89.8 s, downscale 371.2 s. Seven HTTP failures and p95 2,200.26 ms, with pool timeouts; all acknowledged operations preserved. |
 
 The local API HPA configuration includes CPU, memory, and request-rate metrics.
 Its request-rate target is 25 requests/second per API pod.
+Current TEST-02/TEST-05 follow-ups use checkpointing; historical runs are retained.
 
 ## Requirements
 

@@ -8,10 +8,12 @@ param(
     [int]$PollSeconds = 5,
     [int]$DownscaleTimeoutSeconds = 900,
     [string]$K6Path,
+    [string]$KubectlPath = 'kubectl',
     [string]$OutputDirectory = 'artifacts/perf/hpa'
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'recorded-process.ps1')
 
 if ($Vus -lt 1 -or $PollSeconds -lt 1 -or $DownscaleTimeoutSeconds -lt 0) {
     throw 'Vus and PollSeconds must be positive; DownscaleTimeoutSeconds cannot be negative.'
@@ -47,13 +49,13 @@ $script:samples = [System.Collections.Generic.List[object]]::new()
 function Get-HpaSnapshot {
     param([string]$Phase)
 
-    $hpaOutput = & kubectl @script:kubectlPrefix get hpa sayangcare-api -o json 2>&1
+    $hpaOutput = & $KubectlPath @script:kubectlPrefix get hpa sayangcare-api -o json 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Could not read sayangcare-api HPA in context '$Context', namespace '$Namespace': $hpaOutput"
     }
     $hpa = ($hpaOutput | ConvertFrom-Json)
 
-    $deploymentOutput = & kubectl @script:kubectlPrefix get deployment sayangcare-api -o json 2>&1
+    $deploymentOutput = & $KubectlPath @script:kubectlPrefix get deployment sayangcare-api -o json 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Could not read sayangcare-api Deployment: $deploymentOutput"
     }
@@ -82,6 +84,7 @@ function Get-HpaSnapshot {
         }) -join ';')
     }
     $script:samples.Add($sample)
+    $sample | Export-Csv -Path $samplesPath -NoTypeInformation -Append
     return $sample
 }
 
@@ -101,12 +104,13 @@ $arguments = @(
     '-e', "VUS=$Vus",
     '-e', "DURATION=$Duration",
     '-e', "RUN_ID=$runIdForCalls",
+    '-e', 'RECORD_SESSION_IDS=true',
     '--summary-export', "`"$summaryPath`"",
     "`"$repositoryRoot\tests\k6\call-lifecycle.js`""
 )
-$process = Start-Process -FilePath $k6Executable -ArgumentList $arguments `
-    -WorkingDirectory $repositoryRoot -NoNewWindow -PassThru `
-    -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+$recording = Start-RecordedProcess -FilePath $k6Executable -Arguments $arguments `
+    -WorkingDirectory $repositoryRoot -StdoutPath $stdoutPath -StderrPath $stderrPath
+$process = $recording.Process
 
 $firstDesiredScaleUp = $null
 $firstAdditionalReady = $null
@@ -133,19 +137,22 @@ try {
 } catch {
     if (-not $process.HasExited) {
         Stop-Process -Id $process.Id -Force
-        $process.WaitForExit()
     }
+    $null = Complete-RecordedProcess $recording
     throw
 }
-$process.Refresh()
+$k6ExitCode = Complete-RecordedProcess $recording
 $loadEnded = [DateTime]::UtcNow
-$k6ExitCode = $process.ExitCode
+if ($null -eq $k6ExitCode) {
+    throw 'Could not obtain the k6 exit code; do not treat this evaluation as a pass.'
+}
 
 $downscaleCompleted = $null
 $downscaleDeadline = $loadEnded.AddSeconds($DownscaleTimeoutSeconds)
 while ([DateTime]::UtcNow -lt $downscaleDeadline) {
     $sample = Get-HpaSnapshot -Phase 'cooldown'
-    if ($sample.current_replicas -eq $initialReplicas `
+    if ($maxDesiredReplicas -gt $initialReplicas `
+        -and $sample.current_replicas -eq $initialReplicas `
         -and $sample.desired_replicas -eq $initialReplicas `
         -and $sample.ready_replicas -ge $initialReplicas) {
         $downscaleCompleted = [DateTime]::Parse($sample.timestamp_utc).ToUniversalTime()
@@ -179,6 +186,7 @@ $report = [pscustomobject]@{
     initial_replicas = $initialReplicas
     max_desired_replicas = $maxDesiredReplicas
     max_ready_replicas = $maxReadyReplicas
+    scale_up_observed = ($null -ne $firstDesiredScaleUp)
     first_scale_up_desired_seconds = $scaleUpDesiredSeconds
     first_additional_pod_ready_seconds = $scaleUpReadySeconds
     downscale_completed_utc = if ($null -ne $downscaleCompleted) { $downscaleCompleted.ToString('o') } else { $null }

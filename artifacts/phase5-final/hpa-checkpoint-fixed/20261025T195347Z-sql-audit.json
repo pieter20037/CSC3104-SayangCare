@@ -1,0 +1,13 @@
+{
+    "run_id":  "HPA-20261025T195347Z",
+    "checkpoint_rows":  3418,
+    "cold_rows":  3418,
+    "pending":  0,
+    "nonterminal":  0,
+    "acknowledged_creates":  3418,
+    "acknowledged_turns":  3415,
+    "acknowledged_hangups":  3418,
+    "missing_durable_count":  0,
+    "invalid_acknowledged_turn_count":  0,
+    "missing_acknowledged_archive_count":  0
+}

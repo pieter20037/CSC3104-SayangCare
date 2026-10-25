@@ -7,18 +7,51 @@ a disposable test cluster.
 
 ## Work summary
 
+### Repeat on the checkpoint architecture (Windows PowerShell 5)
+
+The lifecycle runner owns its Ingress forward, captures the native k6 exit code
+and performs an independent SQL archive/checkpoint audit. The optional fault
+deletes only one API pod; no PVC or database is deleted.
+
+```powershell
+.\tests\k6\test-recorded-process.ps1
+.\tests\k6\evaluate-lifecycle.ps1 -Mode baseline -Vus 100 -Duration 30s
+.\tests\k6\evaluate-lifecycle.ps1 -Mode pod-failover -Vus 100 -Duration 60s
+```
+
+Use `-WhatIf` to preview, `-KubectlPath` / `-K6Path` for explicit executable
+paths. Port 18186 must be free. Reports include `k6_exit_code`, image IDs,
+HTTP p95/p99, exact archive counts/transcripts, and replacement timing/UID.
+Run load/fault experiments sequentially so their measurements do not interfere.
+
+`recorded-process.ps1` starts k6 through its own .NET `Process` instance and
+copies stdout/stderr asynchronously to separate files. Windows PowerShell 5's
+`Start-Process` could return a process object with an unavailable exit code
+despite handle retention. The regression check asserts both native exit 0 and
+99, log contents, and polling before completion. The HPA and dependency runners
+use the same helper; missing codes are never interpreted as success.
+
+Latest repeatable baseline: 100 VUs / 30 s, **1,358 lifecycles**, native exit
+**0**, zero HTTP/check failures; HTTP p95/p99 **997.87/1,155.75 ms**. Independent
+SQL verified every archive/transcript/checkpoint. After the graceful-shutdown
+fix, pod deletion at 100 VUs / 60 s passed with **2,090 lifecycles**, exit **0**,
+zero HTTP failures and replacement Ready at **10.112 s**. The first timed
+post-checkpoint HPA run measured 3 -> 5 -> 3 but exited **99** due to real request
+failures; see the corrected-image follow-up in the results. The table's older
+measurements below remain historical. See
+[current results and trade-offs](./TEST04_AND_AI_VALIDATION.md).
+
 | ID | Change / evidence | Current status |
 | --- | --- | --- |
-| **FIX-02** | Prevented re-enqueueing an actively claimed Redis queue item; Redis claim Lua now protects against older stale duplicates; "claim next" discards entries whose session is missing or no longer pending. Added ignored Redis tests for stale/re-enqueued entries and concurrent claims. | Code and tests added; run the Redis integration tests below. |
-| **TEST-01** | k6 now validates response bodies, reads each finished session back through the API, checks the persisted transcript, and records consistency/retry metrics as well as HTTP latency and errors. | Harness ready; rerun to create evidence for these additional checks. |
-| **TEST-02** | The same lifecycle scenario supports active pod replacement. Read-only archive checks retry transient failures, and their retry count is measured; mutating incoming/turn/hangup calls are not retried. | Follow the controlled procedure below and save the k6 summary and recovery timestamps. |
-| **TEST-05** | Added a Windows PowerShell runner that samples HPA current/desired/ready replicas during load and cooldown, records scale-up/down delay, and saves the k6 summary with p95/p99 and error metrics. It uses the existing HPA; it does not change its configuration. | Harness ready; run against the request-rate HPA overlay and record the output. |
+| **FIX-02** | Prevented re-enqueueing an actively claimed Redis queue item; Redis claim Lua now protects against older stale duplicates; "claim next" discards entries whose session is missing or no longer pending. Added ignored Redis tests for stale/re-enqueued entries and concurrent claims. | Four Redis integration tests passed against disposable Redis during the October validation. |
+| **TEST-01** | k6 now validates response bodies, reads each finished session back through the API, checks the persisted transcript, and records consistency/retry metrics as well as HTTP latency and errors. | Current 100-VU / 30-second run passed: 2,142 lifecycles, 100% lifecycle/archive-read consistency, zero HTTP failures. |
+| **TEST-02** | The same lifecycle scenario supports active pod replacement. Read-only archive checks retry transient failures, and their retry count is measured; mutating incoming/turn/hangup calls are not retried. | Current ingress-based 100-VU / 60-second run passed: 3,901 lifecycles, 100% lifecycle/archive-read consistency, zero HTTP failures. |
+| **TEST-05** | Windows PowerShell runner samples HPA current/desired/ready replicas during load and cooldown and saves k6 latency/error summaries. It does not change HPA configuration. Samples are persisted incrementally, the process handle retains k6's exit code, and downscale is not counted without an observed scale-up. | Timed run recorded: 100 VUs / 2 minutes, 8,418 successful lifecycles, desired 3 -> 9, first desired increase 67.0 s, first additional Ready pod 79.6 s, return to 3 after 493.9 s cooldown. See local results for original exit-code capture limitation and subsequent smoke test. |
 
-The existing [local results](./PHASE_5_LOCAL_RESULTS.md) preserve earlier
-100-VU baseline and pod-replacement numbers. Those summaries were produced
-before the new body, archive, and consistency checks, so they are historical
-HTTP-status evidence and must not be described as a pass of the stronger
-checks in the current k6 script.
+The [local results](./PHASE_5_LOCAL_RESULTS.md) include the current 26 October
+validation and raw artifact links. They also preserve older 23 October
+HTTP-status evidence, which predates the stronger checks and must not be
+confused with the new runs.
 
 ## FIX-02: Why Claim Next could return 409
 

@@ -1,0 +1,235 @@
+{
+    "metrics": {
+        "data_received": {
+            "count": 20620,
+            "rate": 3932.4145710110447
+        },
+        "http_req_tls_handshaking": {
+            "med": 0,
+            "avg": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "max": 0,
+            "min": 0
+        },
+        "http_req_sending": {
+            "min": 0,
+            "med": 0,
+            "avg": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "max": 0
+        },
+        "call_lifecycle_failures": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "http_req_duration": {
+            "p(99)": 35.334827,
+            "max": 35.6276,
+            "min": 3.9262,
+            "med": 8.360199999999999,
+            "avg": 11.5350675,
+            "p(90)": 21.755340000000007,
+            "p(95)": 30.167559999999984,
+            "thresholds": {
+                "p(95)<2000": false
+            }
+        },
+        "http_req_blocked": {
+            "max": 2.1639,
+            "min": 0,
+            "med": 0,
+            "avg": 0.108195,
+            "p(90)": 0,
+            "p(95)": 0.10819499999999385,
+            "p(99)": 2.1639
+        },
+        "call_archive_consistency": {
+            "passes": 10,
+            "fails": 0,
+            "thresholds": {
+                "rate>0.99": false
+            },
+            "value": 1
+        },
+        "vus": {
+            "min": 2,
+            "max": 2,
+            "value": 2
+        },
+        "iteration_duration": {
+            "avg": 1048.4275,
+            "p(90)": 1058.1640499999999,
+            "p(95)": 1058.696625,
+            "p(99)": 1059.122685,
+            "max": 1059.2292,
+            "min": 1038.4715,
+            "med": 1048.3333499999999
+        },
+        "http_reqs": {
+            "count": 40,
+            "rate": 7.6283502832416
+        },
+        "http_req_duration{expected_response:true}": {
+            "min": 3.9262,
+            "med": 8.360199999999999,
+            "avg": 11.5350675,
+            "p(90)": 21.755340000000007,
+            "p(95)": 30.167559999999984,
+            "p(99)": 35.334827,
+            "max": 35.6276
+        },
+        "iterations": {
+            "count": 10,
+            "rate": 1.9070875708104
+        },
+        "call_lifecycle_success": {
+            "passes": 10,
+            "fails": 0,
+            "thresholds": {
+                "rate>0.99": false
+            },
+            "value": 1
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 40,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "http_req_receiving": {
+            "min": 0,
+            "med": 0,
+            "avg": 0.12333749999999999,
+            "p(90)": 0.5524,
+            "p(95)": 0.554935,
+            "p(99)": 0.563914,
+            "max": 0.5668
+        },
+        "http_req_waiting": {
+            "max": 35.6276,
+            "min": 3.9262,
+            "med": 8.27295,
+            "avg": 11.411729999999997,
+            "p(90)": 21.700100000000006,
+            "p(95)": 30.139939999999985,
+            "p(99)": 35.119391
+        },
+        "vus_max": {
+            "max": 2,
+            "value": 2,
+            "min": 2
+        },
+        "http_req_connecting": {
+            "min": 0,
+            "med": 0,
+            "avg": 0.081335,
+            "p(90)": 0,
+            "p(95)": 0.08133499999999538,
+            "p(99)": 1.6267,
+            "max": 1.6267
+        },
+        "checks": {
+            "passes": 110,
+            "fails": 0,
+            "value": 1
+        },
+        "data_sent": {
+            "count": 7560,
+            "rate": 1441.7582035326625
+        }
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "incoming returns HTTP 200": {
+                    "id": "0c92ddd13276de593b7f1d1f55ba17f4",
+                    "passes": 10,
+                    "fails": 0,
+                    "name": "incoming returns HTTP 200",
+                    "path": "::incoming returns HTTP 200"
+                },
+                "incoming response contains the generated session id": {
+                    "name": "incoming response contains the generated session id",
+                    "path": "::incoming response contains the generated session id",
+                    "id": "3757c25d244ecbc9e53dc081e5bc58ee",
+                    "passes": 10,
+                    "fails": 0
+                },
+                "turn returns HTTP 200": {
+                    "id": "a93df4b96c94d3e64f74701e46aa1c91",
+                    "passes": 10,
+                    "fails": 0,
+                    "name": "turn returns HTTP 200",
+                    "path": "::turn returns HTTP 200"
+                },
+                "turn response contains the matching session id": {
+                    "path": "::turn response contains the matching session id",
+                    "id": "8ed00368ad524ddbdd78ac1de097cc0b",
+                    "passes": 10,
+                    "fails": 0,
+                    "name": "turn response contains the matching session id"
+                },
+                "turn response contains an assistant reply": {
+                    "fails": 0,
+                    "name": "turn response contains an assistant reply",
+                    "path": "::turn response contains an assistant reply",
+                    "id": "5d3eafc68346c61e2528e798a220472f",
+                    "passes": 10
+                },
+                "hangup returns HTTP 200": {
+                    "fails": 0,
+                    "name": "hangup returns HTTP 200",
+                    "path": "::hangup returns HTTP 200",
+                    "id": "d26dfca1b743cbca7c3a315c18a64097",
+                    "passes": 10
+                },
+                "hangup response is terminal": {
+                    "name": "hangup response is terminal",
+                    "path": "::hangup response is terminal",
+                    "id": "0c9e8e97c328ecb6a592d51d5997cda8",
+                    "passes": 10,
+                    "fails": 0
+                },
+                "archived session can be read after hangup": {
+                    "name": "archived session can be read after hangup",
+                    "path": "::archived session can be read after hangup",
+                    "id": "4deaaa8a459fca97c5b6d7a366fe897f",
+                    "passes": 10,
+                    "fails": 0
+                },
+                "archived session id matches the generated call id": {
+                    "passes": 10,
+                    "fails": 0,
+                    "name": "archived session id matches the generated call id",
+                    "path": "::archived session id matches the generated call id",
+                    "id": "3a338f3522bedd968dc8d6018571c161"
+                },
+                "archived transcript contains the generated caller turn": {
+                    "name": "archived transcript contains the generated caller turn",
+                    "path": "::archived transcript contains the generated caller turn",
+                    "id": "fe1e3e7060063ab3f1bc3b8e5d6120f4",
+                    "passes": 10,
+                    "fails": 0
+                },
+                "archived transcript contains an assistant turn": {
+                    "name": "archived transcript contains an assistant turn",
+                    "path": "::archived transcript contains an assistant turn",
+                    "id": "69e194eec747b4819a0f848cdd69a57b",
+                    "passes": 10,
+                    "fails": 0
+                }
+            }
+    }
+}

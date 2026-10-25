@@ -1,0 +1,33 @@
+{
+    "run_id":  "LIFE-pod-failover-20261025T194414Z",
+    "mode":  "pod-failover",
+    "vus":  100,
+    "duration":  "60s",
+    "k6_exit_code":  0,
+    "fault":  {
+                  "utc":  "2026-10-25T19:44:27.6727545Z",
+                  "uid":  "790fe056-cb91-4add-9cbb-9b8af48eb91f",
+                  "pod":  "sayangcare-api-b74874bf6-25kn8"
+              },
+    "replacement_ready_seconds":  10.112,
+    "audit":  {
+                  "rows":  2090,
+                  "distinct_ids":  2090,
+                  "invalid_transcripts":  0,
+                  "nonterminal":  0,
+                  "checkpoints":  2090,
+                  "pending":  0
+              },
+    "error":  null,
+    "image_ids":  [
+                      "sha256:0c4ef11e5bee423304ff109cd30036f8995b39e23d49294e3c838ffcb1d0367b",
+                      "sha256:3858e2806bd6e6fcdc51df50eea096cbd3ab064cc19c225ee8e63dd45a79270a"
+                  ],
+    "replacement_uid":  "b59e6cc6-7764-4f75-a9a5-9bce682a8cbd",
+    "iterations":  2090,
+    "http_failure_rate":  0,
+    "lifecycle_success_rate":  1,
+    "http_p95_ms":  1497.1553299999996,
+    "http_p99_ms":  2197.103077999999,
+    "consistency_passed":  true
+}

@@ -73,3 +73,14 @@ data/
 
 __pycache__/
 *.pyc
+
+# Local Python environments and temporary Office files
+.venv/
+venv/
+~$*
+
+# Raw local test streams and scratch outputs; keep structured evidence
+/artifacts/**/*.err
+/artifacts/**/*.tmp
+/artifacts/**/*-probe.txt
+/artifacts/**/*-delete-command.txt

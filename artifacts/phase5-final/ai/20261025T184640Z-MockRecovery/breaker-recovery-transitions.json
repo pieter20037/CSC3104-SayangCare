@@ -1,0 +1,90 @@
+[
+  {
+    "phase": "baseline",
+    "elapsed_seconds": 0.4996501999994507,
+    "states": {
+      "llm-reply": 0,
+      "llm-sentiment": 0
+    }
+  },
+  {
+    "phase": "outage",
+    "elapsed_seconds": 3.2936153000046033,
+    "states": {
+      "llm-reply": 1,
+      "llm-sentiment": 0
+    }
+  },
+  {
+    "phase": "recovery-probe",
+    "elapsed_seconds": 14.309086000001116,
+    "states": {
+      "llm-reply": 2,
+      "llm-sentiment": 0
+    }
+  },
+  {
+    "phase": "recovery-probe",
+    "elapsed_seconds": 14.371568599999591,
+    "states": {
+      "llm-reply": 2,
+      "llm-sentiment": 0
+    }
+  },
+  {
+    "phase": "recovery-probe",
+    "elapsed_seconds": 14.432928200003516,
+    "states": {
+      "llm-reply": 2,
+      "llm-sentiment": 0
+    }
+  },
+  {
+    "phase": "recovery-probe",
+    "elapsed_seconds": 14.514054400002351,
+    "states": {
+      "llm-reply": 2,
+      "llm-sentiment": 0
+    }
+  },
+  {
+    "phase": "recovery-probe",
+    "elapsed_seconds": 14.578873800004658,
+    "states": {
+      "llm-reply": 2,
+      "llm-sentiment": 0
+    }
+  },
+  {
+    "phase": "recovery-probe",
+    "elapsed_seconds": 14.663732200002414,
+    "states": {
+      "llm-reply": 2,
+      "llm-sentiment": 0
+    }
+  },
+  {
+    "phase": "recovery-probe",
+    "elapsed_seconds": 14.740600400000403,
+    "states": {
+      "llm-reply": 0,
+      "llm-sentiment": 0
+    }
+  },
+  {
+    "phase": "recovery-probe",
+    "elapsed_seconds": 14.80180300000211,
+    "states": {
+      "llm-reply": 0,
+      "llm-sentiment": 0
+    }
+  },
+  {
+    "phase": "restored",
+    "elapsed_seconds": 14.879798900001333,
+    "states": {
+      "llm-reply": 0,
+      "llm-sentiment": 0
+    }
+  }
+]

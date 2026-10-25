@@ -1,0 +1,17 @@
+{
+    "session_id":  "SIM-ALERT-20261025T165912Z",
+    "started_utc":  "2026-10-25T16:59:12.7126251Z",
+    "passed":  true,
+    "error":  null,
+    "pod_a":  "sayangcare-api-55bd5cd88d-p5nbk",
+    "pod_b":  "sayangcare-api-55bd5cd88d-s7l9h",
+    "uid_a":  "8a6710ab-1e18-4042-bd3e-8b3fed8a86d6",
+    "uid_b":  "fed4171f-2f9d-4481-8f74-6788d651c9a4",
+    "alert_id":  "escalated:SIM-ALERT-20261025T165912Z",
+    "sql_count_before":  1,
+    "deleted_utc":  "2026-10-25T16:59:18.2406120Z",
+    "replacement_pod":  "sayangcare-api-55bd5cd88d-grqpn",
+    "replacement_uid":  "a71c5305-8cf0-4399-b6fb-0e3389575aae",
+    "sql_count_after":  1,
+    "completed_utc":  "2026-10-25T16:59:28.7248344Z"
+}

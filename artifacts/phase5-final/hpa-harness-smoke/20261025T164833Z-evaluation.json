@@ -1,0 +1,23 @@
+{
+    "run_id":  "HPA-20261025T164833Z",
+    "context":  "minikube",
+    "namespace":  "sayangcare",
+    "vus":  2,
+    "load_duration":  "5s",
+    "load_started_utc":  "2026-10-25T16:48:34.0567941Z",
+    "load_ended_utc":  "2026-10-25T16:48:40.6783734Z",
+    "initial_replicas":  3,
+    "max_desired_replicas":  3,
+    "max_ready_replicas":  3,
+    "scale_up_observed":  false,
+    "first_scale_up_desired_seconds":  null,
+    "first_additional_pod_ready_seconds":  null,
+    "downscale_completed_utc":  null,
+    "downscale_seconds_after_load":  null,
+    "downscale_observed":  false,
+    "k6_exit_code":  0,
+    "k6_summary_path":  "C:\\Users\\darre\\CSC3104-SayangCare Project\\CSC3104-SayangCare\\artifacts\\phase5-final\\hpa-harness-smoke\\20261025T164833Z-k6-summary.json",
+    "k6_stdout_path":  "C:\\Users\\darre\\CSC3104-SayangCare Project\\CSC3104-SayangCare\\artifacts\\phase5-final\\hpa-harness-smoke\\20261025T164833Z-k6.stdout.log",
+    "k6_stderr_path":  "C:\\Users\\darre\\CSC3104-SayangCare Project\\CSC3104-SayangCare\\artifacts\\phase5-final\\hpa-harness-smoke\\20261025T164833Z-k6.stderr.log",
+    "hpa_samples_path":  "C:\\Users\\darre\\CSC3104-SayangCare Project\\CSC3104-SayangCare\\artifacts\\phase5-final\\hpa-harness-smoke\\20261025T164833Z-hpa-samples.csv"
+}

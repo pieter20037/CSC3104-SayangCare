@@ -1,0 +1,135 @@
+{
+    "timestampUTC":  "2026-10-25T17:14:10.2445071Z",
+    "exitCode":  0,
+    "vus":  2,
+    "duration":  "3s",
+    "pointCount":  342,
+    "metricNames":  [
+                        "call_archive_consistency",
+                        "call_lifecycle_success",
+                        "checks",
+                        "data_received",
+                        "data_sent",
+                        "http_req_blocked",
+                        "http_req_connecting",
+                        "http_req_duration",
+                        "http_req_failed",
+                        "http_req_receiving",
+                        "http_req_sending",
+                        "http_req_tls_handshaking",
+                        "http_req_waiting",
+                        "http_reqs",
+                        "iteration_duration",
+                        "iterations",
+                        "vus",
+                        "vus_max"
+                    ],
+    "tagSampleCount":  20,
+    "tagSamples":  [
+                       {
+                           "metric":  "http_reqs",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_duration",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_blocked",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_connecting",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_tls_handshaking",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_sending",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_waiting",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_receiving",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_failed",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_reqs",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_duration",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_blocked",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_connecting",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_tls_handshaking",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_sending",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_waiting",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_receiving",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_req_failed",
+                           "url":  "POST /api/v1/calls/incoming",
+                           "name":  "POST /api/v1/calls/incoming"
+                       },
+                       {
+                           "metric":  "http_reqs",
+                           "url":  "POST /api/v1/calls/:id/turn",
+                           "name":  "POST /api/v1/calls/:id/turn"
+                       },
+                       {
+                           "metric":  "http_req_duration",
+                           "url":  "POST /api/v1/calls/:id/turn",
+                           "name":  "POST /api/v1/calls/:id/turn"
+                       }
+                   ],
+    "healthEndpoints":  [
+                            "health",
+                            "ready",
+                            "metrics"
+                        ]
+}

@@ -55,6 +55,12 @@ function passed(response, step, extraChecks = {}) {
   });
   if (!ok) {
     failedLifecycles.add(1, { step });
+    console.warn(JSON.stringify({
+      event: 'lifecycle_step_failed',
+      step,
+      status: response.status,
+      error_code: response.error_code,
+    }));
   }
   return ok;
 }
@@ -63,7 +69,7 @@ export default function () {
   const callSid = `SIM-K6-${runId}-${__VU}-${__ITER}`;
   const params = {
     headers: { 'Content-Type': 'application/json' },
-    tags: { scenario: 'call-lifecycle' },
+    tags: { scenario: 'call-lifecycle', name: 'POST /api/v1/calls/incoming' },
   };
 
   const incoming = http.post(
@@ -85,11 +91,14 @@ export default function () {
     sleep(1);
     return;
   }
+  if (__ENV.RECORD_SESSION_IDS === 'true') {
+    console.log(`ACKNOWLEDGED_SESSION ${callSid}`);
+  }
 
   const turn = http.post(
     `${api}/${callSid}/turn`,
     JSON.stringify({ transcript: callerTranscript }),
-    params,
+    { ...params, tags: { ...params.tags, name: 'POST /api/v1/calls/:id/turn' } },
   );
   const turnOk = passed(turn, 'turn', {
     'turn response contains the matching session id': (res) => (
@@ -100,8 +109,13 @@ export default function () {
       return typeof body?.assistant_response === 'string' && body.assistant_response.length > 0;
     },
   });
+  if (turnOk && __ENV.RECORD_SESSION_IDS === 'true') {
+    console.log(`ACKNOWLEDGED_TURN ${callSid}`);
+  }
 
-  const hangup = http.post(`${api}/${callSid}/hangup`, null, params);
+  const hangup = http.post(`${api}/${callSid}/hangup`, null, {
+    ...params, tags: { ...params.tags, name: 'POST /api/v1/calls/:id/hangup' },
+  });
   const hangupOk = passed(hangup, 'hangup', {
     'hangup response is terminal': (res) => {
       const body = jsonBody(res);
@@ -109,12 +123,17 @@ export default function () {
         && ['completed', 'escalated'].includes(body?.state);
     },
   });
+  if (hangupOk && __ENV.RECORD_SESSION_IDS === 'true') {
+    console.log(`ACKNOWLEDGED_HANGUP ${callSid}`);
+  }
 
   let archivedSession;
   let archiveResponse;
   for (let attempt = 1; attempt <= archiveReadMaxAttempts; attempt += 1) {
     archiveResponse = http.get(`${api}/${callSid}`, {
-      tags: { scenario: 'call-lifecycle', step: 'archive-read' },
+      tags: {
+        scenario: 'call-lifecycle', step: 'archive-read', name: 'GET /api/v1/calls/:id',
+      },
     });
     if (archiveResponse.status === 200) {
       archivedSession = jsonBody(archiveResponse);

@@ -15,16 +15,27 @@ are in the [queue and load-testing guide](./QUEUE_AND_LOAD_TESTING.md).
 
 | ID | Milestone | Status | Current evidence / remaining work |
 | --- | --- | --- | --- |
-| **API-04** | Actix Web instrumentation | **HTTP metrics implemented and verified; remaining metrics pending** | `GET /api/v1/metrics` exposes `sayangcare_http_requests_total`, `sayangcare_http_requests_by_status_total`, and `sayangcare_http_request_duration_seconds` histogram. Verified using live HTTP requests, including a 404 response, and 14 passing API unit tests. Active-session and circuit-breaker metrics remain outstanding. |
-| **OBS-01** | Prometheus scraping | **API pod scraping verified; additional metrics pending** | Prometheus successfully discovers and scrapes all three SayangCare API pods independently (`3/3 UP`). PromQL verified per-pod request counters, aggregate request rates, and HTTP status-category rates. Active Redis-session and circuit-breaker metrics are not yet exposed for scraping. |
-| **OBS-02** | Grafana dashboard | **Implemented locally** | `k8s/monitoring/grafana-values.yaml` provisions a read-only dashboard with API request-rate and counter panels. Local dashboards are ephemeral. |
-| **TEST-01** | k6 concurrency benchmark | **Earlier HTTP-status run recorded; stronger checks ready to rerun** | The current script also verifies response bodies and transcript retrieval after archival. Earlier summaries predate those checks; see the queue and load-testing guide. |
-| **TEST-02** | Pod failover chaos test | **Earlier pod-level run recorded; consistency checks ready to rerun** | Earlier 100-VU pod deletion results are recorded, but use the current archive-consistency metrics to confirm calls and transcripts during a repeat. This is not node-level HA testing. |
+| **API-04** | Actix Web instrumentation | **Implemented and deployed locally** | HTTP counters/statuses, route histograms, and caller-turn stage metrics were verified from the rebuilt API on 26 October. The implementation uses custom instrumentation and the `prometheus` crate, not `actix-web-prom`. |
+| **OBS-01** | Prometheus scraping | **Verified locally** | Prometheus scrapes the current API replicas and exports route latency, active sessions, archive backlog, named breaker states, and performance metrics. Replica count changes with HPA. |
+| **OBS-02** | Grafana dashboard | **Installed and verified locally** | All seven provisioned panels load; Grafana's Prometheus connection/query succeeded. Storage remains ephemeral. |
+| **TEST-01** | k6 concurrency benchmark | **Checkpoint baseline passed; native exit 0** | New 100 VUs / 30 s: 1,358 lifecycles, zero HTTP/check failures, HTTP p95/p99 997.87/1,155.75 ms; independent SQL confirms every completed archive/checkpoint. |
+| **TEST-02** | Pod failover chaos test | **Post-checkpoint rerun passed; native exit 0** | After fixing awaited graceful shutdown: 100 VUs / 60 s, 2,090 lifecycles, zero HTTP failures, all transcripts independently SQL-verified; replacement Ready after 10.112 s. Earlier single-502 failure retained. |
 | **TEST-03** | Evaluation metrics gathering | **Local evidence recorded** | Baseline, pod-loss, API/database readiness, replica scaling, and PostgreSQL/Redis pod-recovery results are in the local results report. A single-node cluster cannot establish node/zone HA. |
-| **TEST-05** | HPA scaling performance evaluation | **Evaluation harness added; new timed results pending** | `tests/k6/evaluate-hpa.ps1` records scale-up/down delays and pairs HPA samples with k6 latency/error summaries. Existing HPA scale observations are not scale-delay measurements. |
+| **TEST-04** | Dependency recovery under load | **Recovery passes; PostgreSQL interruption reduced, not eliminated** | Redis promotion: 2,149 lifecycles, no lost acknowledged writes/errors. Local CNPG smart shutdown 45 -> 5 s reduced recovery 60.995 -> 27.943 s and HTTP failures 2.634% -> 1.600%; every acknowledged operation survived. Native exit 99 remains an availability failure. |
+| **PERF-LIVE** | Real AI-provider latency | **Ten-turn live gate passed** | Groq `openai/gpt-oss-20b`: sentiment 10/10, replies 10/10, no audio fallback; median 1,126.83 ms, max 1,443.03 ms. Small sequential sample, not production p95/p99. Earlier failure retained. |
+| **FIX-03** | Shared operator alerts | **Verified across pods and replacement** | A real synthetic escalation appeared on two distinct pods and a new replacement UID, with exactly one database row before/after. |
+| **TEST-05** | HPA scaling performance evaluation | **Corrected-image scaling measured; load gates fail, native exit 99** | 100 VUs / 120 s: 3,421 iterations; replicas 3 -> 5 -> 3; desired increase 71.3 s, additional Ready 89.8 s, downscale 371.2 s after load. Seven HTTP failures, p95 2,200.26 ms; database pool timeouts. Exact-ID audit preserved all acknowledged operations. |
+
+The new TEST-01/02/05 runs use checkpointing; historical measurements below
+remain clearly separated. DOC-01's report source is
+updated; a separate updated Word/PDF copy avoids overwriting the open original.
+Final screenshots, page-limit/requirements review and TEL-06 remain team work.
 
 The local API HPA currently has CPU, memory, and request-rate metrics enabled.
 Its request-rate target is 25 requests/second per API pod.
+
+For the latest failure analysis, repeatable fault commands, and secure Groq
+setup, see [TEST-04 and AI validation](./TEST04_AND_AI_VALIDATION.md).
 
 ## Requirements
 
@@ -450,6 +461,10 @@ minikube stop
 ```
 
 ## Session Handoff: Completed Work and Current State
+
+> Historical handoff below describes 23 October, not the current deployment.
+> For the newer deployment and experiments, use the 26 October section in
+> [the local results report](./PHASE_5_LOCAL_RESULTS.md).
 
 **Last updated:** 2026-10-23  
 **Checkpoint:** Local Phase 4/5 verification is complete; all project services
