@@ -337,13 +337,15 @@ impl AppState {
                             }
                         }
 
-                        let breaker = breakers.get("llm-inference").await;
-                        let state = breaker.current_state().await;
+                        for breaker_name in ["llm-sentiment", "llm-reply"] {
+                            let breaker = breakers.get(breaker_name).await;
+                            let state = breaker.current_state().await;
 
-                        crate::telemetry::record_circuit_breaker_state(
-                            "llm-inference",
-                            state,
-                        );
+                            crate::telemetry::record_circuit_breaker_state(
+                                breaker_name,
+                                state,
+                            );
+                        }
                     }
                 }
             }
