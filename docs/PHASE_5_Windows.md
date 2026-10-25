@@ -4,9 +4,12 @@ For macOS commands, see the [Mac guide](./PHASE_5_Mac.md).
 
 This guide records the Phase 5 backlog, how to start the local Kubernetes
 stack, and how to run its checks. Local test results are recorded in
-[PHASE_5_LOCAL_RESULTS.md](./PHASE_5_LOCAL_RESULTS.md). The API now exposes HTTP request counters, response status-category counters, and a request-duration histogram. Prometheus scraping has been verified across
-three API pods. Active-session and circuit-breaker metrics remain unimplemented;
-do not report them as available.
+[PHASE_5_LOCAL_RESULTS.md](./PHASE_5_LOCAL_RESULTS.md). The API exposes HTTP
+request counters, response status-category counters, per-route request
+counters/histograms, active-session/archive-backlog gauges, and circuit-breaker
+state. Prometheus scraping has been verified across three API pods.
+FIX-02, TEST-01, TEST-02, and TEST-05 implementation details and rerun steps
+are in the [queue and load-testing guide](./QUEUE_AND_LOAD_TESTING.md).
 
 ## Milestones and Current Status
 
@@ -15,9 +18,10 @@ do not report them as available.
 | **API-04** | Actix Web instrumentation | **HTTP metrics implemented and verified; remaining metrics pending** | `GET /api/v1/metrics` exposes `sayangcare_http_requests_total`, `sayangcare_http_requests_by_status_total`, and `sayangcare_http_request_duration_seconds` histogram. Verified using live HTTP requests, including a 404 response, and 14 passing API unit tests. Active-session and circuit-breaker metrics remain outstanding. |
 | **OBS-01** | Prometheus scraping | **API pod scraping verified; additional metrics pending** | Prometheus successfully discovers and scrapes all three SayangCare API pods independently (`3/3 UP`). PromQL verified per-pod request counters, aggregate request rates, and HTTP status-category rates. Active Redis-session and circuit-breaker metrics are not yet exposed for scraping. |
 | **OBS-02** | Grafana dashboard | **Implemented locally** | `k8s/monitoring/grafana-values.yaml` provisions a read-only dashboard with API request-rate and counter panels. Local dashboards are ephemeral. |
-| **TEST-01** | k6 concurrency benchmark | **Validated locally** | `tests/k6/call-lifecycle.js` exercises incoming, turn, and hangup with synthetic callers. A 100-VU benchmark passed; see the local results report. |
-| **TEST-02** | Pod failover chaos test | **Validated locally (pod-level)** | An API pod was deleted during a 100-VU lifecycle run; calls continued without failed requests and the deployment recovered. This is not node-level HA testing. |
+| **TEST-01** | k6 concurrency benchmark | **Earlier HTTP-status run recorded; stronger checks ready to rerun** | The current script also verifies response bodies and transcript retrieval after archival. Earlier summaries predate those checks; see the queue and load-testing guide. |
+| **TEST-02** | Pod failover chaos test | **Earlier pod-level run recorded; consistency checks ready to rerun** | Earlier 100-VU pod deletion results are recorded, but use the current archive-consistency metrics to confirm calls and transcripts during a repeat. This is not node-level HA testing. |
 | **TEST-03** | Evaluation metrics gathering | **Local evidence recorded** | Baseline, pod-loss, API/database readiness, replica scaling, and PostgreSQL/Redis pod-recovery results are in the local results report. A single-node cluster cannot establish node/zone HA. |
+| **TEST-05** | HPA scaling performance evaluation | **Evaluation harness added; new timed results pending** | `tests/k6/evaluate-hpa.ps1` records scale-up/down delays and pairs HPA samples with k6 latency/error summaries. Existing HPA scale observations are not scale-delay measurements. |
 
 The local API HPA currently has CPU, memory, and request-rate metrics enabled.
 Its request-rate target is 25 requests/second per API pod.
@@ -382,9 +386,9 @@ Then run the 100-VU benchmark and save its JSON summary:
 ```
 
 The summary includes p50 (median), p95, p99, request rate, completed call
-lifecycles, and errors. Save the VU count, duration, image, HPA/replica state,
-and cluster topology with each result; see the existing
-[local results report](./PHASE_5_LOCAL_RESULTS.md) for one verified run.
+lifecycles, archive consistency, and errors. Save the VU count, duration,
+image, HPA/replica state, and cluster topology with each result. The earlier
+[local results report](./PHASE_5_LOCAL_RESULTS.md) predates body/archive checks.
 
 For TEST-02, run the same script with a separate summary file while deleting
 only a pod in the explicitly selected local `minikube` cluster. In another
@@ -405,6 +409,19 @@ kubectl --context minikube -n sayangcare rollout status deployment/sayangcare-ap
 Capture the k6 failures/latencies during deletion and verify the deployment
 returns to its HPA desired replica count. Run destructive failover tests only
 against the disposable local cluster, never a production database.
+
+For TEST-05, run the timed HPA evaluator after installing the request-rate
+overlay and confirming the custom metric API is healthy:
+
+```powershell
+.\tests\k6\evaluate-hpa.ps1 -Context minikube -Namespace sayangcare `
+  -BaseUrl http://127.0.0.1:18081 -Vus 100 -Duration 5m `
+  -DownscaleTimeoutSeconds 900
+```
+
+It saves timestamped HPA replica/metric samples and a k6 summary under
+`artifacts/perf/hpa`; see the [queue and load-testing guide](./QUEUE_AND_LOAD_TESTING.md)
+for outputs and interpretation.
 
 ## Collect Phase 5 Evaluation Results
 

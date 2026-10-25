@@ -19,20 +19,21 @@ cargo check --workspace --all-targets
 cargo test --workspace
 ```
 
-The latest recorded workspace result, from 15 October 2026, was:
+Workspace verification on 25 October 2026:
 
-| Crate           | Passed |                  Ignored |
-| --------------- | -----: | -----------------------: |
-| API             |     14 |                        0 |
-| Circuit breaker |     19 | 1 Redis integration test |
-| Core            |     20 |                        0 |
-| Priority queue  |      8 | 1 Redis integration test |
-| Redis provider  |      0 |                        0 |
-| Session store   |      9 |                        0 |
-| Telephony       |      2 |                        0 |
-| **Total**       | **72** |                    **2** |
+| Crate           | Passed | Ignored |
+| --------------- | -----: | ------: |
+| API             |     31 |       0 |
+| Circuit breaker |     19 |       1 |
+| Core            |     20 |       0 |
+| Priority queue  |      8 |       3 |
+| Redis provider  |      0 |       0 |
+| Session store   |     10 |       0 |
+| Telephony       |      2 |       0 |
+| **Total**       | **90** | **4** |
 
-Test totals can change as tests are added. A Redis-dependent ignored test is expected when Redis is not running.
+Test totals can change as tests are added. The four ignored tests require live
+Redis and were not counted as passed in this workspace run.
 
 ## Focused Tests
 

@@ -73,6 +73,119 @@ mod tests {
         assert!(pending.iter().any(|sid| sid.0 == "CA-2"));
         assert!(pending.iter().any(|sid| sid.0 == "CA-1"));
     }
+
+    #[tokio::test]
+    #[ignore = "requires Redis at 127.0.0.1:6379; run with --include-ignored after docker compose up"]
+    async fn enqueue_does_not_requeue_an_actively_claimed_session() {
+        let client = Client::open("redis://127.0.0.1:6379/").unwrap();
+        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+        let manager = redis::aio::ConnectionManager::new(client).await.unwrap();
+        let key = format!(
+            "test:queue:claimed:{}:{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
+        let queue = RedisPriorityQueue::new(RedisConnectionProvider::from_manager(manager), &key);
+        let session_id = SessionId("SIM-claimed-case".into());
+        let next_session_id = SessionId("SIM-next-case".into());
+
+        queue
+            .enqueue(session_id.clone(), 5, Utc::now())
+            .await
+            .unwrap();
+        assert!(queue
+            .claim_session(&session_id, "volunteer-a")
+            .await
+            .unwrap());
+        queue
+            .enqueue(session_id.clone(), 5, Utc::now())
+            .await
+            .unwrap();
+        queue
+            .enqueue(next_session_id.clone(), 4, Utc::now())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            queue.list_pending().await.unwrap(),
+            vec![next_session_id.clone()]
+        );
+        let _: () = redis::cmd("ZADD")
+            .arg(&key)
+            .arg(1)
+            .arg(&session_id.0)
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+        assert!(!queue
+            .claim_session(&session_id, "volunteer-b")
+            .await
+            .unwrap());
+        assert_eq!(
+            queue.claim("volunteer-b").await.unwrap(),
+            Some(next_session_id.clone())
+        );
+        assert!(queue.list_pending().await.unwrap().is_empty());
+        assert_eq!(
+            queue.list_claimed("volunteer-a").await.unwrap(),
+            vec![session_id]
+        );
+        assert_eq!(
+            queue.list_claimed("volunteer-b").await.unwrap(),
+            vec![next_session_id]
+        );
+
+        let _: () = redis::cmd("DEL")
+            .arg(&key)
+            .arg(format!("{key}:claimed"))
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Redis at 127.0.0.1:6379; run with --include-ignored after docker compose up"]
+    async fn concurrent_claims_assign_a_session_to_only_one_volunteer() {
+        let client = Client::open("redis://127.0.0.1:6379/").unwrap();
+        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+        let manager = redis::aio::ConnectionManager::new(client).await.unwrap();
+        let key = format!(
+            "test:queue:concurrent:{}:{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
+        let queue = RedisPriorityQueue::new(RedisConnectionProvider::from_manager(manager), &key);
+        let session_id = SessionId("SIM-concurrent-case".into());
+        queue
+            .enqueue(session_id.clone(), 5, Utc::now())
+            .await
+            .unwrap();
+
+        let (first, second) = tokio::join!(
+            queue.claim_session(&session_id, "volunteer-a"),
+            queue.claim_session(&session_id, "volunteer-b")
+        );
+        let first = first.unwrap();
+        let second = second.unwrap();
+
+        assert_ne!(first, second);
+        assert!(queue.list_pending().await.unwrap().is_empty());
+
+        let claimed_by_a = queue.list_claimed("volunteer-a").await.unwrap();
+        let claimed_by_b = queue.list_claimed("volunteer-b").await.unwrap();
+        assert_eq!(claimed_by_a.len() + claimed_by_b.len(), 1);
+        assert_eq!(
+            claimed_by_a.first().or_else(|| claimed_by_b.first()),
+            Some(&session_id)
+        );
+
+        let _: () = redis::cmd("DEL")
+            .arg(&key)
+            .arg(format!("{key}:claimed"))
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+    }
 }
 
 #[async_trait]
@@ -89,10 +202,20 @@ impl PriorityQueue for RedisPriorityQueue {
             .await
             .map_err(|e| CoreError::Storage(format!("redis manager for enqueue: {e}")))?;
         let score = Self::score(risk, enqueued_at);
-        let _: () = conn
-            .zadd(&self.queue_key, &session_id.0, score)
+        let script = redis::Script::new(
+            r#"
+            if redis.call('HEXISTS', KEYS[2], ARGV[1]) == 1 then return 0 end
+            return redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
+            "#,
+        );
+        let _: i32 = script
+            .key(&self.queue_key)
+            .key(&self.claim_prefix)
+            .arg(&session_id.0)
+            .arg(score)
+            .invoke_async(&mut conn)
             .await
-            .map_err(|e| CoreError::Storage(format!("zadd: {e}")))?;
+            .map_err(|e| CoreError::Storage(format!("enqueue: {e}")))?;
         Ok(())
     }
 
@@ -131,12 +254,17 @@ impl PriorityQueue for RedisPriorityQueue {
         // Atomically pop the highest-priority item and record the claim.
         let script = redis::Script::new(
             r#"
-            local items = redis.call('ZRANGE', KEYS[1], 0, 0)
-            if #items == 0 then return nil end
-            local sid = items[1]
-            redis.call('ZREM', KEYS[1], sid)
-            redis.call('HSET', KEYS[2], sid, ARGV[1])
-            return sid
+            while true do
+                local items = redis.call('ZRANGE', KEYS[1], 0, 0)
+                if #items == 0 then return nil end
+                local sid = items[1]
+                if redis.call('HEXISTS', KEYS[2], sid) == 0 then
+                    redis.call('ZREM', KEYS[1], sid)
+                    redis.call('HSET', KEYS[2], sid, ARGV[1])
+                    return sid
+                end
+                redis.call('ZREM', KEYS[1], sid)
+            end
             "#,
         );
         let claimed: Option<String> = script
@@ -157,6 +285,7 @@ impl PriorityQueue for RedisPriorityQueue {
             .map_err(|e| CoreError::Storage(format!("redis manager for claim session: {e}")))?;
         let script = redis::Script::new(
             r#"
+                if redis.call('HEXISTS', KEYS[2], ARGV[1]) == 1 then return 0 end
                 if redis.call('ZSCORE', KEYS[1], ARGV[1]) == false then return 0 end
                 redis.call('ZREM', KEYS[1], ARGV[1])
                 redis.call('HSET', KEYS[2], ARGV[1], ARGV[2])

@@ -6,19 +6,20 @@ This guide records the Phase 5 backlog, how to start a local Kubernetes stack,
 and how to run its checks. The repository now includes a k6 lifecycle scenario
 and local Grafana dashboard. The results in
 [PHASE_5_LOCAL_RESULTS.md](./PHASE_5_LOCAL_RESULTS.md) are from Windows and are
-not macOS benchmark results. API latency/error histograms and active-session/
-circuit-breaker metrics remain unimplemented.
+not macOS benchmark results. The API exposes HTTP latency/error and route
+metrics along with active-session and circuit-breaker gauges.
 
 ## Milestones and Current Status
 
 | ID | Milestone | Status | Current evidence / remaining work |
 | --- | --- | --- | --- |
-| **API-04** | Actix Web instrumentation | **Partial** | `GET /api/v1/metrics` exposes the process-local `sayangcare_http_requests_total` counter. Latency histograms, HTTP error metrics, active session metrics, and breaker metrics are not currently exposed. |
-| **OBS-01** | Prometheus scraping | **Partial** | Local Prometheus scrapes API pod counters and the Adapter publishes `sayangcare_http_requests_per_second`; the request-rate HPA was verified. Active Redis-session and circuit-breaker scrapes are still needed. |
+| **API-04** | Actix Web instrumentation | **Implemented** | `GET /api/v1/metrics` exposes HTTP status counters, per-route request counts/histograms, active-session/archive-backlog gauges, and breaker state. |
+| **OBS-01** | Prometheus scraping | **Verified locally** | Local Prometheus scrapes API metrics and the Adapter publishes `sayangcare_http_requests_per_second`; active-session and breaker metrics are also exported. |
 | **OBS-02** | Grafana dashboard | **Implemented locally** | `k8s/monitoring/grafana-values.yaml` provisions a local request-rate and counter dashboard. Windows deployment was verified; macOS has not been tested. |
-| **TEST-01** | k6 concurrency benchmark | **Validated on Windows** | `tests/k6/call-lifecycle.js` exercises incoming, turn, and hangup with synthetic callers. See the Windows local results report; rerun on macOS to collect Mac-specific numbers. |
-| **TEST-02** | Pod failover chaos test | **Validated on Windows (pod-level)** | An API pod was deleted during a 100-VU lifecycle run; calls continued without failed requests and the Deployment recovered. This is not node-level HA or a macOS test. |
+| **TEST-01** | k6 concurrency benchmark | **Earlier HTTP-status run recorded; stronger checks ready to rerun** | The current scenario verifies response bodies and transcript retrieval after archival. Earlier Windows summaries predate those checks. |
+| **TEST-02** | Pod failover chaos test | **Earlier pod-level run recorded; consistency checks ready to rerun** | Use the current archive consistency/retry metrics for a repeat. This is not node-level HA or a macOS test. |
 | **TEST-03** | Evaluation metrics gathering | **Windows local evidence recorded** | Baseline, pod-loss, readiness, scaling, and PostgreSQL/Redis recovery results are in the local results report. A single-node cluster cannot establish node/zone HA. |
+| **TEST-05** | HPA scaling performance evaluation | **Timed evaluation harness added; new results pending** | The Windows runner records replica timing and pairs HPA samples with k6 latency/error summaries; macOS-specific evaluation is not recorded. |
 
 The local API HPA configuration includes CPU, memory, and request-rate metrics.
 Its request-rate target is 25 requests/second per API pod.

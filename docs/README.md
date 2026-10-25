@@ -15,6 +15,7 @@ The root [README](../README.md) has separate Windows PowerShell and macOS Termin
 - [Phase 5: Chaos testing, metrics, and final evaluation (Windows)](PHASE_5_Windows.md)
 - [Phase 5: Chaos testing, metrics, and final evaluation (macOS)](PHASE_5_Mac.md)
 - [Verified local Phase 5 results](PHASE_5_LOCAL_RESULTS.md)
+- [Queue claim fix and load-testing guide (FIX-02, TEST-01/02/05)](QUEUE_AND_LOAD_TESTING.md)
 - [Raft leader election demo](RAFT_DEMO_GUIDE.md)
 - [Test execution quick reference](TEST_EXECUTION_QUICK_REFERENCE.md)
 

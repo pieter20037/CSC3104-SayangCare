@@ -31,7 +31,11 @@ synthetic call IDs. Each iteration performed incoming, turn, and hangup.
 | Baseline, 100 VUs | 2,898 | 8,694 | 280.19 | 11.60 ms | 69.95 ms | 131.70 ms | 0 (0%) |
 | API pod deleted during load, 100 VUs | 2,881 | 8,643 | 278.26 | 12.20 ms | 69.51 ms | 124.01 ms | 0 (0%) |
 
-All lifecycle checks passed in both runs. The API pod replacement took about
+All HTTP status checks in these earlier runs returned success. The earlier
+k6 script did not validate response bodies or archived transcript contents;
+repeat with the current
+[queue and load-testing guide](./QUEUE_AND_LOAD_TESTING.md) before treating
+these as session-consistency evidence. The API pod replacement took about
 7.7 seconds during the chaos run. The baseline and chaos k6 summaries are
 preserved in [phase5-local-baseline.json](./phase5-local-baseline.json) and
 [phase5-local-api-failover.json](./phase5-local-api-failover.json).
@@ -62,9 +66,11 @@ must not be reported as call throughput.
 
 - Minikube has one Kubernetes node. Pod replacement does not test node, zone, or
   external-site failure.
-- API metrics currently expose only the process-local HTTP request counter.
-  HTTP latency/error histograms, active-session metrics, and circuit-breaker
-  metrics are not implemented.
+- These archived benchmark summaries do not include the current script's
+  response-body and post-archive transcript checks. HPA replica totals were
+  observed, but scale-up/down delay and latency/error changes attributed to
+  each replica phase were not measured. Use the
+  [HPA evaluation runner](../tests/k6/evaluate-hpa.ps1) for new timed results.
 - Prometheus retention is one hour and is not persisted. Grafana is configured
   without persistent storage for local validation.
 - The checked-in Grafana chart is deprecated upstream; this local setup is not

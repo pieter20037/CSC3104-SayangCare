@@ -191,7 +191,50 @@ pub async fn claim(
             Err(error) => Err(error),
         }
     } else {
-        state.queue.claim(&body.volunteer_id).await
+        loop {
+            match state.queue.claim(&body.volunteer_id).await {
+                Ok(Some(sid)) => match state.sessions.get(&sid).await {
+                    Ok(Some(session))
+                        if session.state == sayangcare_core::domain::SessionState::Escalated
+                            && session.handoff_status
+                                == sayangcare_core::domain::HandoffStatus::Pending =>
+                    {
+                        break Ok(Some(sid));
+                    }
+                    Ok(Some(session)) => {
+                        tracing::warn!(
+                            session_id = %sid,
+                            state = ?session.state,
+                            handoff_status = ?session.handoff_status,
+                            "discarding stale queue entry"
+                        );
+                        if let Err(error) =
+                            state.queue.release_claim(&sid, &body.volunteer_id).await
+                        {
+                            tracing::error!(error = %error, session_id = %sid, "failed to release stale queue claim");
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::warn!(session_id = %sid, "discarding queue entry without a session");
+                        if let Err(error) =
+                            state.queue.release_claim(&sid, &body.volunteer_id).await
+                        {
+                            tracing::error!(error = %error, session_id = %sid, "failed to release stale queue claim");
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!(error = %error, session_id = %sid, "session lookup failed while selecting next queue item");
+                        if let Err(release_error) =
+                            state.queue.release_claim(&sid, &body.volunteer_id).await
+                        {
+                            tracing::error!(error = %release_error, session_id = %sid, "failed to release queue claim after lookup failure");
+                        }
+                        break Err(error);
+                    }
+                },
+                result => break result,
+            }
+        }
     };
 
     match claim_result {
