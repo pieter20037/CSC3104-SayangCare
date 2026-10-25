@@ -525,38 +525,33 @@ mod tests {
 
         let metrics = OperationalMetrics::new();
 
-        metrics
-            .circuit_breaker_state
-            .with_label_values(&["llm-inference"])
-            .set(0);
+        // Verify both circuit breakers export all three states.
+        for breaker_name in ["llm-sentiment", "llm-reply"] {
+            for (value, expected_state) in [
+                (0, "Closed"),
+                (1, "Open"),
+                (2, "HalfOpen"),
+            ] {
+                metrics
+                    .circuit_breaker_state
+                    .with_label_values(&[breaker_name])
+                    .set(value);
 
-        let output = metrics.render();
+                let output = metrics.render();
 
-        assert!(output.contains(
-            "sayangcare_circuit_breaker_state{breaker=\"llm-inference\"} 0"
-        ));
+                let expected = format!(
+                    "sayangcare_circuit_breaker_state{{breaker=\"{}\"}} {}",
+                    breaker_name, value
+                );
 
-        metrics
-            .circuit_breaker_state
-            .with_label_values(&["llm-inference"])
-            .set(1);
-
-        let output = metrics.render();
-
-        assert!(output.contains(
-            "sayangcare_circuit_breaker_state{breaker=\"llm-inference\"} 1"
-        ));
-
-        metrics
-            .circuit_breaker_state
-            .with_label_values(&["llm-inference"])
-            .set(2);
-
-        let output = metrics.render();
-
-        assert!(output.contains(
-            "sayangcare_circuit_breaker_state{breaker=\"llm-inference\"} 2"
-        ));
+                assert!(
+                    output.contains(&expected),
+                    "{} breaker did not export {} state correctly",
+                    breaker_name,
+                    expected_state
+                );
+            }
+        }
 
         // Confirm the public circuit-breaker state values remain consistent.
         assert_eq!(CircuitState::Closed as u8, 0);
