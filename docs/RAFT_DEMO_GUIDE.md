@@ -6,7 +6,27 @@ Demonstrates the Raft volunteer queue replicating work, electing a new leader af
 
 Create `.env` from `.env.example` if needed. Keep the PostgreSQL password and Twilio settings in `.env`; do not commit the file. The Twilio values may be placeholders for this local dashboard demo.
 
-Start the infrastructure and all three Raft API nodes with one command:
+On Windows, start the full Raft-enabled application and open its dashboard with one command:
+
+```powershell
+.\scripts\start-dashboard.ps1 -Mode Raft -OpenBrowser
+```
+
+The launcher rebuilds the images (including current database migrations), starts PostgreSQL,
+Redis/Sentinel and all three API nodes, then verifies each node's health, storage readiness,
+dashboard, and agreement on one leader and two followers. Docker Desktop must be running.
+The first build may take several minutes; the readiness timeout starts after the build.
+Use `-TimeoutSeconds 300` for a slower machine, or `-CheckOnly` to validate startup without
+opening a browser. Containers remain running when the launcher exits.
+
+This is the full call/volunteer application with a Raft queue, not a separate election-only
+viewer. Use its dashboards for both calls and election demonstrations. The default launcher
+mode (`-Mode Kubernetes`, or no mode argument) still opens the existing Minikube deployment,
+which uses Redis queues by default. Running both deployments does not connect their queues
+or databases. Kubernetes HPA and database-HA demonstrations belong to the Kubernetes
+deployment; the Docker Raft stack does not provide those features.
+
+Alternatively, start the infrastructure and all three Raft API nodes directly:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.raft.yml --profile raft up -d --build

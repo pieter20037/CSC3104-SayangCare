@@ -4,7 +4,8 @@ param(
     [ValidateRange(10, 900)][int]$TimeoutSeconds = 120,
     [switch]$SkipMinikubeStart,
     [switch]$OpenBrowser,
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    [ValidateSet('Kubernetes', 'Raft')][string]$Mode = 'Kubernetes'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,7 +44,119 @@ function Stop-ConnectionProcess {
     }
 }
 
+function Start-RaftDashboard {
+    $docker = (Get-Command docker -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $root = Split-Path -Parent $PSScriptRoot
+    $compose = @('compose', '--project-directory', $root,
+        '-f', (Join-Path $root 'docker-compose.yml'),
+        '-f', (Join-Path $root 'docker-compose.raft.yml'), '--profile', 'raft')
+    & $docker version --format '{{.Server.Version}}'
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Docker Desktop is not ready. Start its engine and rerun this script.'
+    }
+    Write-Host 'Building and starting the three-node Raft application. The first build may take several minutes.' -ForegroundColor Cyan
+    & $docker @compose up -d --build
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Raft startup failed. Review the Docker build/start error above. Existing data volumes have not been removed.'
+    }
+
+    Add-Type -AssemblyName System.Net.Http
+    $raftHandler = [Net.Http.HttpClientHandler]::new()
+    $raftHandler.UseProxy = $false
+    $raftClient = [Net.Http.HttpClient]::new($raftHandler)
+    $raftClient.Timeout = [TimeSpan]::FromSeconds(3)
+    try {
+        $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        $lastIssue = 'Waiting for all three nodes.'
+        while ([DateTime]::UtcNow -lt $deadline) {
+            try {
+                $statuses = @()
+                foreach ($id in 1..3) {
+                    $base = "http://127.0.0.1:1808$id"
+                    foreach ($path in @('/api/v1/health', '/api/v1/ready', '/dashboard', '/api/v1/queue/raft')) {
+                        $response = $raftClient.GetAsync("$base$path").GetAwaiter().GetResult()
+                        try {
+                            $response.EnsureSuccessStatusCode() | Out-Null
+                            $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                            if ($path -eq '/dashboard') {
+                                if ($body -notmatch 'SayangCare' -or $body -notmatch 'id="role-layout"') {
+                                    throw [IO.InvalidDataException]::new("Node $id did not return the expected dashboard.")
+                                }
+                            }
+                            else {
+                                $data = $body | ConvertFrom-Json
+                                if ($path -eq '/api/v1/health' -and ($data.status -ne 'ok' -or $data.service -ne 'sayangcare')) {
+                                    throw [IO.InvalidDataException]::new("Node $id is not a healthy SayangCare API.")
+                                }
+                                if ($path -eq '/api/v1/ready' -and ($data.ready -ne $true -or $data.dependencies.redis -ne 'ok' -or $data.dependencies.postgres -ne 'ok')) {
+                                    throw [IO.InvalidDataException]::new("Node $id storage is not ready.")
+                                }
+                                if ($path -eq '/api/v1/queue/raft') {
+                                    if ($data.backend -ne 'raft' -or $data.node_id -ne $id) {
+                                        throw [IO.InvalidDataException]::new("Port 1808$id is not serving Raft node $id.")
+                                    }
+                                    $statuses += $data
+                                }
+                            }
+                        }
+                        finally {
+                            $response.Dispose()
+                        }
+                    }
+                }
+                $leaders = @($statuses | Where-Object { $_.state -eq 'Leader' })
+                $followers = @($statuses | Where-Object { $_.state -eq 'Follower' })
+                if ($leaders.Count -ne 1 -or $followers.Count -ne 2) {
+                    throw [IO.InvalidDataException]::new('Waiting for one leader and two followers.')
+                }
+                $leader = $leaders[0]
+                foreach ($status in $statuses) {
+                    if ($status.current_leader -ne $leader.node_id -or $status.current_term -ne $leader.current_term) {
+                        throw [IO.InvalidDataException]::new('Waiting for agreement on the Raft leader and term.')
+                    }
+                }
+                Write-Host "`nRaft application ready: 3/3 healthy, leader node $($leader.node_id), term $($leader.current_term)." -ForegroundColor Green
+                foreach ($id in 1..3) {
+                    Write-Host "Node ${id}: http://127.0.0.1:1808$id/dashboard"
+                }
+                Write-Host 'Use a surviving node dashboard when stopping the leader in Docker Desktop.'
+                Write-Host 'Containers remain running after this launcher exits. Kubernetes is a separate deployment.'
+                if ($OpenBrowser -and -not $CheckOnly) {
+                    Start-Process 'http://127.0.0.1:18081/dashboard'
+                }
+                return
+            }
+            catch [Net.Http.HttpRequestException] {
+                $lastIssue = $_.Exception.Message
+            }
+            catch [Threading.Tasks.TaskCanceledException] {
+                $lastIssue = 'A Raft node HTTP check timed out.'
+            }
+            catch [IO.InvalidDataException] {
+                $lastIssue = $_.Exception.Message
+            }
+            Write-Host "Waiting for Raft: $lastIssue"
+            Start-Sleep -Seconds 2
+        }
+        & $docker @compose ps -a
+        & $docker @compose logs --tail 20 raft-node-1 raft-node-2 raft-node-3
+        throw "Raft was not ready within $TimeoutSeconds seconds after the build. Last check: $lastIssue"
+    }
+    finally {
+        $raftClient.Dispose()
+        $raftHandler.Dispose()
+    }
+}
+
 try {
+    if ($Mode -eq 'Raft') {
+        if ($PSBoundParameters.ContainsKey('Port') -or $SkipMinikubeStart) {
+            throw 'Raft mode uses fixed ports 18081-18083 and does not use Minikube. Omit -Port and -SkipMinikubeStart.'
+        }
+        Start-RaftDashboard
+        return
+    }
+    Write-Host 'Kubernetes mode: connecting to Minikube. For the Raft application use -Mode Raft -OpenBrowser.' -ForegroundColor Cyan
     Write-Host "`n$heart SayangCare is booting. Let's get your care workspace ready!" -ForegroundColor Cyan
     $kubectl = (Get-Command kubectl -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     if (-not $SkipMinikubeStart) {

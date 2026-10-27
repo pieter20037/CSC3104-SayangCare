@@ -1,7 +1,104 @@
 # Professor consultation: SayangCare progress, evidence and decisions
 
-Prepared 26 October 2026. This is a speaking brief, not a claim that the
+Updated 27 October 2026 (Singapore time). This is a speaking brief, not a claim that the
 prototype is production-ready or clinically validated.
+
+## 0. Presentation plan and startup checklist
+
+**Recommended story:** show the complete application workflow first, demonstrate
+Raft leader election in that same application, then show Kubernetes monitoring
+and saved load/failover evidence. Finish with the engineering trade-offs and
+specific decisions you need. Use synthetic data only.
+
+### Two deployment modes, one application codebase
+
+| Mode | Start command | Dashboard | What to demonstrate |
+| --- | --- | --- | --- |
+| Docker Raft application | `.\scripts\start-dashboard.ps1 -Mode Raft -OpenBrowser` | http://127.0.0.1:18081/dashboard through port 18083 | Caller lab, escalation, volunteer work, Operations, replicated queue, election and rejoin |
+| Kubernetes application | `.\scripts\start-dashboard.ps1 -Mode Kubernetes -OpenBrowser` | http://127.0.0.1:18080/dashboard | API replicas, Redis/Sentinel, CNPG PostgreSQL HA, HPA and Kubernetes monitoring |
+
+The original command `.\scripts\start-dashboard.ps1 -OpenBrowser` still selects
+**Kubernetes**, not Raft. Use the explicit Raft command for the integrated
+call-and-election presentation.
+
+Both deployments can run at the same time if laptop resources permit, but they
+have **separate queues and PostgreSQL deployments**. A call created on port
+18082 is shared with the other Docker Raft nodes, not automatically with port
+18080. The Raft stack uses one Docker PostgreSQL service; it does not demonstrate
+CNPG database HA or Kubernetes HPA. Do not mix the deployments' measurements.
+
+Say:
+
+> These are two deployment configurations of the same modular application.
+> I will use the Raft configuration for the end-to-end application and consensus
+> demonstration, then the Kubernetes configuration for orchestration and the
+> recorded resilience/load experiments. Starting both does not join their data.
+
+### Prepare 30 minutes before the consultation
+
+1. Start Docker Desktop and wait for the engine.
+2. Open PowerShell in the repository:
+
+   ```powershell
+   Set-Location "C:\Users\chewh\Documents\GitHub\CSC3104-SayangCare"
+   .\scripts\start-dashboard.ps1 -Mode Raft -OpenBrowser
+   ```
+
+   If local policy blocks the script, and your machine policy permits it:
+   `Set-ExecutionPolicy -Scope Process RemoteSigned`.
+   The launcher rebuilds current images/migrations, starts the services, checks
+   all three APIs, storage and dashboards, and checks leader/term agreement.
+   The readiness timeout starts after the build. Containers remain running
+   after this launcher exits. Do the build beforehand, not during the pitch.
+3. Open these three browser tabs:
+   - http://127.0.0.1:18081/dashboard
+   - http://127.0.0.1:18082/dashboard
+   - http://127.0.0.1:18083/dashboard
+4. Confirm one leader, two followers and `3/3 up`. Note which tab belongs to a
+   follower so you can keep it open when stopping the leader.
+5. Rehearse a simulated call and volunteer claim. Existing synthetic queue
+   entries may remain from previous tests; a Claim next action need not select
+   the SID you just created. Verify the selected SID rather than assuming it.
+6. If showing Kubernetes live, open a second PowerShell window:
+
+   ```powershell
+   .\scripts\start-dashboard.ps1 -Mode Kubernetes -OpenBrowser
+   ```
+
+   Keep this terminal open: it owns the port-forward. This mode expects the
+   Kubernetes resources to have already been deployed; it is not a clean
+   installation command. Keep port 18080 for Kubernetes; do not use 18081 as
+   its alternate port while the Raft stack is running.
+7. Check the existing Kubernetes deployment:
+
+   ```powershell
+   kubectl --context minikube -n sayangcare get pods,hpa
+   kubectl --context minikube -n sayangcare get cluster sayangcare-db
+   ```
+
+   Confirm the actual Ready counts; do not describe stale screenshots as live.
+8. For already installed monitoring, use separate terminals and leave them open:
+
+   ```powershell
+   kubectl --context minikube -n monitoring port-forward --address 127.0.0.1 svc/grafana 13000:80
+   ```
+
+   ```powershell
+   kubectl --context minikube -n monitoring port-forward --address 127.0.0.1 svc/prometheus-server 19090:9090
+   ```
+
+   Open http://127.0.0.1:13000 and http://127.0.0.1:19090.
+   These observe the configured Kubernetes targets, not automatically the
+   Docker Raft calls. Obtain credentials privately; do not display secrets.
+9. Open the results table in section 5, saved reports, and backup screenshots.
+   Avoid running load benchmarks alongside both live deployments: they compete
+   for laptop CPU/memory and change the experiment conditions.
+10. Do not delete database/Raft volumes, expose `.env`, or perform live primary
+    database deletion during the consultation unless explicitly invited.
+
+**Fallback:** if a live service fails, show the error honestly, switch to saved
+evidence, and explain what that evidence actually tested. Do not improvise a
+database reset or present a static screenshot as live.
 
 ## 1. A one-minute explanation you can say
 
@@ -11,6 +108,9 @@ prototype is production-ready or clinically validated.
 > durable session state, alerts and assignment history. We implemented inference
 > circuit breakers, bounded fallback, high-risk queueing, Kubernetes deployment,
 > autoscaling and monitoring.
+> In our Raft deployment, the same caller and volunteer application uses a
+> three-node replicated queue, so we can show a leader failing and a survivor
+> continuing to accept escalations.
 >
 > Our chaos tests found a real flaw: Redis automatic failover lost 17
 > acknowledged session creations. We changed the design to commit versioned
@@ -70,7 +170,7 @@ Optional queue alternative: three OpenRaft nodes (separate configured mode).
 | --- | --- | --- |
 | Replication | API replicas; Redis replicas; three PostgreSQL instances | Several pods on one machine are not several failure-independent machines |
 | Leader discovery/failover | Sentinel discovers/promotes Redis master; CNPG changes DB primary | Redis promotion demonstrated; graceful DB replacement measured; not arbitrary partition testing |
-| Consensus/quorum | Optional OpenRaft queue: majority commits and leader election | In-process Raft tests and a separate demo path exist; do not claim the default queue uses Raft |
+| Consensus/quorum | Optional OpenRaft queue: majority commits and leader election | Docker application rehearsal on 27 October verified leader loss, a new term, another escalation, and restarted-node catch-up; the default Kubernetes queue is still Redis |
 | Concurrency control | Monotonic versions and SQL compare-and-swap | Competing stale writes cannot silently overwrite the latest checkpoint |
 | Durability | PostgreSQL commit before acknowledgment with synchronous replica requirement | Exact acknowledged operations survive recorded faults; no proof for every possible failure |
 | Partial failure | API, Redis, PostgreSQL and inference can fail independently | Fault tests separate service availability from persistence success |
@@ -138,6 +238,7 @@ explicitly called real Groq. Live phone/audio outcomes are not measured.
 | HPA data audit | 3,418 acknowledged creates, 3,415 turns, 3,418 hangups; no missing acknowledged data or pending checkpoints | Failed/unacknowledged requests are not invented successful turns |
 | Real Groq | Ten sentiment/reply pairs, no fallback, caller median 1.13 s/max 1.44 s | Small live sample, not statistical production tails |
 | Automated checks | 100 workspace tests passed, five ignored; PostgreSQL integration separately passed; eight Python evidence tests; native-code 0/99 check | Ignored tests are not successes |
+| Docker Raft rehearsal, 27 October | Three healthy APIs; crisis simulation escalated; stopped leader node 1; node 3 elected, term 1 -> 2; another crisis simulation escalated with 2/3 up; node 1 restarted as follower; all applied indexes matched at 1,105 | Interactive functional rehearsal, not a timed load test, abrupt-crash test or independent durability audit |
 
 The failing HPA run's API logs identify **pool acquisition timeouts**. The
 three-connection pool respects the projected budget:
@@ -154,25 +255,224 @@ Evidence:
 [final HPA report](../artifacts/phase5-final/hpa-checkpoint-fixed/20261025T195347Z-evaluation.json),
 [final HPA SQL audit](../artifacts/phase5-final/hpa-checkpoint-fixed/20261025T195347Z-sql-audit.json).
 
-## 6. Suggested ten-minute meeting/demo
+## 6. Presentation-ready walkthrough (15-20 minutes)
 
-1. **One minute:** read the opening explanation.
-2. **Two minutes:** open dashboard, simulated lifecycle and transcript. Show
-   synthetic escalation/queue/claim if comfortable. No real distress data.
-3. **Two minutes:** show Grafana/Prometheus and HPA/cluster screenshot.
-4. **Two minutes:** explain the Redis loss -> durable checkpoint change, then
-   availability/durability trade-off with the results table.
-5. **Three minutes:** ask the decisions below and write down answers.
+For a ten-minute slot: opening (1 min), application/escalation (2 min), Raft
+failover/rejoin (2 min), evidence and trade-offs (2 min), decisions (3 min).
+Mention the remaining features using section 2 rather than rushing every click.
 
-Before leaving home: start/check the cluster, open the report and screenshots,
-confirm the dashboard works, and have a screenshot-only fallback. **Do not
-launch a 15-minute cooldown experiment or primary deletion during a short
-consultation unless invited.** A video/screenshot of an executed test is safer
-than a risky last-minute live fault.
+### A. Introduce the problem and architecture (1-2 minutes)
 
-The optional Raft demonstration uses a separate Compose topology; it is not the
-default Kubernetes queue mode. Consult [Raft demo guide](RAFT_DEMO_GUIDE.md)
-and prepare separately; do not launch it alongside timed Kubernetes benchmarks.
+Say:
+
+> A voice-support session must survive an API replacement, preserve its
+> conversation, and route urgent work to a human. Our focus is the reliability
+> of that workflow, not replacing professional assessment with an AI model.
+> We separated domain logic and infrastructure into Rust crates, but deploy
+> them as a replicated modular monolith.
+
+Show the architecture in section 2. Identify the PostgreSQL acknowledgment
+boundary, the selected queue backend, and the optional external AI provider.
+
+### B. Caller lab: an ordinary conversation (2 minutes)
+
+Use a Docker Raft dashboard throughout parts B-E.
+
+1. Select **Caller lab** and generate a fresh Call SID.
+2. Click **Start call**.
+3. Enter a neutral synthetic statement, such as "I would like someone to talk
+   to today", and click **Record turn**.
+4. Show the transcript, session status, risk field and increasing version.
+5. Click **End call** and refresh the session to show its terminal state.
+
+Say:
+
+> The Call SID identifies the session; each accepted mutation advances a
+> version. PostgreSQL checkpoints are committed before success is returned.
+> Redis is a best-effort projection rather than the authoritative session store.
+> Completed conversations are archived, and recovery workers retry unfinished
+> archival work.
+
+The dashboard alone is not proof of durable replication. Refer to the SQL
+audits in section 5 for that claim.
+
+**AI distinction:** explain that normal turns can use separate sentiment and
+reply stages, with bounded deadlines and fallback. The Docker Raft Compose
+configuration does not explicitly pass Groq settings into its API services;
+do not assume that putting a Groq key in the host `.env` enables live inference
+inside those containers. A deterministic reply or "Not analyzed" is not evidence
+of a live model call. Use the recorded ten-pair Groq result when discussing
+verified provider integration.
+
+The browser voice button is a local simulation, not proof of a real Twilio
+phone call. Microphone/browser support must be rehearsed before showing it.
+
+### C. Escalation and volunteer work (2-3 minutes)
+
+1. Click **Simulate crisis call**. Use only its synthetic test data.
+2. Show `ESCALATED`, risk `5 / 5`, the fixed response and the session SID.
+3. Select **Volunteer desk**, refresh the roster and choose an available
+   volunteer under **Working as**.
+4. Refresh the queue and click **Claim next**.
+5. Show the actual claimed SID in **Assigned cases**. If older work was
+   selected, explain the queue order rather than pretending it is the new call.
+6. Show the selected case's transcript and ownership. If useful, demonstrate
+   the case transfer or resolution controls that are available for that case.
+   Rehearse their preconditions beforehand; do not imply every state permits
+   every action.
+
+Say:
+
+> Deterministic high-risk routing bypasses generative replies and requests
+> human support. Priority queueing coordinates work; relational assignment
+> bindings and history record who owns it. Simulated calls do not dial a
+> volunteer's phone.
+
+Mention stale-entry handling and assignment recovery. Do not claim the queue
+command, session checkpoint and assignment record form a single atomic
+transaction across all stores.
+
+### D. Operations and shared state (1 minute)
+
+1. Select **Operations**.
+2. Refresh **Operator alerts** and **Request activity**.
+3. Explain that request activity is a dashboard diagnostic view, while shared
+   operator alerts and assignment history are persisted application records.
+4. Open another Raft node's dashboard and inspect the same SID if needed to
+   demonstrate that session state is not confined to one API process.
+
+Say:
+
+> Replacing an API process should not erase the durable session or its audit
+> history. These workspace tabs are demonstration views, not implemented
+> role-based authentication.
+
+### E. Raft leader failure and recovery (2-3 minutes)
+
+1. Show `3/3 up`, one leader and two followers. Note leader ID, term and
+   log/applied indexes.
+2. Keep a surviving follower's dashboard open.
+3. In Docker Desktop, **Stop only the current leader's `raft-node-N` container**.
+   Stop is a graceful process stop; label it as such, not an abrupt crash.
+4. Wait for the panel to show the unavailable node and a new leader. Point
+   out the increased term and `2/3` quorum.
+5. Run **Simulate crisis call** again. Show the successful escalation and
+   advancing replicated indexes.
+6. Start the stopped container. Show it rejoining and catching up. Do not
+   promise it can never lead again; future elections can change leadership.
+7. Optionally stop a second node while one remains down to show majority
+   loss. New Raft queue commits must not succeed with only one voter. A role
+   label alone is not proof that writes can commit. Restore every node afterward.
+
+Say:
+
+> A three-voter cluster needs two votes to elect a leader and a majority to
+> commit work. Losing one node preserves quorum. Losing two sacrifices write
+> availability rather than allowing independent conflicting committed queues.
+> The election term and a successful post-election queue mutation are more
+> meaningful evidence than simply seeing a green status label.
+
+For an explicitly requested abrupt-crash experiment, replace `raft-node-1`
+below with the current leader's service and run from the repository root:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.raft.yml --profile raft kill raft-node-1
+# After observing the election and a successful new escalation:
+docker compose -f docker-compose.yml -f docker-compose.raft.yml --profile raft start raft-node-1
+```
+
+Clearly distinguish this from the graceful-stop rehearsal. Do not stop
+PostgreSQL or Redis during this test: that would mix independent faults.
+
+**Browser warning:** the cluster panel may display internal Docker names such
+as `raft-node-1:8080`. Those are peer-network addresses, not laptop URLs.
+Use the prepared localhost tabs on 18081-18083.
+
+### F. Kubernetes, monitoring and elasticity (2 minutes)
+
+Explicitly announce the switch to the **separate Kubernetes deployment**.
+
+Show:
+
+```powershell
+kubectl --context minikube -n sayangcare get pods,hpa
+kubectl --context minikube -n sayangcare get cluster sayangcare-db
+```
+
+Then show the provisioned Grafana dashboard and a saved HPA run.
+
+Say:
+
+> Kubernetes replaces failed API pods and HPA adjusts replica count. Prometheus
+> collects request, latency, resource and circuit-breaker signals; Grafana
+> visualizes them. Port-forwarding makes the existing service available on
+> my laptop; it does not publicly expose it or make the topology multi-node.
+> Our recorded HPA run scaled from three to five and back, but still failed
+> the strict latency and zero-failed-lifecycle gates.
+
+Do not wait through the recorded 371-second downscale period live. Use the
+saved timestamps. If graphs are idle, explain that the Docker demo traffic is
+not automatically scraped as Kubernetes traffic.
+
+### G. The strongest engineering story: finding and fixing data loss (2 minutes)
+
+1. Show the original finding: **17 of 1,597 acknowledged session creates lost**
+   during Redis asynchronous failover.
+2. Show the checkpoint architecture change: SQL version/CAS commit before ACK,
+   Redis as projection, recovery from retained durable checkpoints.
+3. Show the repeated Redis result: **2,149 lifecycles, no HTTP failures or
+   missing acknowledged operations** in the independent audit.
+4. Explain the cost: PostgreSQL now receives active-session writes; pool waits
+   appear under sustained load.
+5. Contrast the API pod-loss pass with the PostgreSQL availability failure.
+
+Say:
+
+> We did not just check whether containers restarted. We recorded successful
+> operation IDs and independently checked their durable transcripts. Our design
+> change fixed observed data loss, but it increased database pressure. We keep
+> the failed availability and load results instead of weakening the thresholds.
+
+### H. AI, telephony and safety boundaries (1 minute)
+
+- Live Groq evidence: ten sentiment/reply pairs succeeded; small sample only.
+- Controlled mock outage/recovery: tests fallback and circuit-breaker recovery,
+  not provider latency or clinical safety.
+- Twilio routes: inbound voice, gathered speech, status callbacks and outbound
+  connect; local contract tests are not end-to-end phone/audio validation.
+- High-risk fixed routing is a heuristic safety boundary, not a clinical
+  assessment. The prototype is not an emergency service.
+- Use synthetic callers; do not display `.env`, keys, tokens, real phone
+  numbers or sensitive transcripts. Live telephony needs consent and budget.
+
+### I. Close with decisions, not a claim of perfection (2-3 minutes)
+
+> The prototype demonstrates the application workflow, quorum-based queue
+> failover and measured Kubernetes recovery. Our strongest result is preserving
+> acknowledged data after discovering a real loss mode. The remaining work is
+> database availability/capacity, broader failure testing, and approved live
+> telephony. We would like your guidance on which of those are required for
+> final acceptance and what availability target we should meet.
+
+Ask the highest-priority questions in section 7 and record the answers in
+section 9.
+
+### Code tabs to prepare if asked "where is this implemented?"
+
+| File | Show | Explain |
+| --- | --- | --- |
+| [API assembly](../crates/api/src/main.rs) | Routes and awaited graceful shutdown | One service with multiple interfaces; draining in-flight work |
+| [Application wiring](../crates/api/src/state.rs) | Redis/Raft queue backend selection | Same application ports with an explicitly selected implementation |
+| [Call handlers](../crates/api/src/handlers/call.rs) | Create, turn and hangup flow | Stateful lifecycle and acknowledgment boundary |
+| [Checkpoint store](../crates/session-store/src/checkpoint.rs) and [tiered store](../crates/session-store/src/tiered.rs) | SQL versions, commit and projection/archive flow | Root-cause fix for Redis-first loss |
+| [Volunteer handlers](../crates/api/src/handlers/volunteer.rs) and [priority queue crate](../crates/priority-queue) | Claim/ownership and queue implementations | Distributed work coordination, audit and reconciliation limits |
+| [Raft handlers](../crates/api/src/handlers/raft.rs) | Peer RPC and read-only cluster status | Consensus traffic versus dashboard observations |
+| [Performance module](../crates/api/src/performance.rs) and [circuit-breaker crate](../crates/circuit-breaker) | Deadlines, bounded concurrency and breaker transitions | Dependency fault isolation |
+| [Lifecycle evaluator](../tests/k6/evaluate-lifecycle.ps1) | Acknowledged-ID recording and SQL audit | Validate durable outcomes, not only status codes |
+
+Do not read all files line by line. Open the relevant function only when the
+professor asks. Further procedure: [Raft demo guide](RAFT_DEMO_GUIDE.md),
+[current validation](TEST04_AND_AI_VALIDATION.md).
 
 Report copies:
 [Word](../documents/GROUP25_UPDATED.docx),
