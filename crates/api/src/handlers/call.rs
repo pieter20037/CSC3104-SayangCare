@@ -148,7 +148,7 @@ pub async fn turn(
         .map(|turn| sayangcare_core::domain::RiskAssessment::from_text(&turn.text))
         .max_by_key(|assessment| assessment.level);
     let current_assessment = sayangcare_core::domain::RiskAssessment::from_text(transcript);
-    let current_turn_is_high_risk = current_assessment.level.requires_immediate_escalation();
+    let mut current_turn_is_high_risk = current_assessment.level.requires_immediate_escalation();
     let assessment = prior_assessment
         .filter(|prior| prior.level > current_assessment.level)
         .unwrap_or(current_assessment);
@@ -172,7 +172,7 @@ pub async fn turn(
         timestamp: now,
     };
     let mut use_audio = false;
-    let assistant_response = if escalated {
+    let mut assistant_response = if escalated {
         response_for_risk(session.risk.level.0).to_string()
     } else if state.inference.is_some() {
         match crate::sentiment::reply_for_turn(&state, &budget, &mut session, &caller_turn).await {
@@ -186,6 +186,13 @@ pub async fn turn(
     } else {
         response_for_risk(session.risk.level.0).to_string()
     };
+
+    current_turn_is_high_risk |= !escalated && session.risk.level.requires_immediate_escalation();
+    let escalated = escalated || session.risk.level.requires_immediate_escalation();
+    if session.risk.level.requires_immediate_escalation() {
+        use_audio = false;
+        assistant_response = response_for_risk(session.risk.level.0).to_string();
+    }
 
     if session
         .record_turns([

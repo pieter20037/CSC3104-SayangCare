@@ -1,7 +1,7 @@
 //! CB-04 inference workflow, shared by simulated and live calls.
 use crate::performance::TurnBudget;
 use sayangcare_circuit_breaker::{BreakerHandle, BreakerPermit};
-use sayangcare_core::domain::{Session, Turn};
+use sayangcare_core::domain::{DistressMarker, RiskAssessment, RiskLevel, Session, Turn};
 use sayangcare_core::ports::InferenceService;
 use sayangcare_core::CoreResult;
 use std::time::Instant;
@@ -144,6 +144,7 @@ pub async fn generate_reply_bounded(
                     signal.valence = signal.valence.clamp(-1.0, 1.0);
                     signal.arousal = signal.arousal.clamp(0.0, 1.0);
                     severity = severity.max(signal.distress_severity());
+                    apply_safety_signal(session, &signal);
                     session.latest_sentiment = Some(signal);
                     record_outcome(sentiment_breaker, permit, latency, severity, true, budget)
                         .await;
@@ -186,6 +187,19 @@ pub async fn generate_reply_bounded(
     .await;
     tracing::debug!(session_id = %session.id, severity, latency, "reply generation completed");
     reply
+}
+
+fn apply_safety_signal(session: &mut Session, signal: &sayangcare_core::domain::SentimentSignal) {
+    if signal.distress_markers.contains(&DistressMarker::SelfHarm)
+        && session.risk.level < RiskLevel::HIGH
+    {
+        tracing::warn!(session_id = %session.id, "model self-harm signal requires human review");
+        session.risk = RiskAssessment {
+            level: RiskLevel::HIGH,
+            rationale: "model self-harm signal detected; human review required".into(),
+            assessed_at: Some(chrono::Utc::now()),
+        };
+    }
 }
 
 #[cfg(test)]
@@ -375,6 +389,25 @@ mod tests {
         );
         assert_eq!(risk_severity(0), 0.0);
         assert_eq!(risk_severity(255), 1.0);
+    }
+
+    #[test]
+    fn self_harm_signal_escalates_but_negative_affect_alone_does_not() {
+        let (_, _, mut session, _) = fixture(1);
+        let mut signal = SentimentSignal {
+            valence: -0.85,
+            arousal: 0.92,
+            distress_markers: vec![sayangcare_core::domain::DistressMarker::Panic],
+            captured_at: chrono::Utc::now(),
+        };
+        apply_safety_signal(&mut session, &signal);
+        assert_eq!(session.risk.level, RiskLevel::LOW);
+        signal.distress_markers.push(DistressMarker::SelfHarm);
+        apply_safety_signal(&mut session, &signal);
+        assert_eq!(session.risk.level, RiskLevel::HIGH);
+        session.risk.level = RiskLevel::CRISIS;
+        apply_safety_signal(&mut session, &signal);
+        assert_eq!(session.risk.level, RiskLevel::CRISIS);
     }
 
     #[actix_web::test]

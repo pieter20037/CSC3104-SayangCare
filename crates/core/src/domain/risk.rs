@@ -34,14 +34,39 @@ impl RiskAssessment {
     /// It intentionally goes beyond a single keyword match so the escalation
     /// policy is more realistic before a live LLM or clinician triage layer is added.
     pub fn from_text(text: &str) -> Self {
-        let normalized = text.to_ascii_lowercase();
+        let normalized = text
+            .to_lowercase()
+            .chars()
+            .map(|character| match character {
+                '\u{2018}' | '\u{2019}' => '\'',
+                character if character.is_alphanumeric() || character == '\'' => character,
+                _ => ' ',
+            })
+            .collect::<String>();
+        let normalized = format!(
+            " {} ",
+            normalized.split_whitespace().collect::<Vec<_>>().join(" ")
+        );
+        let contains_phrase = |phrase: &str| normalized.contains(&format!(" {phrase} "));
 
         let immediate = [
             ("end my life", 5),
             ("want to die", 5),
             ("kill myself", 5),
             ("hurt myself", 5),
-            ("self-harm", 5),
+            ("hurting myself", 5),
+            ("cut myself", 5),
+            ("cutting myself", 5),
+            ("harm myself", 5),
+            ("harming myself", 5),
+            ("self harm", 5),
+            ("self harming", 5),
+            ("selfharm", 5),
+            ("suicidal", 5),
+            ("want to end it", 5),
+            ("want to jump off", 5),
+            ("going to jump off", 5),
+            ("about to jump off", 5),
             ("i am going to die", 5),
             ("suicide", 5),
             ("i can't go on", 4),
@@ -77,15 +102,13 @@ impl RiskAssessment {
         let mut score = 0u8;
 
         for (marker, weight) in immediate.iter().chain(high.iter()).chain(moderate.iter()) {
-            if normalized.contains(marker) {
+            if contains_phrase(marker) {
                 score = score.saturating_add(*weight);
                 evidence.push(*marker);
             }
         }
 
-        let immediate_risk = immediate
-            .iter()
-            .any(|(marker, _)| normalized.contains(marker));
+        let immediate_risk = immediate.iter().any(|(marker, _)| contains_phrase(marker));
         let level = if immediate_risk || score >= 9 {
             RiskLevel::CRISIS
         } else if score >= 4 {
@@ -174,6 +197,61 @@ mod tests {
         assert_eq!(
             RiskAssessment::from_text("I want to kill myself.").level,
             RiskLevel::CRISIS
+        );
+    }
+
+    #[test]
+    fn screenshot_self_harm_statements_require_immediate_escalation() {
+        for text in [
+            "hello i am feeling very stressed out recently from school work and i am starting to cut myself with penknife.",
+            "no i am not comfortable. im so depressed i really want to end it.",
+            "I need help. can u refer me to a volunteer? I'm alone and im starting to have suicidal thoughts",
+            "i am very stressed lately and starting to have negative thoughts about people around me. I cannot stand it and i want to jump off the building",
+        ] {
+            let assessment = RiskAssessment::from_text(text);
+            assert_eq!(assessment.level, RiskLevel::CRISIS, "{text}");
+            assert!(assessment.level.requires_immediate_escalation(), "{text}");
+        }
+    }
+
+    #[test]
+    fn recognizes_speech_spacing_punctuation_and_inflections() {
+        for text in [
+            "I am CUTTING   MYSELF.",
+            "I am hurting myself",
+            "I am harming myself",
+            "I want to end\nmy life",
+            "I\u{2019}m thinking about self\u{2011}harm",
+            "I can't go on!",
+            "I can\u{2019}t go on",
+            "I am self-harming",
+        ] {
+            assert!(
+                RiskAssessment::from_text(text)
+                    .level
+                    .requires_immediate_escalation(),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_phrases_do_not_match_partial_risk_words() {
+        for text in [
+            "Can you tell me a story about a garden?",
+            "I cut vegetables for dinner.",
+            "I enjoyed the seaside today.",
+            "I want to end the story here.",
+        ] {
+            assert_eq!(
+                RiskAssessment::from_text(text).level,
+                RiskLevel::LOW,
+                "{text}"
+            );
+        }
+        assert_eq!(
+            RiskAssessment::from_text("I am stressed about school.").level,
+            RiskLevel::ELEVATED
         );
     }
 }

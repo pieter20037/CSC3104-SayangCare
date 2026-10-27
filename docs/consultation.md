@@ -307,6 +307,25 @@ verified provider integration.
 The browser voice button is a local simulation, not proof of a real Twilio
 phone call. Microphone/browser support must be rehearsed before showing it.
 
+Risk-routing regression update: explicit phrases such as "cut myself",
+"cutting myself", "suicidal thoughts" and "want to end it" trigger immediate
+escalation in the shared JSON/Twilio classifier. Matching normalizes spacing,
+punctuation and curly apostrophes. This remains a conservative phrase-based
+prototype: it does not reliably understand negation, quoted statements, intent
+or every paraphrase. Sentiment scoring is separate and is not the authority
+for initiating handoff on its own, except that an explicit model `self_harm`
+marker now raises risk to at least 4/5 for human review in both handlers.
+Negative valence or distress severity alone does not trigger this rule.
+Model false positives remain possible. A missing sentiment score must not prevent these
+deterministic high-risk phrases from escalating.
+
+The AI reply policy requests brief spoken responses relevant to the current
+message, distinguishes substance-use concerns from expressed suicidal intent,
+and avoids unconfirmed country-specific emergency numbers. Sentiment instructions
+likewise distinguish drug mentions from explicit self-harm. These are model
+instructions, not guaranteed classifications; controlled tests and review remain
+necessary. Deterministic escalation responses intentionally remain fixed.
+
 ### C. Escalation and volunteer work (2-3 minutes)
 
 1. Click **Simulate crisis call**. Use only its synthetic test data.
