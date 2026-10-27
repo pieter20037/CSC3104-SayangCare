@@ -306,6 +306,27 @@ verified provider integration.
 
 The browser voice button is a local simulation, not proof of a real Twilio
 phone call. Microphone/browser support must be rehearsed before showing it.
+Browser voice automatically submits finalized recognized speech and resumes
+listening after the spoken reply finishes. Recognition starts only after session
+creation succeeds. Recognition restarts after silence/end-without-result.
+The extra Speak next turn and Stop voice controls have been removed.
+**End call** remains available during voice processing/playback, stops microphone
+and speech immediately, then ends the session after any submitted turn finishes.
+Caller lab, Volunteer desk and Operations tabs remain available during processing
+and playback. Leaving Caller lab stops the microphone and spoken reply but keeps
+the call session open; a turn already submitted still finishes saving. Start
+browser voice again to begin a new voice call.
+Recognition can still mishear background audio; this is a browser simulation,
+not validated telephone speech recognition.
+Overview queue, roster and alert counts refresh every five seconds in every
+workspace tab while the page is visible and no foreground operation is busy.
+Returning to the browser tab triggers a refresh; failures are shown beside
+the overview rather than silently presenting stale counts as current.
+The initial escalation uses a controlled safety message. Subsequent turns use
+the configured LLM for supportive conversation while preserving escalation;
+provider failure uses bounded fallback without clearing escalated state.
+Queued or assigned is not proof of connection. Verified connection tracking and
+automatic AI cutoff on actual volunteer connection remain separate follow-up work.
 
 Risk-routing regression update: explicit phrases such as "cut myself",
 "cutting myself", "suicidal thoughts" and "want to end it" trigger immediate

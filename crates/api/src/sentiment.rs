@@ -110,6 +110,26 @@ pub fn risk_severity(score: u8) -> f32 {
     (score.clamp(1, 5) - 1) as f32 / 4.0
 }
 
+pub fn handoff_reply(session: &Session, already_escalated: bool) -> &'static str {
+    if !already_escalated {
+        return "Thank you for telling me. This needs human support. If you are in immediate danger, contact local emergency services or someone nearby now. Please stay with me while your request is reviewed.";
+    }
+    if session.assigned_volunteer_id.is_some() {
+        return "Your case has a volunteer assigned. If you are in immediate danger, contact local emergency services or someone nearby now. What would you like your volunteer to know?";
+    }
+    let turns = session
+        .transcript
+        .turns
+        .iter()
+        .filter(|turn| turn.speaker == sayangcare_core::domain::Speaker::Caller)
+        .count();
+    match turns % 3 {
+        0 => "I'm still here with you. Your case still needs human review. Is there someone you trust nearby who can stay with you?",
+        1 => "You don't need to repeat everything. While human support is pending, are you somewhere away from immediate danger?",
+        _ => "I hear you. I cannot promise when a volunteer will be available. What would help you stay safe while waiting for support?",
+    }
+}
+
 /// Scores sentiment and generates a reply through independently protected operations.
 pub async fn generate_reply_bounded(
     inference: &dyn InferenceService,
@@ -408,6 +428,21 @@ mod tests {
         session.risk.level = RiskLevel::CRISIS;
         apply_safety_signal(&mut session, &signal);
         assert_eq!(session.risk.level, RiskLevel::CRISIS);
+    }
+
+    #[test]
+    fn handoff_followups_vary_without_clearing_risk_or_promising_arrival() {
+        let (_, _, mut session, turn) = fixture(1);
+        session.risk.level = RiskLevel::CRISIS;
+        let initial = handoff_reply(&session, false);
+        let first = handoff_reply(&session, true);
+        session.transcript.push(turn);
+        let next = handoff_reply(&session, true);
+        assert_ne!(initial, first);
+        assert_ne!(first, next);
+        assert_eq!(session.risk.level, RiskLevel::CRISIS);
+        session.assigned_volunteer_id = Some("volunteer-test".into());
+        assert!(handoff_reply(&session, true).contains("assigned"));
     }
 
     #[actix_web::test]

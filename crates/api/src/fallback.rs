@@ -20,7 +20,7 @@ pub fn audio_url(base: &str) -> String {
 
 /// Call after record_turns, which restores Degraded sessions to Active.
 pub fn mark_degraded(session: &mut Session, use_audio: bool) -> sayangcare_core::CoreResult<()> {
-    if use_audio {
+    if use_audio && session.state != SessionState::Escalated {
         session.transition(SessionState::Degraded)?;
     }
     Ok(())
@@ -70,6 +70,8 @@ mod tests {
         mark_degraded(&mut session, true).unwrap();
         session.transition(SessionState::Escalated).unwrap();
         mark_degraded(&mut session, false).unwrap();
+        assert_eq!(session.state, SessionState::Escalated);
+        mark_degraded(&mut session, true).unwrap();
         assert_eq!(session.state, SessionState::Escalated);
     }
 

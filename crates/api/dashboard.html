@@ -458,7 +458,7 @@
       <div class="overview-card"><span class="overview-icon"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg></span><div><p class="overview-label">Conversation turns</p><span class="overview-number" id="overview-turns">—</span><span class="overview-caption">Selected session only</span></div></div>
     </section>
     <div class="notice" id="workspace-error" role="alert" hidden></div>
-    <p class="microcopy role-note"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>Simulation environment · Workspace views are not authentication. Counts update when their data is refreshed.</p>
+    <p class="microcopy role-note"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>Simulation environment · Workspace views are not authentication. <span id="overview-live-status" role="status">Counts refresh every 5 seconds while this page is visible and idle.</span></p>
 
     <div class="layout role-caller" id="role-layout">
       <div class="stack">
@@ -652,8 +652,8 @@
     let voiceRecognition = null;
     let voiceActive = false;
     let voiceWaitingForReply = false;
-    let voiceSessionReady = false;
-    let pendingVoiceTranscript = null;
+    let voiceHangupPending = false;
+    let finishSpeech = null;
 
     const roleCopy = {
       caller: ["Caller workspace", "Simulate a caller conversation and review the transcript."],
@@ -694,7 +694,8 @@
 
     function setBusy(value) {
       busy = value;
-      controls.forEach((button) => { button.disabled = value; });
+      controls.forEach((button) => { button.disabled = value && !button.classList.contains("role-tab"); });
+      $("hangup-button").disabled = value && !voiceActive;
     }
 
     function pretty(value) {
@@ -799,7 +800,15 @@
         $("workspace-error").textContent = error.message;
         $("workspace-error").hidden = false;
       } finally {
-        setBusy(false);
+        await finishBusyOperation();
+      }
+    }
+
+    async function finishBusyOperation() {
+      setBusy(false);
+      if (voiceHangupPending) {
+        voiceHangupPending = false;
+        await withBusy(endCall);
       }
     }
 
@@ -878,18 +887,19 @@
       const id = $("call-id").value.trim();
       const checks = [];
       if (id) checks.push(refreshSelectedSession(id));
+      checks.push(getSnapshot("/volunteers/queue").then(renderQueue));
+      checks.push(getSnapshot("/volunteers").then(renderVolunteers));
+      checks.push(getSnapshot("/operator/alerts").then(renderAlerts));
       if (currentRole === "volunteer") {
-        checks.push(getSnapshot("/volunteers/queue").then(renderQueue));
-        checks.push(getSnapshot("/volunteers").then(renderVolunteers));
         checks.push(getSnapshot(`/volunteers/${encodeURIComponent(selectedVolunteerId())}/cases`).then(renderAssignedCases));
-      } else if (currentRole === "operator") {
-        checks.push(getSnapshot("/volunteers/queue").then(renderQueue));
-        checks.push(getSnapshot("/operator/alerts").then(renderAlerts));
       }
 
       try {
         const results = await Promise.allSettled(checks);
         const failed = results.find((result) => result.status === "rejected");
+        $("overview-live-status").textContent = failed
+          ? `Auto-refresh issue: ${failed.reason.message}. Some counts may be stale; retrying every 5 seconds.`
+          : `Counts checked ${new Date().toLocaleTimeString()} · refresh every 5 seconds.`;
         if (failed) {
           $("session-live-status").textContent = `Auto-refresh issue: ${failed.reason.message}`;
         } else if (!id) {
@@ -1349,12 +1359,13 @@
     function stopBrowserVoice(message) {
       voiceActive = false;
       voiceWaitingForReply = false;
-      voiceSessionReady = false;
-      pendingVoiceTranscript = null;
       if (voiceRecognition) {
-        try { voiceRecognition.stop(); } catch { /* It may already be stopped. */ }
+        voiceRecognition.onend = null;
+        voiceRecognition.onresult = null;
+        voiceRecognition.abort();
       }
       if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      if (finishSpeech) finishSpeech();
       $("voice-status").textContent = message;
     }
 
@@ -1375,8 +1386,13 @@
       if (!("speechSynthesis" in window) || !text) return Promise.resolve();
       return new Promise((resolve) => {
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.onend = resolve;
-        utterance.onerror = resolve;
+        const finish = () => {
+          finishSpeech = null;
+          resolve();
+        };
+        finishSpeech = finish;
+        utterance.onend = finish;
+        utterance.onerror = finish;
         window.speechSynthesis.cancel();
         window.speechSynthesis.speak(utterance);
       });
@@ -1396,9 +1412,11 @@
         $("workspace-error").textContent = error.message;
         $("workspace-error").hidden = false;
       } finally {
-        setBusy(false);
         voiceWaitingForReply = false;
-        startListening();
+        await finishBusyOperation();
+        if (voiceActive) {
+          startListening();
+        }
       }
     }
 
@@ -1409,37 +1427,36 @@
 
       voiceRecognition = new Recognition();
       voiceRecognition.lang = navigator.language || "en-US";
-      voiceRecognition.continuous = true;
+      voiceRecognition.continuous = false;
       voiceRecognition.interimResults = false;
       voiceRecognition.onstart = () => { $("voice-status").textContent = "Listening…"; };
       voiceRecognition.onresult = (event) => {
-        const transcript = Array.from(event.results)
+        const results = Array.from(event.results)
           .slice(event.resultIndex)
-          .filter((result) => result.isFinal)
+          .filter((result) => result.isFinal);
+        const transcript = results
           .map((result) => result[0].transcript.trim())
           .filter(Boolean)
           .join(" ");
-        if (!transcript || voiceWaitingForReply) return;
+        if (!voiceActive || !transcript || voiceWaitingForReply) return;
+        $("transcript-input").value = transcript;
         voiceWaitingForReply = true;
         voiceRecognition.stop();
-        $("transcript-input").value = transcript;
-        if (voiceSessionReady) processVoiceTurn(transcript);
-        else pendingVoiceTranscript = transcript;
+        $("voice-status").textContent = "Recording your turn…";
+        void processVoiceTurn(transcript);
       };
       voiceRecognition.onerror = (event) => {
         if (event.error === "aborted" || event.error === "no-speech") return;
         stopBrowserVoice(`Speech recognition error: ${event.error}. Check microphone permission and browser speech-service access.`);
       };
       voiceRecognition.onend = () => {
-        if (voiceActive && !voiceWaitingForReply) startListening();
+        if (voiceActive && !voiceWaitingForReply) {
+          startListening();
+        }
       };
 
       voiceActive = true;
       voiceWaitingForReply = false;
-      voiceSessionReady = false;
-      pendingVoiceTranscript = null;
-      if (!startListening()) throw new Error($("voice-status").textContent);
-
       freshCallId("SIM-");
       try {
         await startCall();
@@ -1447,12 +1464,7 @@
         stopBrowserVoice(error.message);
         throw error;
       }
-      voiceSessionReady = true;
-      if (pendingVoiceTranscript && voiceActive) {
-        const transcript = pendingVoiceTranscript;
-        pendingVoiceTranscript = null;
-        processVoiceTurn(transcript);
-      }
+      if (voiceActive && !startListening()) throw new Error($("voice-status").textContent);
     }
 
     document.querySelectorAll(".role-tab").forEach((tab) => {
@@ -1470,23 +1482,52 @@
           target.click();
         }
       });
-      tab.addEventListener("click", () => withBusy(async () => {
-        setRole(tab.dataset.role);
-        if (tab.dataset.role === "volunteer" || tab.dataset.role === "operator") await loadQueue();
-        if (tab.dataset.role === "volunteer") {
-          await loadVolunteers();
-          await loadAssignedCases(selectedVolunteerId());
+      tab.addEventListener("click", async () => {
+        if (voiceActive && tab.dataset.role !== "caller") {
+          stopBrowserVoice("Voice stopped because you left Caller lab. The call session remains open.");
         }
-        if (tab.dataset.role === "operator") await loadAlerts();
-      }));
+        setRole(tab.dataset.role);
+        try {
+          const checks = [];
+          if (tab.dataset.role === "volunteer" || tab.dataset.role === "operator") checks.push(loadQueue());
+          if (tab.dataset.role === "volunteer") {
+            checks.push(loadVolunteers(), loadAssignedCases(selectedVolunteerId()));
+          }
+          if (tab.dataset.role === "operator") checks.push(loadAlerts());
+          await Promise.all(checks);
+        } catch (error) {
+          $("api-status").textContent = error.message;
+          $("workspace-error").textContent = error.message;
+          $("workspace-error").hidden = false;
+        }
+      });
     });
     $("volunteer-select").addEventListener("change", () => withBusy(() => loadAssignedCases(selectedVolunteerId())));
     $("health-button").addEventListener("click", () => withBusy(checkHealth));
     // Ignore the click event; freshCallId's optional argument is the ID prefix.
     $("new-id").addEventListener("click", () => freshCallId());
     $("start-button").addEventListener("click", () => withBusy(startCall));
-    $("turn-button").addEventListener("click", () => withBusy(recordTurn));
-    $("hangup-button").addEventListener("click", () => withBusy(endCall));
+    $("turn-button").addEventListener("click", () => {
+      if (voiceActive) {
+        if (busy || voiceWaitingForReply) return;
+        voiceWaitingForReply = true;
+        voiceRecognition.abort();
+        processVoiceTurn($("transcript-input").value.trim());
+      } else {
+        withBusy(() => recordTurn());
+      }
+    });
+    $("hangup-button").addEventListener("click", () => {
+      if (voiceActive) {
+        stopBrowserVoice("Voice stopped. Ending call…");
+        if (busy) {
+          voiceHangupPending = true;
+          setBusy(true);
+          return;
+        }
+      }
+      void withBusy(endCall);
+    });
     $("voice-start-button").addEventListener("click", () => withBusy(async () => {
       try {
         await startBrowserVoice();
@@ -1560,6 +1601,9 @@
       $("api-status").textContent = "API unavailable";
     });
     setInterval(() => { void refreshWorkspaceSnapshot(); }, 5000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) void refreshWorkspaceSnapshot();
+    });
   </script>
 </body>
 </html>

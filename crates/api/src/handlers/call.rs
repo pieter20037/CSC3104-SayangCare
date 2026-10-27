@@ -172,8 +172,8 @@ pub async fn turn(
         timestamp: now,
     };
     let mut use_audio = false;
-    let mut assistant_response = if escalated {
-        response_for_risk(session.risk.level.0).to_string()
+    let mut assistant_response = if escalated && !was_escalated {
+        crate::sentiment::handoff_reply(&session, was_escalated).to_string()
     } else if state.inference.is_some() {
         match crate::sentiment::reply_for_turn(&state, &budget, &mut session, &caller_turn).await {
             Ok(reply) => reply,
@@ -183,15 +183,17 @@ pub async fn turn(
                 crate::fallback::HOLDING_MESSAGE.to_string()
             }
         }
+    } else if escalated {
+        crate::sentiment::handoff_reply(&session, was_escalated).to_string()
     } else {
         response_for_risk(session.risk.level.0).to_string()
     };
 
     current_turn_is_high_risk |= !escalated && session.risk.level.requires_immediate_escalation();
     let escalated = escalated || session.risk.level.requires_immediate_escalation();
-    if session.risk.level.requires_immediate_escalation() {
+    if session.risk.level.requires_immediate_escalation() && !was_escalated {
         use_audio = false;
-        assistant_response = response_for_risk(session.risk.level.0).to_string();
+        assistant_response = crate::sentiment::handoff_reply(&session, was_escalated).to_string();
     }
 
     if session

@@ -208,8 +208,8 @@ pub async fn gather(
     let was_escalated = session.state == sayangcare_core::domain::SessionState::Escalated;
     let escalated = was_escalated || session.risk.level.requires_immediate_escalation();
     let mut use_audio = false;
-    let mut assistant_reply = if escalated {
-        "Thank you for telling me. Don't worry, I've alerted a human volunteer. They'll speak with you as soon as one is available. Please stay with me while we connect you.".to_string()
+    let mut assistant_reply = if escalated && !was_escalated {
+        crate::sentiment::handoff_reply(&session, was_escalated).to_string()
     } else if state.inference.is_some() {
         match crate::sentiment::reply_for_turn(&state, &budget, &mut session, &caller_turn).await {
             Ok(reply) => reply,
@@ -219,15 +219,17 @@ pub async fn gather(
                 crate::fallback::HOLDING_MESSAGE.to_string()
             }
         }
+    } else if escalated {
+        crate::sentiment::handoff_reply(&session, was_escalated).to_string()
     } else {
         "I'm here with you. Please tell me a little more about what is happening.".to_string()
     };
 
     current_turn_is_high_risk |= !escalated && session.risk.level.requires_immediate_escalation();
     let escalated = escalated || session.risk.level.requires_immediate_escalation();
-    if session.risk.level.requires_immediate_escalation() {
+    if session.risk.level.requires_immediate_escalation() && !was_escalated {
         use_audio = false;
-        assistant_reply = "Thank you for telling me. Don't worry, I've alerted a human volunteer. They'll speak with you as soon as one is available. Please stay with me while we connect you.".to_string();
+        assistant_reply = crate::sentiment::handoff_reply(&session, was_escalated).to_string();
     }
 
     if session
