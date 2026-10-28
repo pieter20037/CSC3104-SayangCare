@@ -1,6 +1,6 @@
 # Raft Leader Election Demo
 
-Demonstrates the Raft volunteer queue replicating work, electing a new leader after failure, and catching up a restarted node. Requires Docker Desktop. Run commands from the repository root.
+Demonstrates Redis-backed queue ordering with Raft-replicated volunteer assignments, leader election, and a restarted node catching up. Requires Docker Desktop. Run commands from the repository root.
 
 ## Start the Cluster
 
@@ -43,17 +43,17 @@ Wait until the Raft cluster panel shows all three nodes up, one leader, two foll
 ## Demo steps
 
 1. In the **Raft cluster** panel, note the node labelled **Leader** and its node number.
-2. Click **Simulate crisis call**. The session should show risk 5/5 and `ESCALATED`; the log and applied indexes should advance across the cluster.
+2. Click **Simulate crisis call**, then claim the case as a volunteer. Redis owns queue ordering; the Raft log advances when the volunteer assignment is committed.
 3. In Docker Desktop, select the matching `raft-node-N` container and click **Stop**. Leave the dashboard open on one of the surviving nodes.
 4. Watch the panel refresh: the stopped node becomes **DOWN**, the cluster reports `2/3 up`, a survivor becomes **Leader**, and the term increases. Quorum remains available, so the cluster still accepts writes.
-5. Click **Simulate crisis call** again to show the new leader can commit another escalation.
+5. Claim another case to show the new leader can commit an assignment while Redis continues to own the queue.
 6. In Docker Desktop, select the stopped node and click **Start**. It rejoins as a **Follower** and catches up from its persistent volume; it does not take leadership back.
 
 ## What to say
 
 - Raft elects one leader per term. Followers that stop hearing the leader's heartbeat start an election, and a candidate needs a majority (2 of 3) of votes.
 - Killing the leader raises the term and elects a new leader, so the term number is your proof an election happened.
-- Committed data (the escalated call) is not lost, because it was replicated to a majority first.
+- Assignment ownership is committed to a majority before the claim succeeds. Redis remains responsible for queue order and pending items.
 - Stop a second node in Docker Desktop. With only one of three nodes available, quorum is lost; the panel warns and writes are refused. Start it again before continuing.
 
 ## Clean up

@@ -132,39 +132,47 @@ impl AppState {
         ));
 
         // --- Priority queue: Redis sorted set (default) or Raft-replicated cluster ---
-        let (queue, raft): (Arc<dyn PriorityQueue>, Option<Arc<RaftQueueNode>>) =
-            match config.queue.backend.to_ascii_lowercase().as_str() {
-                "raft" => {
-                    let peers = RaftQueueSettings::parse_peers(&config.queue.raft_peers)
-                        .map_err(sayangcare_core::CoreError::Storage)?;
-                    let node_id = config.queue.raft_node_id;
-                    if !peers.is_empty() && !peers.contains_key(&node_id) {
-                        return Err(sayangcare_core::CoreError::Storage(format!(
-                            "raft node id {node_id} is not listed in raft_peers"
-                        )));
-                    }
-                    let node = RaftQueueNode::start(RaftQueueSettings {
-                        node_id,
-                        peers,
-                        data_file: config.queue.raft_data_dir.as_ref().map(|dir| {
-                            std::path::Path::new(dir).join(format!("raft-node-{node_id}.json"))
-                        }),
-                        token: config.queue.raft_token.clone().filter(|t| !t.is_empty()),
-                    })
-                    .await?;
-                    info!(node_id, "Raft priority queue enabled");
-                    (Arc::new(RaftPriorityQueue::new(node.clone())), Some(node))
-                }
-                "redis" => (
-                    Arc::new(RedisPriorityQueue::new(redis.clone(), "escalation:queue")),
-                    None,
-                ),
-                other => {
-                    return Err(sayangcare_core::CoreError::Storage(format!(
-                        "unknown queue backend '{other}'; use 'redis' or 'raft'"
-                    )))
-                }
-            };
+        let backend = config.queue.backend.to_ascii_lowercase();
+        let raft = if backend == "raft" || config.queue.raft_assignments {
+            let peers = RaftQueueSettings::parse_peers(&config.queue.raft_peers)
+                .map_err(sayangcare_core::CoreError::Storage)?;
+            let node_id = config.queue.raft_node_id;
+            if !peers.is_empty() && !peers.contains_key(&node_id) {
+                return Err(sayangcare_core::CoreError::Storage(format!(
+                    "raft node id {node_id} is not listed in raft_peers"
+                )));
+            }
+            let node =
+                RaftQueueNode::start(RaftQueueSettings {
+                    node_id,
+                    peers,
+                    data_file: config.queue.raft_data_dir.as_ref().map(|dir| {
+                        std::path::Path::new(dir).join(format!("raft-node-{node_id}.json"))
+                    }),
+                    token: config.queue.raft_token.clone().filter(|t| !t.is_empty()),
+                })
+                .await?;
+            Some(node)
+        } else {
+            None
+        };
+        if backend == "raft" {
+            info!("Raft priority queue enabled");
+        }
+        if config.queue.raft_assignments {
+            info!("Raft volunteer assignment coordination enabled");
+        }
+        let queue: Arc<dyn PriorityQueue> = match backend.as_str() {
+            "raft" => Arc::new(RaftPriorityQueue::new(
+                raft.as_ref().expect("Raft initialized").clone(),
+            )),
+            "redis" => Arc::new(RedisPriorityQueue::new(redis.clone(), "escalation:queue")),
+            other => {
+                return Err(sayangcare_core::CoreError::Storage(format!(
+                    "unknown queue backend '{other}'; use 'redis' or 'raft'"
+                )))
+            }
+        };
 
         // --- Telephony ---
         let telephony = Arc::new(TwilioProvider::new(

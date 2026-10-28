@@ -42,6 +42,22 @@ pub enum RaftQueueCommand {
         session_id: SessionId,
         volunteer_id: String,
     },
+    CoordinateAssignment {
+        request_id: String,
+        session_id: SessionId,
+        volunteer_id: String,
+    },
+    TransferAssignment {
+        request_id: String,
+        session_id: SessionId,
+        from_volunteer_id: String,
+        to_volunteer_id: String,
+    },
+    ReleaseAssignment {
+        request_id: String,
+        session_id: SessionId,
+        volunteer_id: String,
+    },
 }
 
 impl RaftQueueCommand {
@@ -52,6 +68,9 @@ impl RaftQueueCommand {
             | Self::ClaimSession { request_id, .. }
             | Self::MoveClaim { request_id, .. }
             | Self::ReleaseClaim { request_id, .. } => request_id,
+            Self::CoordinateAssignment { request_id, .. }
+            | Self::TransferAssignment { request_id, .. }
+            | Self::ReleaseAssignment { request_id, .. } => request_id,
         }
     }
 }
@@ -86,6 +105,8 @@ struct QueueEntry {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RaftQueueState {
     entries: BTreeMap<String, QueueEntry>,
+    #[serde(default)]
+    assignments: BTreeMap<String, String>,
     request_results: BTreeMap<String, RaftQueueOutcome>,
 }
 
@@ -187,6 +208,45 @@ impl RaftQueueState {
                     self.entries.remove(&session_id.0);
                 }
                 RaftQueueOutcome::Applied { ok: owned }
+            }
+            RaftQueueCommand::CoordinateAssignment {
+                session_id,
+                volunteer_id,
+                ..
+            } => {
+                let ok = if self.assignments.contains_key(&session_id.0) {
+                    false
+                } else {
+                    self.assignments.insert(session_id.0, volunteer_id);
+                    true
+                };
+                RaftQueueOutcome::Applied { ok }
+            }
+            RaftQueueCommand::TransferAssignment {
+                session_id,
+                from_volunteer_id,
+                to_volunteer_id,
+                ..
+            } => {
+                let ok = match self.assignments.get_mut(&session_id.0) {
+                    Some(owner) if owner == &from_volunteer_id => {
+                        *owner = to_volunteer_id;
+                        true
+                    }
+                    _ => false,
+                };
+                RaftQueueOutcome::Applied { ok }
+            }
+            RaftQueueCommand::ReleaseAssignment {
+                session_id,
+                volunteer_id,
+                ..
+            } => {
+                let ok = self.assignments.get(&session_id.0) == Some(&volunteer_id);
+                if ok {
+                    self.assignments.remove(&session_id.0);
+                }
+                RaftQueueOutcome::Applied { ok }
             }
         };
 

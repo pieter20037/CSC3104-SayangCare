@@ -126,6 +126,61 @@ impl RaftQueueNode {
         &self.settings.peers
     }
 
+    /// Commit a volunteer ownership decision without putting queue ordering in Raft.
+    pub async fn coordinate_assignment(
+        &self,
+        session_id: &SessionId,
+        volunteer_id: &str,
+    ) -> CoreResult<(bool, u64)> {
+        let reply = self
+            .write_reply(RaftQueueCommand::CoordinateAssignment {
+                request_id: Uuid::new_v4().to_string(),
+                session_id: session_id.clone(),
+                volunteer_id: volunteer_id.to_string(),
+            })
+            .await?;
+        match reply.outcome {
+            RaftQueueOutcome::Applied { ok } => Ok((ok, reply.log_index)),
+            other => Err(CoreError::Storage(format!(
+                "unexpected Raft assignment outcome {other:?}"
+            ))),
+        }
+    }
+    pub async fn transfer_assignment(
+        &self,
+        session_id: &SessionId,
+        from: &str,
+        to: &str,
+    ) -> CoreResult<bool> {
+        self.assignment_command(RaftQueueCommand::TransferAssignment {
+            request_id: Uuid::new_v4().to_string(),
+            session_id: session_id.clone(),
+            from_volunteer_id: from.to_string(),
+            to_volunteer_id: to.to_string(),
+        })
+        .await
+    }
+    pub async fn release_assignment(
+        &self,
+        session_id: &SessionId,
+        volunteer_id: &str,
+    ) -> CoreResult<bool> {
+        self.assignment_command(RaftQueueCommand::ReleaseAssignment {
+            request_id: Uuid::new_v4().to_string(),
+            session_id: session_id.clone(),
+            volunteer_id: volunteer_id.to_string(),
+        })
+        .await
+    }
+    async fn assignment_command(&self, command: RaftQueueCommand) -> CoreResult<bool> {
+        match self.write(command).await? {
+            RaftQueueOutcome::Applied { ok } => Ok(ok),
+            other => Err(CoreError::Storage(format!(
+                "unexpected Raft assignment outcome {other:?}"
+            ))),
+        }
+    }
+
     /// Initializes a brand-new cluster. Only the lowest node id bootstraps; every other node
     /// waits to be added by its replication stream. Safe to call on every startup.
     pub async fn bootstrap_if_needed(&self) -> CoreResult<()> {
@@ -177,6 +232,10 @@ impl RaftQueueNode {
     /// Replicates a command through the leader, forwarding when this node is a follower. Commands
     /// carry a request id, so retrying during elections cannot apply them twice.
     pub async fn write(&self, command: RaftQueueCommand) -> CoreResult<RaftQueueOutcome> {
+        self.write_reply(command).await.map(|reply| reply.outcome)
+    }
+
+    async fn write_reply(&self, command: RaftQueueCommand) -> CoreResult<WriteReply> {
         let mut last_error = String::from("no raft leader available");
         for attempt in 0..40 {
             if attempt > 0 {
@@ -189,7 +248,10 @@ impl RaftQueueNode {
             {
                 Ok(response) => {
                     self.await_applied(response.log_id.index).await;
-                    return Ok(response.data);
+                    return Ok(WriteReply {
+                        outcome: response.data,
+                        log_index: response.log_id.index,
+                    });
                 }
                 Err(RaftError::APIError(ClientWriteError::ForwardToLeader(forward))) => {
                     forward.leader_node
@@ -205,7 +267,7 @@ impl RaftQueueNode {
             match self.forward(&leader.addr, &command).await {
                 Ok(reply) => {
                     self.await_applied(reply.log_index).await;
-                    return Ok(reply.outcome);
+                    return Ok(reply);
                 }
                 Err(error) => last_error = error,
             }

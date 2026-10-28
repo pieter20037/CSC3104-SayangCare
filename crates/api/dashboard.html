@@ -338,7 +338,8 @@
     .panel-title .icon { color: #5f8a80; width: 18px; height: 18px; }
     .panel-kicker { background: #f0f5f5; border-radius: 5px; padding: 5px 8px; font-size: 10px; color: #607b7c; white-space: normal; }
     .panel-body { padding: 20px; }
-    .layout .raft-panel { order: 20; }
+    .assignment-proof { margin-top: 16px; padding: 14px 16px; border: 1px solid #b8ded0; border-radius: 10px; background: #eff9f4; color: #24594d; font-size: 12px; line-height: 1.6; }
+    .layout .raft-panel { order: 0; }
     .raft-panel .activity-list { max-height: 180px; }
     .raft-panel .microcopy { font-size: 11px; }
     .field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -508,6 +509,7 @@
             <div class="divider"></div>
             <button class="button accent" id="full-test-button" type="button"><span class="arrow" aria-hidden="true">▶</span> Simulate crisis call</button>
             <p class="microcopy">Runs a two-turn caller simulation and leaves any escalation in the volunteer queue. Claim it to test assignment; simulated calls never dial a phone.</p>
+            <div class="assignment-proof" id="assignment-proof" role="status" aria-live="polite">Run a crisis simulation, then claim its case from the Volunteer desk. The Raft commit receipt will appear here.</div>
           </div>
         </section>
 
@@ -649,6 +651,10 @@
     let autoRefreshRunning = false;
     let lastRenderedSessionId = null;
     let lastRenderedSessionVersion = null;
+    let lastRaftAssignmentReceipt = (() => {
+      try { return JSON.parse(sessionStorage.getItem("sayangcare-raft-assignment-receipt") || "null"); }
+      catch { return null; }
+    })();
     let voiceRecognition = null;
     let voiceActive = false;
     let voiceWaitingForReply = false;
@@ -818,6 +824,28 @@
       return id;
     }
 
+    function rememberRaftAssignment(result) {
+      if (!result?.session_id) return;
+      lastRaftAssignmentReceipt = {
+        session_id: result.session_id,
+        volunteer_id: result.volunteer_id,
+        log_index: result.raft_log_index ?? null
+      };
+      sessionStorage.setItem("sayangcare-raft-assignment-receipt", JSON.stringify(lastRaftAssignmentReceipt));
+    }
+
+    function renderAssignmentProof(sessionId, volunteerId) {
+      const receipt = lastRaftAssignmentReceipt;
+      const proof = $("assignment-proof");
+      if (receipt?.session_id === sessionId && receipt.log_index != null) {
+        proof.textContent = `Raft committed this assignment: ${sessionId} → ${receipt.volunteer_id}. Commit log index ${receipt.log_index}.`;
+      } else if (volunteerId) {
+        proof.textContent = `${sessionId} is assigned to ${volunteerId}. This browser has no Raft commit receipt for that claim; claim a case from this dashboard to display its log index.`;
+      } else {
+        proof.textContent = `${sessionId} is not assigned yet. Open Volunteer desk and claim this case; its Raft commit receipt will appear here.`;
+      }
+    }
+
     async function loadSession() {
       const id = currentId();
       syncSessionUrl(id);
@@ -928,6 +956,7 @@
       const state = String(session.state || "unknown").replaceAll("_", " ");
       const handoff = String(session.handoff_status || "not_required").replaceAll("_", " ");
       const volunteer = session.assigned_volunteer_id || "Unassigned";
+      renderAssignmentProof(session.id, session.assigned_volunteer_id);
       const pill = $("state-pill");
       pill.textContent = state;
       pill.className = `state-pill ${state}`;
@@ -1037,6 +1066,7 @@
               volunteer_id: selectedVolunteerId(),
               session_id: item.session_id
             });
+            rememberRaftAssignment(result);
             const claimed = result?.session_id;
             if (claimed) {
               $("call-id").value = claimed;
@@ -1255,6 +1285,7 @@
       const data = await request("Claim next", "POST", `${api}/volunteers/claim`, {
         volunteer_id: selectedVolunteerId()
       });
+      rememberRaftAssignment(data);
       if (data?.session_id) {
         $("call-id").value = data.session_id;
         await loadSession();

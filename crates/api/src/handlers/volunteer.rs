@@ -16,6 +16,7 @@ pub struct ClaimResponse {
     pub session_id: Option<String>,
     pub volunteer_id: Option<String>,
     pub handoff_status: String,
+    pub raft_log_index: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -239,9 +240,40 @@ pub async fn claim(
 
     match claim_result {
         Ok(Some(sid)) => {
+            let mut raft_log_index = None;
+            if let Some(coordinator) = state
+                .raft
+                .as_ref()
+                .filter(|_| state.config.queue.raft_assignments)
+            {
+                match coordinator
+                    .coordinate_assignment(&sid, &body.volunteer_id)
+                    .await
+                {
+                    Ok((true, index)) => raft_log_index = Some(index),
+                    Ok((false, _)) => {
+                        let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
+                        return HttpResponse::Conflict().json(serde_json::json!({"error":"case is already coordinated to another volunteer", "session_id":sid.0}));
+                    }
+                    Err(error) => {
+                        let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
+                        tracing::error!(error = %error, session_id = %sid, "Raft assignment coordination failed");
+                        return HttpResponse::ServiceUnavailable().json(serde_json::json!({"error":"assignment coordinator unavailable; retry when Raft quorum is restored"}));
+                    }
+                }
+            }
             let mut assigned_session = match state.sessions.get(&sid).await {
                 Ok(Some(session)) => session,
                 Ok(None) => {
+                    if let Some(coordinator) = state
+                        .raft
+                        .as_ref()
+                        .filter(|_| state.config.queue.raft_assignments)
+                    {
+                        let _ = coordinator
+                            .release_assignment(&sid, &body.volunteer_id)
+                            .await;
+                    }
                     let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
                     return HttpResponse::NotFound().json(serde_json::json!({
                         "error": "case session no longer exists",
@@ -249,6 +281,15 @@ pub async fn claim(
                     }));
                 }
                 Err(e) => {
+                    if let Some(coordinator) = state
+                        .raft
+                        .as_ref()
+                        .filter(|_| state.config.queue.raft_assignments)
+                    {
+                        let _ = coordinator
+                            .release_assignment(&sid, &body.volunteer_id)
+                            .await;
+                    }
                     tracing::error!(error = %e, "lookup failed during claim");
                     let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
                     let _ = state
@@ -263,6 +304,15 @@ pub async fn claim(
                 || assigned_session.handoff_status
                     != sayangcare_core::domain::HandoffStatus::Pending
             {
+                if let Some(coordinator) = state
+                    .raft
+                    .as_ref()
+                    .filter(|_| state.config.queue.raft_assignments)
+                {
+                    let _ = coordinator
+                        .release_assignment(&sid, &body.volunteer_id)
+                        .await;
+                }
                 let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
                 return HttpResponse::Conflict().json(serde_json::json!({
                     "error": "case is no longer pending or claimable",
@@ -279,6 +329,15 @@ pub async fn claim(
             {
                 Ok(true) => true,
                 Ok(false) => {
+                    if let Some(coordinator) = state
+                        .raft
+                        .as_ref()
+                        .filter(|_| state.config.queue.raft_assignments)
+                    {
+                        let _ = coordinator
+                            .release_assignment(&sid, &body.volunteer_id)
+                            .await;
+                    }
                     let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
                     return HttpResponse::Conflict().json(serde_json::json!({
                         "error": "case already has a durable volunteer binding",
@@ -286,6 +345,15 @@ pub async fn claim(
                     }));
                 }
                 Err(error) => {
+                    if let Some(coordinator) = state
+                        .raft
+                        .as_ref()
+                        .filter(|_| state.config.queue.raft_assignments)
+                    {
+                        let _ = coordinator
+                            .release_assignment(&sid, &body.volunteer_id)
+                            .await;
+                    }
                     tracing::error!(error = %error, session_id = %sid, "durable binding claim failed");
                     let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
                     return HttpResponse::InternalServerError().finish();
@@ -296,6 +364,15 @@ pub async fn claim(
             assigned_session.assign_volunteer(&body.volunteer_id);
 
             if let Err(error) = state.sessions.update_cas(&assigned_session, expected).await {
+                if let Some(coordinator) = state
+                    .raft
+                    .as_ref()
+                    .filter(|_| state.config.queue.raft_assignments)
+                {
+                    let _ = coordinator
+                        .release_assignment(&sid, &body.volunteer_id)
+                        .await;
+                }
                 tracing::warn!(error = %error, session_id = %sid, volunteer_id = %body.volunteer_id, "failed to persist volunteer assignment");
                 if binding_created {
                     let _ = state
@@ -416,12 +493,14 @@ pub async fn claim(
                 session_id: Some(sid.0),
                 volunteer_id: Some(body.volunteer_id.clone()),
                 handoff_status: "assigned".to_string(),
+                raft_log_index,
             })
         }
         Ok(None) => HttpResponse::Ok().json(ClaimResponse {
             session_id: None,
             volunteer_id: None,
             handoff_status: "waiting".to_string(),
+            raft_log_index: None,
         }),
         Err(e) => {
             tracing::error!(error = %e, "claim failed");
@@ -469,6 +548,16 @@ pub async fn resolve_case(
     {
         tracing::warn!(error = %error, session_id = %sid, volunteer_id = %volunteer_id, "failed to resolve durable volunteer binding");
         return HttpResponse::InternalServerError().finish();
+    }
+
+    if let Some(coordinator) = state
+        .raft
+        .as_ref()
+        .filter(|_| state.config.queue.raft_assignments)
+    {
+        if let Err(error) = coordinator.release_assignment(&sid, &volunteer_id).await {
+            tracing::warn!(error = %error, session_id = %sid, "failed to release Raft assignment coordination");
+        }
     }
 
     if let Err(error) = state.queue.release_claim(&sid, &volunteer_id).await {
@@ -580,6 +669,21 @@ pub async fn transfer_case(
     let expected = session.version;
     session.transfer_handoff_to(next_volunteer.id.clone());
 
+    if let Some(coordinator) = state
+        .raft
+        .as_ref()
+        .filter(|_| state.config.queue.raft_assignments)
+    {
+        match coordinator.transfer_assignment(&sid, &volunteer_id, &next_volunteer.id).await {
+            Ok(true) => {}
+            Ok(false) => return HttpResponse::Conflict().json(serde_json::json!({"error":"Raft assignment changed; refresh and try again", "session_id":session_id})),
+            Err(error) => {
+                tracing::error!(error = %error, session_id = %sid, "Raft assignment transfer failed");
+                return HttpResponse::ServiceUnavailable().json(serde_json::json!({"error":"assignment coordinator unavailable; retry when Raft quorum is restored"}));
+            }
+        }
+    }
+
     match state
         .queue
         .move_claim(&sid, &volunteer_id, &next_volunteer.id)
@@ -587,12 +691,30 @@ pub async fn transfer_case(
     {
         Ok(true) => {}
         Ok(false) => {
+            if let Some(coordinator) = state
+                .raft
+                .as_ref()
+                .filter(|_| state.config.queue.raft_assignments)
+            {
+                let _ = coordinator
+                    .transfer_assignment(&sid, &next_volunteer.id, &volunteer_id)
+                    .await;
+            }
             return HttpResponse::Conflict().json(serde_json::json!({
                 "error": "case assignment changed; refresh and try again",
                 "session_id": session_id,
             }));
         }
         Err(error) => {
+            if let Some(coordinator) = state
+                .raft
+                .as_ref()
+                .filter(|_| state.config.queue.raft_assignments)
+            {
+                let _ = coordinator
+                    .transfer_assignment(&sid, &next_volunteer.id, &volunteer_id)
+                    .await;
+            }
             tracing::error!(error = %error, session_id = %sid, "failed to transfer queue claim");
             return HttpResponse::InternalServerError().finish();
         }
@@ -605,6 +727,15 @@ pub async fn transfer_case(
     {
         Ok(transferred) => transferred,
         Err(error) => {
+            if let Some(coordinator) = state
+                .raft
+                .as_ref()
+                .filter(|_| state.config.queue.raft_assignments)
+            {
+                let _ = coordinator
+                    .transfer_assignment(&sid, &next_volunteer.id, &volunteer_id)
+                    .await;
+            }
             tracing::error!(error = %error, session_id = %sid, "failed to transfer durable volunteer binding");
             let _ = state
                 .queue
@@ -614,6 +745,15 @@ pub async fn transfer_case(
         }
     };
     if !binding_transferred {
+        if let Some(coordinator) = state
+            .raft
+            .as_ref()
+            .filter(|_| state.config.queue.raft_assignments)
+        {
+            let _ = coordinator
+                .transfer_assignment(&sid, &next_volunteer.id, &volunteer_id)
+                .await;
+        }
         let _ = state
             .queue
             .move_claim(&sid, &next_volunteer.id, &volunteer_id)
@@ -625,6 +765,15 @@ pub async fn transfer_case(
     }
 
     if let Err(e) = state.sessions.update_cas(&session, expected).await {
+        if let Some(coordinator) = state
+            .raft
+            .as_ref()
+            .filter(|_| state.config.queue.raft_assignments)
+        {
+            let _ = coordinator
+                .transfer_assignment(&sid, &next_volunteer.id, &volunteer_id)
+                .await;
+        }
         tracing::warn!(error = %e, session_id = %sid, volunteer_id = %volunteer_id, "failed to persist transferred handoff");
         let _ = state
             .queue

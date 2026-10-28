@@ -62,6 +62,8 @@ impl PerformanceConfig {
 pub struct QueueConfig {
     /// `redis` (default, single shared Redis sorted set) or `raft` (replicated OpenRaft cluster).
     pub backend: String,
+    /// Run Raft as a separate volunteer-assignment coordinator while Redis owns queue ordering.
+    pub raft_assignments: bool,
     pub raft_node_id: u64,
     /// Cluster members as `1=http://host-a:8081,2=http://host-b:8081`. Empty = single node.
     pub raft_peers: String,
@@ -75,6 +77,7 @@ impl Default for QueueConfig {
     fn default() -> Self {
         Self {
             backend: "redis".to_string(),
+            raft_assignments: false,
             raft_node_id: 1,
             raft_peers: String::new(),
             raft_data_dir: None,
