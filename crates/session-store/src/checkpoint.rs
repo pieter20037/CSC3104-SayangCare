@@ -7,6 +7,19 @@ use std::sync::Arc;
 use tokio::time::{timeout, Duration};
 use tracing::warn;
 
+fn retryable_creation_error(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Io(_) | sqlx::Error::PoolTimedOut => true,
+        sqlx::Error::Database(error) => {
+            let code = error.code();
+            code.as_deref().is_some_and(|code| {
+                code.starts_with("08") || matches!(code, "57P01" | "57P02" | "57P03")
+            })
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 #[path = "checkpoint_tests.rs"]
 mod tests;
@@ -159,14 +172,44 @@ impl SessionStore for PostgresSessionStore {
 
     async fn create_if_absent(&self, session: &Session) -> CoreResult<bool> {
         let (version, snapshot) = Self::encode(session)?;
-        let inserted = sqlx::query(
-            "INSERT INTO session_checkpoints(id,version,snapshot,updated_at) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING",
-        )
-        .bind(&session.id.0).bind(version).bind(snapshot).bind(session.updated_at)
-        .execute(&self.pool).await.map_err(Self::error)?.rows_affected() == 1;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let inserted = loop {
+            let result = tokio::time::timeout_at(deadline, async {
+                sqlx::query(
+                    "INSERT INTO session_checkpoints(id,version,snapshot,updated_at) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING",
+                )
+                .bind(&session.id.0).bind(version).bind(&snapshot).bind(session.updated_at)
+                .execute(&self.pool).await
+            })
+            .await;
+            match result {
+                Ok(Ok(result)) => break result.rows_affected() == 1,
+                Ok(Err(error))
+                    if retryable_creation_error(&error)
+                        && tokio::time::Instant::now() < deadline =>
+                {
+                    // Stable SID and DO NOTHING make an uncertain insert safe to
+                    // replay. Do not generalize this to turns or other mutations.
+                    warn!(session_id=%session.id, %error, "retrying idempotent session creation during PostgreSQL recovery");
+                    tokio::time::sleep_until(
+                        deadline.min(tokio::time::Instant::now() + Duration::from_millis(100)),
+                    )
+                    .await;
+                }
+                Ok(Err(error)) => return Err(Self::error(error)),
+                Err(_) => {
+                    warn!(session_id=%session.id, "PostgreSQL session creation recovery deadline exhausted; commit outcome may be unknown");
+                    return Err(CoreError::StorageTransient(
+                        "session creation recovery deadline exhausted; retry with the same Call SID"
+                            .into(),
+                    ));
+                }
+            }
+        };
         if inserted {
             self.project(session).await;
         }
+
         Ok(inserted)
     }
 

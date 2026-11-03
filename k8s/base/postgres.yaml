@@ -8,7 +8,9 @@ spec:
   imageName: ghcr.io/cloudnative-pg/postgresql:16
   failoverDelay: 0
   stopDelay: 90
-  smartShutdownTimeout: 45
+  # Pooled clients otherwise keep smart shutdown waiting before promotion.
+  # Fast shutdown still checkpoints/flushes within stopDelay.
+  smartShutdownTimeout: 0
   bootstrap:
     initdb:
       database: sayangcare

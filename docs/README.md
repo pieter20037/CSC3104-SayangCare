@@ -39,5 +39,6 @@ The root [README](../README.md) has separate Windows PowerShell and macOS Termin
 - [Updated Word report](../documents/GROUP25_UPDATED.docx)
 - [Updated PDF report](../documents/GROUP25_UPDATED.pdf)
 - [Current-revision measured results](../artifacts/phase6-current/final-evaluation.json)
+- [Later PostgreSQL recovery follow-up](PHASE6_Windows.md#postgresql-recovery-follow-up-3-november-chews-local-cluster)
 
 The main project overview and local development instructions remain in the root [README](../README.md).

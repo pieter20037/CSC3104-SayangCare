@@ -1,0 +1,27 @@
+{
+    "run_id":  "LIFE-baseline-20261103T101041Z",
+    "mode":  "baseline",
+    "vus":  20,
+    "duration":  "30s",
+    "k6_exit_code":  0,
+    "fault":  null,
+    "replacement_ready_seconds":  null,
+    "audit":  {
+                  "rows":  580,
+                  "distinct_ids":  580,
+                  "invalid_transcripts":  0,
+                  "nonterminal":  0,
+                  "checkpoints":  580,
+                  "pending":  0
+              },
+    "error":  null,
+    "image_ids":  [
+                      "sha256:97bcf0a4710af80adb52a6ebf3e9752a2ce0ae9d8ae2a3b42e21302dc63d5ca7"
+                  ],
+    "iterations":  580,
+    "http_failure_rate":  0,
+    "lifecycle_success_rate":  1,
+    "http_p95_ms":  29.2031,
+    "http_p99_ms":  69.2640779999999,
+    "consistency_passed":  true
+}

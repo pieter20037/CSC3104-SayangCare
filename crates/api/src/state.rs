@@ -82,12 +82,11 @@ impl AppState {
         let hot = Arc::new(RedisSessionStore::new(redis.clone()));
 
         // --- Cold store (Postgres) ---
-        let pg_pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(config.postgres.max_connections)
-            .acquire_timeout(Duration::from_secs(2))
-            .connect(&config.postgres.url)
-            .await
-            .map_err(|e| sayangcare_core::CoreError::Storage(format!("pg pool: {e}")))?;
+        let pg_pool =
+            sayangcare_session_store::primary_pool_options(config.postgres.max_connections)
+                .connect(&config.postgres.url)
+                .await
+                .map_err(|e| sayangcare_core::CoreError::Storage(format!("pg pool: {e}")))?;
         sqlx::migrate!("../../migrations")
             .run(&pg_pool)
             .await

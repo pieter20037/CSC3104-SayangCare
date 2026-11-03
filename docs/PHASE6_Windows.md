@@ -81,6 +81,45 @@ Workspace validation: **113 passed, seven ignored, zero failed**; relevant
 checkpoint/ownership database integrations passed explicitly. Code and CPU
 changes are separate interventions; do not attribute all gains to one algorithm.
 
+### PostgreSQL recovery follow-up (3 November, Chew's local cluster)
+
+The later run [DEP-postgres-20261103T100531Z](../artifacts/postgres-recovery/DEP-postgres-20261103T100531Z-report.json)
+passed the unchanged strict gates: 20 VUs / 120 seconds, 2,216 successful
+lifecycles, zero HTTP failures, HTTP p95/p99 23.11/85.90 ms, native exit 0,
+observed primary-change/readiness recovery 7.160 seconds. SQL auditing matched
+all 2,216 acknowledged creates, turns and hangups; no missing/invalid archives
+or remaining hot keys were found.
+
+The shared pool now checks writable-primary status before checkout, replacing
+dead/demoted connections within the existing two-second acquisition timeout.
+CNPG `smartShutdownTimeout: 0` skips waiting for long-lived pooled clients and
+uses clean fast shutdown; `stopDelay: 90`, `switchoverDelay: 3600` and required
+synchronous replica acknowledgment remain unchanged. See
+[CNPG shutdown control](https://cloudnative-pg.io/docs/1.30/instance_manager/#shutdown-control).
+In-flight transactions can be aborted by fast shutdown; this is not forced
+pod deletion or an asynchronous durability fallback.
+
+Only idempotent session creation retries transient connection failures, with a
+five-second database recovery window and the same SID/payload. `ON CONFLICT DO
+NOTHING` prevents duplicates or overwriting a prior commit. Turn/CAS and other
+mutations are not blindly replayed. The five-second caller-turn budget remains
+unchanged. Long outages still produce explicit failures, and a failed creation
+response can mean its commit outcome is unknown: retry with the same Call SID.
+
+Workspace validation now passes 115 tests (eight ignored); all three
+session-store database integration tests were executed explicitly. These include
+read-only/dead connection replacement, creation recovery after a pool timeout,
+five-second retry exhaustion, durability, CAS and ownership fencing.
+
+This follow-up ran on a separate Windows single-node Minikube cluster with an
+actual two-CPU Docker quota and 8,493,465,600 bytes of memory, image
+`sayangcare-api:pg-recovery`; inference was disabled during load and restored
+afterward. It is not an isolated comparison with Darren's four-CPU evaluation
+and does not revalidate HPA, Raft or live telephony. The two preceding failed
+follow-up runs remain in the same evidence directory. The original results
+above and the exported Word/PDF remain historical; regenerate submission
+exports from the updated report source after team review.
+
 ## 3. Open the existing program
 
 Start Docker Desktop and wait for its engine. On this computer:

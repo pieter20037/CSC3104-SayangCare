@@ -113,6 +113,23 @@ The first four-CPU HPA run completed 8,668 attempts and scaled 3 to 7 to 3, but 
 
 The final HPA rerun passed unchanged gates: 9,248 successful lifecycles, zero HTTP failures, p95/p99 281.64/507.44 ms and native exit 0. Replicas rose from 3 to 10 and returned to 3. Desired scaling began after 50.5 s, an additional pod became Ready after 61.7 s, and cooldown completed 502.6 s after load. Independent SQL and exact-ID audits matched all 9,248 acknowledged creates, turns and hangups to valid archives/checkpoints, with no pending work or version mismatch. This validates the tested two-minute workload, not indefinite sustained capacity.
 
+**Later PostgreSQL recovery follow-up (3 November):** shared-pool checkout now
+validates writable-primary status, CNPG skips the 45-second smart-shutdown
+client wait in favor of clean fast shutdown, and idempotent session creation
+retries transient connection failures for up to five seconds using the same
+Call SID. Synchronous durability, the two-second pool-acquisition timeout and
+the caller-turn deadline remain unchanged; other mutations are not blindly
+replayed. On Chew's separate two-CPU, 8,493,465,600-byte Windows Minikube cluster,
+the 20-VU/120-second primary-replacement test completed all 2,216 lifecycles
+without HTTP failures (p95/p99 23.11/85.90 ms, observed recovery 7.160 seconds,
+exit 0). SQL verified every acknowledged create/turn/hangup and all archives.
+Evidence is in `artifacts/postgres-recovery/DEP-postgres-20261103T100531Z-report.json`;
+preceding failed runs are retained. This is a passing bounded scenario, not a
+guarantee of error-free arbitrary outages or an isolated comparison with Table 1.
+Workspace tests now pass 115 (eight ignored); three session-store database
+integrations pass explicitly. Previously exported Word/PDF files predate this
+follow-up and must be regenerated for a submission incorporating these results.
+
 ### 5.3 Ownership and inference checks
 
 Separate isolated three-process Raft tests demonstrated one winner at generation 1 in a claim race; transfer to generation 2; stale-owner HTTP 409 and current-owner HTTP 200; leader replacement with a higher term and successful transfer; HTTP 503 during quorum loss; and rejoin convergence at applied index 41. PostgreSQL-only tests also rejected stale generations, including owner identity reuse. These are bounded process-failure checks, not arbitrary-partition proofs. Three-sample latency smoke measurements are insufficient to establish a Raft performance advantage.
@@ -123,13 +140,13 @@ Previously recorded inference evidence comprises ten real Groq sentiment/reply p
 
 The principal reliability choice is durable versioned state rather than process-owned context or asynchronous Redis alone. PostgreSQL checkpointing removed the observed acknowledged-session loss in repeated Redis faults but increased database dependence. Database outages fail explicitly rather than fabricate commits. Faster final baselines reflect software and resource changes together; they do not prove production capacity or a Raft speedup. Neither the design nor these experiments establish cross-system linearizability; queue/session reconciliation and arbitrary partitions need further testing.
 
-The modular monolith reduces orchestration cost while sharing distributed dependencies. The roster is process-local; alerts are now durable and shared. Production needs roster persistence, checkpoint retention/privacy policy, projection reconciliation, least-privilege secrets, network policies, TLS and restoration tests. Readiness still depends on Redis and PostgreSQL. A single Kubernetes node cannot establish node/zone availability, and the PostgreSQL replacement test does not satisfy zero-failed-lifecycle availability.
+The modular monolith reduces orchestration cost while sharing distributed dependencies. The roster is process-local; alerts are now durable and shared. Production needs roster persistence, checkpoint retention/privacy policy, projection reconciliation, least-privilege secrets, network policies, TLS and restoration tests. Readiness still depends on Redis and PostgreSQL. A single Kubernetes node cannot establish node/zone availability. The original PostgreSQL replacement test failed strict availability; the later bounded recovery run passed, without establishing zero-error availability for arbitrary failures.
 
 Keyword risk scoring is not a substitute for a trained and independently evaluated risk model or a human crisis service. Synthetic sessions and deterministic test responses do not demonstrate safe real-caller outcomes. Any pilot would need a documented escalation protocol, consent and data-retention policy, privacy review for sensitive transcript storage, accessibility testing, and clear user messaging about the service's non-clinical scope. The current report therefore makes no claim that SayangCare is ready to handle real mental-health emergencies.
 
 ## 7. Conclusion and Future Work
 
-SayangCare integrates signed voice webhooks, recoverable checkpoints, adaptive inference degradation and priority-based human handoff. Optional Raft provides a majority-backed ownership boundary and generations; PostgreSQL enforces those tokens and can coordinate ownership independently. Revised baseline, API-pod-loss and Redis-promotion experiments passed unchanged local gates. PostgreSQL replacement preserved acknowledged state but still failed availability. The evidence supports a tested prototype, not production capacity, live telephony reliability or multi-node availability.
+SayangCare integrates signed voice webhooks, recoverable checkpoints, adaptive inference degradation and priority-based human handoff. Optional Raft provides a majority-backed ownership boundary and generations; PostgreSQL enforces those tokens and can coordinate ownership independently. Revised baseline, API-pod-loss and Redis-promotion experiments passed unchanged local gates. The original PostgreSQL replacement test preserved acknowledged state but failed availability; the later bounded recovery run passed strict gates. The evidence supports a tested prototype, not production capacity, live telephony reliability or multi-node availability.
 
 Post-checkpoint API-loss testing passes with awaited graceful shutdown; remaining production work includes sustained-capacity qualification, shorter database interruption, multi-node and backup restoration tests, public TLS and production secret delivery. Dashboard simulation is the professor-approved submission scope, so live Twilio is not a remaining acceptance blocker. Nevertheless, real speech recognition, audio delivery, provider callbacks and outbound ringing remain unvalidated. Telephony effects after an ambiguous ownership recovery require operator review; no transactional phone-dispatch outbox is implemented. Neither synthetic success nor a small AI smoke establishes readiness for real emergencies.
 

@@ -1,6 +1,19 @@
 use super::*;
 use sayangcare_core::domain::{CallerId, SessionState, Speaker, Turn};
 
+#[test]
+fn creation_retries_only_transient_connection_failures() {
+    assert!(retryable_creation_error(&sqlx::Error::PoolTimedOut));
+    assert!(retryable_creation_error(&sqlx::Error::Io(
+        std::io::Error::from(std::io::ErrorKind::ConnectionReset),
+    )));
+    assert!(!retryable_creation_error(&sqlx::Error::PoolClosed));
+    assert!(!retryable_creation_error(&sqlx::Error::Protocol(
+        "invalid protocol".into(),
+    )));
+    assert!(!retryable_creation_error(&sqlx::Error::RowNotFound));
+}
+
 struct UnavailableHot;
 
 #[async_trait]
@@ -44,6 +57,7 @@ async fn durable_commit_survives_redis_loss_and_fences_concurrent_updates() {
     let search_path = schema.clone();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(3)
+        .acquire_timeout(Duration::from_secs(2))
         .after_connect(move |connection, _| {
             let statement = format!("SET search_path TO {search_path}");
             Box::pin(async move {
@@ -63,6 +77,32 @@ async fn durable_commit_survives_redis_loss_and_fences_concurrent_updates() {
     session.id = SessionId("SIM-DURABLE".into());
     assert!(store.create_if_absent(&session).await.unwrap());
     assert!(!store.create_if_absent(&session).await.unwrap());
+    let held = vec![
+        pool.acquire().await.unwrap(),
+        pool.acquire().await.unwrap(),
+        pool.acquire().await.unwrap(),
+    ];
+    let (replayed, ()) = tokio::join!(store.create_if_absent(&session), async move {
+        tokio::time::sleep(Duration::from_millis(2200)).await;
+        drop(held);
+    });
+    assert!(
+        !replayed.unwrap(),
+        "recovery must not duplicate an existing SID"
+    );
+    let held = vec![
+        pool.acquire().await.unwrap(),
+        pool.acquire().await.unwrap(),
+        pool.acquire().await.unwrap(),
+    ];
+    let started = tokio::time::Instant::now();
+    assert!(matches!(
+        store.create_if_absent(&session).await,
+        Err(CoreError::StorageTransient(_))
+    ));
+    assert!(started.elapsed() >= Duration::from_secs(5));
+    assert!(started.elapsed() < Duration::from_millis(5500));
+    drop(held);
     assert_eq!(
         store.get(&session.id).await.unwrap().unwrap().version,
         session.version

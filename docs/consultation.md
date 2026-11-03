@@ -10,6 +10,13 @@ PostgreSQL fences protected updates in both modes. See
 rehearsal and Phase 5 measurements below remain historical, not validation of the
 new protocol. PostgreSQL can coordinate ownership without Raft too.
 
+**Later PostgreSQL recovery follow-up:** Chew's 20-VU/120-second replacement run
+passed strict gates with 2,216 lifecycles, zero HTTP failures and SQL-verified
+acknowledged data after primary-aware pool validation, clean fast shutdown and
+bounded idempotent creation recovery. See [the follow-up](PHASE6_Windows.md#postgresql-recovery-follow-up-3-november-chews-local-cluster).
+Earlier PostgreSQL failures below remain historical. This does not guarantee
+error-free arbitrary outages or revalidate the older HPA/Word/PDF evidence.
+
 ## 0. Presentation plan and startup checklist
 
 **Recommended story:** show the complete application workflow first, demonstrate

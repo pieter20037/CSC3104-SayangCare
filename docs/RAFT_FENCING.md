@@ -30,6 +30,12 @@ availability limitation. Those Kubernetes pods use PostgreSQL ownership,
 not embedded Raft voters. The isolated Raft results below remain a separate
 experiment, not evidence that Kubernetes HPA operates a Raft cluster.
 
+The [later PostgreSQL recovery follow-up](PHASE6_Windows.md#postgresql-recovery-follow-up-3-november-chews-local-cluster)
+passed one strict primary-replacement scenario after primary-aware pool
+validation, clean fast shutdown and bounded idempotent session creation.
+It does not add automatic retries to ownership mutations, alter fencing, or
+revalidate the separate Raft experiments.
+
 ## Upgrade safely
 
 Build and deploy current code using the existing deployment guides. The API

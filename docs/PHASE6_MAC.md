@@ -33,6 +33,12 @@ Redis promotion and 100-VU HPA load/full cooldown. PostgreSQL replacement
 preserved acknowledged data but still failed strict availability. See the
 [current raw evidence](../artifacts/phase6-current/); these are not Mac results.
 
+A later Windows-only PostgreSQL replacement run passed strict availability
+with bounded idempotent creation recovery, writable-primary pool checks and
+clean fast shutdown. See [the Windows follow-up](PHASE6_Windows.md#postgresql-recovery-follow-up-3-november-chews-local-cluster)
+for measurements, changed behavior and remaining limitations; it is not Mac
+validation and does not overwrite the earlier evidence.
+
 ## 2. Start your own cluster
 
 Prerequisites: Docker Desktop for your Mac architecture, kubectl, Minikube,
