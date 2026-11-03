@@ -947,10 +947,12 @@
       }
     }
 
-    async function openCase(sessionId) {
+    async function openCase(sessionId, scrollToTranscript = true) {
       $("call-id").value = sessionId;
       await loadSession();
-      $("transcript-view").scrollIntoView({ behavior: "smooth", block: "start" });
+      if (scrollToTranscript) {
+        $("transcript-view").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     }
 
     function renderSession(session, preserveScroll = false) {
@@ -1219,7 +1221,7 @@
         const meta = document.createElement("div");
         meta.style.color = "#5d6d64";
         meta.style.fontSize = "11px";
-        meta.textContent = `Status: ${entry.status} · Generation: ${entry.assignment_generation}${entry.pending_operation_id ? " · ownership change pending" : ""}`;
+        meta.textContent = `Status: ${entry.status} · Generation: ${entry.assignment_generation} · Ownership: ${entry.coordinator === "postgres" ? "PostgreSQL" : entry.coordinator === "raft" ? "Raft" : "unknown"}${entry.pending_operation_id ? " · ownership change pending" : ""}`;
 
         const openBtn = document.createElement("button");
         openBtn.type = "button";
@@ -1238,7 +1240,7 @@
             });
             if (result?.handoff_status === "transferred") {
               $("volunteer-select").value = result.volunteer_id;
-              await loadSession();
+              await openCase(entry.session_id, false);
               await loadAssignedCases(result.volunteer_id);
               await loadAlerts();
             }
@@ -1255,7 +1257,7 @@
               assignment_generation: entry.assignment_generation, request_id: crypto.randomUUID()
             });
             if (result?.handoff_status === "resolved") {
-              await loadSession();
+              await openCase(entry.session_id, false);
               await loadAssignedCases(volunteerId);
             }
           }).catch(() => {});
@@ -1283,7 +1285,7 @@
             assignment_generation: entry.assignment_generation, request_id: crypto.randomUUID()
           });
           await loadAssignedCases(volunteerId);
-          await loadSession();
+          await openCase(entry.session_id, false);
           await loadQueue();
         }).catch(() => {}));
         transferBtn.disabled = resolveBtn.disabled = noteBtn.disabled = releaseBtn.disabled = !!entry.pending_operation_id;

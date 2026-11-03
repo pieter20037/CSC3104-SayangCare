@@ -93,9 +93,26 @@ impl OwnershipStore {
             u64::try_from(row.get::<i64, _>("assignment_generation")).map_err(unavailable)?;
         let owner: Option<String> = row.get("volunteer_id");
         let pending: Option<String> = row.get("pending_operation_id");
-        let mode: String = row.get("coordinator");
-        if generation > 0 && mode != self.mode() {
-            return Err(OwnershipError::Invalid("ownership backend differs from retained history; explicit offline migration required".into()));
+        let retained_mode: String = row.get("coordinator");
+        let mode = if generation > 0 || pending.is_some() {
+            retained_mode.as_str()
+        } else {
+            self.mode()
+        };
+        match mode {
+            "postgres" => {}
+            "raft" if self.coordinator.is_some() => {}
+            "raft" => {
+                return Err(unavailable(
+                    "case requires its recorded Raft coordinator; PostgreSQL fallback is prohibited",
+                ));
+            }
+            _ => {
+                return Err(OwnershipError::Invalid(
+                    "unrecognized retained ownership backend; explicit offline reconciliation required"
+                        .into(),
+                ));
+            }
         }
         let existing =
             sqlx::query("SELECT command,outcome FROM assignment_operations WHERE request_id=$1")
@@ -124,6 +141,8 @@ impl OwnershipStore {
             if !matches!(current.decide(&command), OwnershipDecision::Applied { .. }) {
                 return Ok(current.decide(&command));
             }
+            self.restore_archived_checkpoint(&mut tx, &command, &current)
+                .await?;
             let snapshot: Option<serde_json::Value> = sqlx::query_scalar(
                 "SELECT snapshot FROM session_checkpoints WHERE id=$1 FOR UPDATE",
             )
@@ -150,10 +169,10 @@ impl OwnershipStore {
             .await
             .map_err(unavailable)?;
             sqlx::query("UPDATE case_ownership SET pending_operation_id=$2,coordinator=$3,updated_at=now() WHERE session_id=$1")
-                .bind(&command.session_id.0).bind(&command.request_id).bind(self.mode())
+                .bind(&command.session_id.0).bind(&command.request_id).bind(mode)
                 .execute(&mut *tx).await.map_err(unavailable)?;
         }
-        if self.coordinator.is_none() {
+        if mode == "postgres" {
             let decision = AssignmentOwnership {
                 volunteer_id: row.get("volunteer_id"),
                 assignment_generation: generation,
@@ -173,6 +192,45 @@ impl OwnershipStore {
         self.install(&mut tx, &command, &decision).await?;
         tx.commit().await.map_err(unavailable)?;
         Ok(decision)
+    }
+
+    async fn restore_archived_checkpoint(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        command: &OwnershipCommand,
+        ownership: &AssignmentOwnership,
+    ) -> Result<(), OwnershipError> {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM session_checkpoints WHERE id=$1)")
+                .bind(&command.session_id.0)
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(unavailable)?;
+        if exists {
+            return Ok(());
+        }
+        let Some(session) = crate::PostgresArchiveStore::fetch_on(&mut **tx, &command.session_id)
+            .await
+            .map_err(unavailable)?
+        else {
+            return Err(OwnershipError::NotFound);
+        };
+        if session.assignment_generation != ownership.assignment_generation
+            || (ownership.volunteer_id.is_some()
+                && session.assigned_volunteer_id != ownership.volunteer_id)
+        {
+            return Err(unavailable(
+                "archived assignment differs from retained ownership; reconciliation required",
+            ));
+        }
+        sqlx::query("INSERT INTO session_checkpoints(id,version,snapshot,updated_at,archived) VALUES($1,$2,$3,$4,true) ON CONFLICT(id) DO NOTHING")
+            .bind(&session.id.0)
+            .bind(i64::try_from(session.version).map_err(unavailable)?)
+            .bind(serde_json::to_value(&session).map_err(unavailable)?)
+            .bind(session.updated_at)
+            .execute(&mut **tx).await.map_err(unavailable)?;
+        tracing::info!(session_id=%session.id, "restored archived case checkpoint for fenced ownership action");
+        Ok(())
     }
 
     async fn install(
@@ -195,6 +253,7 @@ impl OwnershipStore {
                     "replayed coordinator decision differs from durable outcome",
                 ));
             }
+
             return Ok(());
         }
         if row

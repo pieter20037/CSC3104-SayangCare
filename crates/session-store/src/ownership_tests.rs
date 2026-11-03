@@ -13,11 +13,15 @@ struct TestCoordinator {
         BTreeMap<String, OwnershipDecision>,
     )>,
     lose_response: AtomicBool,
+    unavailable: AtomicBool,
 }
 
 #[async_trait]
 impl OwnershipCoordinator for TestCoordinator {
     async fn commit(&self, command: OwnershipCommand) -> CoreResult<OwnershipDecision> {
+        if self.unavailable.load(Ordering::SeqCst) {
+            return Err(CoreError::Storage("injected quorum loss".into()));
+        }
         let mut state = self.state.lock().await;
         if let Some(result) = state.1.get(&command.request_id) {
             return Ok(result.clone());
@@ -301,7 +305,7 @@ async fn transactional_fencing_and_ambiguous_commit_recovery() {
             .unwrap();
     assert_eq!(snapshot["assignment_generation"], 2);
     assert_eq!(snapshot["assigned_volunteer_id"], "b");
-    // Mode switching on retained generations is explicitly prohibited.
+    // Raft-owned cases cannot fall back to PostgreSQL.
     assert!(matches!(
         pg.execute(command(
             "ambiguous",
@@ -313,7 +317,178 @@ async fn transactional_fencing_and_ambiguous_commit_recovery() {
             }
         ))
         .await,
-        Err(OwnershipError::Invalid(_))
+        Err(OwnershipError::Unavailable(_))
+    ));
+    seed(&pool, "legacy").await;
+    pg.execute(command(
+        "legacy",
+        "legacy-claim",
+        0,
+        OwnershipTransition::Claim {
+            volunteer_id: "a".into(),
+        },
+    ))
+    .await
+    .unwrap();
+    let offline = Arc::new(TestCoordinator::default());
+    offline.unavailable.store(true, Ordering::SeqCst);
+    let mixed = OwnershipStore::new(pool.clone(), Some(offline.clone()));
+    let assigned = mixed.current("legacy").await.unwrap();
+    assert_eq!(assigned.volunteer_id.as_deref(), Some("a"));
+    assert_eq!(assigned.coordinator, "postgres");
+    let snapshot: serde_json::Value =
+        sqlx::query_scalar("SELECT snapshot FROM session_checkpoints WHERE id='legacy'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let mut archived: Session = serde_json::from_value(snapshot).unwrap();
+    archived
+        .record_turns([sayangcare_core::domain::Turn {
+            speaker: sayangcare_core::domain::Speaker::Caller,
+            text: "preserve archived conversation".into(),
+            timestamp: Utc::now(),
+        }])
+        .unwrap();
+    archived.state = SessionState::Abandoned;
+    let mut tx = pool.begin().await.unwrap();
+    crate::PostgresArchiveStore::archive_on(&mut tx, &archived)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM session_checkpoints WHERE id='legacy'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    sqlx::query("UPDATE sessions SET assignment_generation=2 WHERE id='legacy'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let legacy_transfer = command(
+        "legacy",
+        "legacy-transfer",
+        1,
+        OwnershipTransition::Transfer {
+            from_volunteer_id: "a".into(),
+            to_volunteer_id: "b".into(),
+        },
+    );
+    assert!(matches!(
+        mixed.execute(legacy_transfer.clone()).await,
+        Err(OwnershipError::Unavailable(_))
+    ));
+    let checkpoint_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM session_checkpoints WHERE id='legacy')")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(!checkpoint_exists);
+    let unchanged = mixed.current("legacy").await.unwrap();
+    assert_eq!(unchanged.volunteer_id, assigned.volunteer_id);
+    assert_eq!(
+        unchanged.assignment_generation,
+        assigned.assignment_generation
+    );
+    assert_eq!(unchanged.coordinator, assigned.coordinator);
+    assert!(unchanged.pending_operation_id.is_none());
+    sqlx::query("UPDATE sessions SET assignment_generation=1 WHERE id='legacy'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let transfer = legacy_transfer;
+    let decision = mixed.execute(transfer.clone()).await.unwrap();
+    assert_eq!(mixed.execute(transfer).await.unwrap(), decision);
+    assert!(matches!(
+        mixed
+            .add_note("legacy", "a", 1, "legacy-stale", "rejected")
+            .await,
+        Err(OwnershipError::Stale)
+    ));
+    mixed
+        .add_note("legacy", "b", 2, "legacy-note", "accepted")
+        .await
+        .unwrap();
+    mixed
+        .execute(command(
+            "legacy",
+            "legacy-release",
+            2,
+            OwnershipTransition::Release {
+                volunteer_id: "b".into(),
+                resolved: false,
+            },
+        ))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE session_checkpoints SET snapshot=jsonb_set(snapshot,'{state}','\"escalated\"') WHERE id='legacy'")
+        .execute(&pool).await.unwrap();
+    mixed
+        .execute(command(
+            "legacy",
+            "legacy-reclaim",
+            3,
+            OwnershipTransition::Claim {
+                volunteer_id: "a".into(),
+            },
+        ))
+        .await
+        .unwrap();
+    mixed
+        .execute(command(
+            "legacy",
+            "legacy-resolve",
+            4,
+            OwnershipTransition::Release {
+                volunteer_id: "a".into(),
+                resolved: true,
+            },
+        ))
+        .await
+        .unwrap();
+    let resolved = mixed.current("legacy").await.unwrap();
+    assert_eq!(resolved.assignment_generation, 5);
+    assert_eq!(resolved.volunteer_id, None);
+    assert_eq!(resolved.coordinator, "postgres");
+    let restored: serde_json::Value =
+        sqlx::query_scalar("SELECT snapshot FROM session_checkpoints WHERE id='legacy'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let restored: Session = serde_json::from_value(restored).unwrap();
+    assert_eq!(
+        serde_json::to_value(&restored.transcript).unwrap(),
+        serde_json::to_value(&archived.transcript).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&restored.caller).unwrap(),
+        serde_json::to_value(&archived.caller).unwrap()
+    );
+    assert_eq!(
+        restored.created_at.timestamp_micros(),
+        archived.created_at.timestamp_micros()
+    );
+    assert_eq!(restored.handoff_status, HandoffStatus::Resolved);
+    assert_eq!(restored.assignment_generation, 5);
+    assert!(restored.version > archived.version);
+    assert!(offline.state.lock().await.0.is_empty());
+    seed(&pool, "new-raft").await;
+    let new_claim = command(
+        "new-raft",
+        "new-raft-claim",
+        0,
+        OwnershipTransition::Claim {
+            volunteer_id: "a".into(),
+        },
+    );
+    assert!(matches!(
+        mixed.execute(new_claim.clone()).await,
+        Err(OwnershipError::Unavailable(_))
+    ));
+    let pending = mixed.current("new-raft").await.unwrap();
+    assert_eq!(pending.coordinator, "raft");
+    assert!(pending.pending_operation_id.is_some());
+    assert!(matches!(
+        pg.execute(new_claim).await,
+        Err(OwnershipError::Unavailable(_))
     ));
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))

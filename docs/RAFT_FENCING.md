@@ -48,9 +48,47 @@ database/Raft volumes to make an upgrade appear successful.
 
 Legacy active Raft assignments do not contain generations. Startup refuses
 to enable fenced coordination over these records without offline reconciliation.
-Likewise, a session's retained PostgreSQL generation cannot silently switch
-between PostgreSQL-only and Raft authority. No automatic import or online
-backend-switching protocol is provided in this milestone.
+Each case retains its recorded authority after its first ownership decision or
+pending intent. Enabling Raft does not hide or invalidate existing PostgreSQL-owned
+assignments: volunteers can still note, transfer, release, reclaim and resolve
+them through PostgreSQL transactions, with the original history and generation
+checks preserved. Assigned-case cards identify the coordinator. These legacy
+cases are **not Raft-coordinated**, including while quorum is unavailable.
+New cases use the configured authority. A Raft-owned case (including an initial
+pending claim) never falls back to PostgreSQL-only execution. Changing a case's
+authority still requires explicit offline reconciliation; no automatic import
+or online backend-switching protocol is provided.
+
+The compatibility regression covers legacy transfer/replay, stale notes,
+release/reclaim/resolve with Raft unavailable, plus rejection of PostgreSQL
+fallback for pending and installed Raft cases. A synthetic legacy HTTP case
+was created through a temporary PostgreSQL-only API, transferred and resolved
+through the Raft-enabled API; its generation advanced 1 -> 2 -> 3 and a stale
+generation-1 resolve returned 409. Existing user assignments were not modified.
+That initial fixture had a checkpoint and did not cover older archive-only cases.
+Ownership actions now restore a missing checkpoint from the full PostgreSQL
+archive within the ownership transaction, after checking the retained owner and
+generation. They do not read stale Redis data, reset generations or switch
+coordinators. Contradictory archive metadata fails explicitly and rolls back.
+The database regression also covers archive-only abandoned calls with active
+assignments, transcript preservation, and rollback on a generation mismatch.
+Dashboard transfer, resolve and release refresh the acted-on case, not an
+unrelated selected caller session; a successful action must not appear failed
+because that unrelated session is missing.
+These action refreshes do not scroll to the transcript; only "View case details"
+explicitly navigates there.
+Follow-up verification copied each of the four affected archive-only records
+to temporary case IDs: transfer and replay returned 200, stale resolve returned
+409, and current-owner resolve returned 200 across the three API nodes. SQL
+verified unchanged transcripts, generation 3 and no remaining active assignment
+for each copy. The actual dashboard Transfer and Resolve handlers were also
+exercised on a temporary copy, including automatic volunteer/list refresh and
+an empty error alert. All seven original assignments were left unchanged.
+The [archive-fix Raft regression](../artifacts/fencing/20261103T112552072Z-f5cd621e/report.json)
+also passed its executed scenarios; faults were not injected in that run.
+The [post-change Raft harness run](../artifacts/fencing/20261103T111523290Z-8b0cda48/report.json)
+passed 411 assertions with an independent SQL audit; container fault injection
+was not repeated in that run.
 
 Use fresh synthetic cases for the comparison. If a legacy deployment is
 refused, preserve its data and plan an explicit offline migration. The existing

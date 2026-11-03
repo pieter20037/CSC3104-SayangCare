@@ -141,6 +141,7 @@ pub async fn list_assigned(state: State, volunteer_id: web::Path<String>) -> imp
                     "session_id": session_id, "risk":session.risk.level.0,
                     "status": format!("{:?}", session.handoff_status).to_lowercase(),
                     "assignment_generation":view.assignment_generation,
+                    "coordinator":view.coordinator,
                     "pending_operation_id":view.pending_operation_id
                 }));
             }
@@ -252,6 +253,11 @@ pub async fn claim(state: State, body: web::Json<ClaimRequest>) -> impl Responde
             Ok(command) => command,
             Err(error) => return ownership_error(error),
         };
+        let coordinator = if view.assignment_generation > 0 || view.pending_operation_id.is_some() {
+            view.coordinator.as_str()
+        } else {
+            state.ownership.mode()
+        };
         let decision = match state.ownership.execute(command).await {
             Ok(result) => result,
             Err(error) => return ownership_error(error),
@@ -273,7 +279,7 @@ pub async fn claim(state: State, body: web::Json<ClaimRequest>) -> impl Responde
         return HttpResponse::Ok().json(serde_json::json!({
             "session_id":sid.0, "volunteer_id":ownership.volunteer_id,
             "handoff_status":"assigned","assignment_generation":ownership.assignment_generation,
-            "request_id":request_id,"coordinator":state.ownership.mode()
+            "request_id":request_id,"coordinator":coordinator
         }));
     }
     ownership_error(OwnershipError::Unavailable(
@@ -411,6 +417,10 @@ async fn action(
             "positive assignment_generation required".into(),
         ));
     }
+    let coordinator = match state.ownership.current(&id).await {
+        Ok(view) => view.coordinator,
+        Err(error) => return ownership_error(error),
+    };
     let decision = match state
         .ownership
         .execute(OwnershipCommand {
@@ -476,7 +486,7 @@ async fn action(
         .await;
     HttpResponse::Ok().json(serde_json::json!({
         "session_id":id,"volunteer_id":ownership.volunteer_id,"assignment_generation":ownership.assignment_generation,
-        "handoff_status":status,"request_id":request_id,"coordinator":state.ownership.mode()
+        "handoff_status":status,"request_id":request_id,"coordinator":coordinator
     }))
 }
 

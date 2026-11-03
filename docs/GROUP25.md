@@ -77,6 +77,18 @@ The circuit-breaker crate maintains shared Redis-backed bounded samples, calcula
 
 The priority-queue crate retains its queue abstraction and adds an ownership-coordinator contract. OpenRaft supports leader forwarding, snapshots, retained generation state and payload-aware request-ID deduplication. Docker runs three fixed voters on ports 18081–18083; dynamically autoscaled Kubernetes API pods are not voters. PostgreSQL-only Kubernetes ownership uses the same generation checks without a quorum round trip. Legacy active Raft assignments require offline reconciliation; authority cannot silently switch for an existing case.
 
+Compatibility follow-up: existing PostgreSQL-owned cases remain assigned and
+actionable after Raft is enabled, using their recorded PostgreSQL coordinator
+and generation fencing. Assigned-case cards identify that authority. New cases
+use the configured coordinator; Raft-owned or pending Raft cases never fall back
+to PostgreSQL during quorum loss. Consequently legacy PostgreSQL cases are not
+evidence of Raft coordination. Transfer moves a case to the new volunteer;
+resolve removes it from active assignments, preserving history.
+Archive-only legacy cases restore their full durable snapshot transactionally
+before an ownership action; missing checkpoints no longer make an archived
+assignment appear actionable while returning "case not found". Retained owner
+and generation must match the archive or the action fails for reconciliation.
+
 Twilio REST calls have bounded timeouts and local contract tests, not live voice evidence. The professor approved dashboard-only demonstration: synthetic caller turns, escalation, volunteer actions and state inspection depict the application workflow without international calls or public callbacks. This addresses demonstration access constraints, not real telephony validation. GPT-OSS uses low reasoning effort, hidden reasoning, a 512-token budget and JSON sentiment output. Metrics expose latency, stage outcomes, pool and breaker gauges; bounded refresh returns 503 rather than stale success-shaped metrics.
 
 ## 5. Evaluation

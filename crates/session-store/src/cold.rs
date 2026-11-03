@@ -122,6 +122,16 @@ impl ArchiveStore for PostgresArchiveStore {
     }
 
     async fn fetch_session(&self, id: &SessionId) -> CoreResult<Option<Session>> {
+        let mut connection = self.pool.acquire().await.map_err(archive_sqlx_error)?;
+        Self::fetch_on(&mut connection, id).await
+    }
+}
+
+impl PostgresArchiveStore {
+    pub(crate) async fn fetch_on(
+        connection: &mut PgConnection,
+        id: &SessionId,
+    ) -> CoreResult<Option<Session>> {
         let row = sqlx::query(
             r#"SELECT id, is_simulated, caller_phone, caller_display_name, state, transcript, risk,
                       latest_sentiment, handoff_status, assigned_volunteer_id,
@@ -130,7 +140,7 @@ impl ArchiveStore for PostgresArchiveStore {
                FROM sessions WHERE id = $1"#,
         )
         .bind(&id.0)
-        .fetch_optional(&self.pool)
+        .fetch_optional(connection)
         .await
         .map_err(|e| CoreError::Storage(format!("pg fetch: {e}")))?;
 
