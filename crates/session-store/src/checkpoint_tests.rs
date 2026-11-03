@@ -54,12 +54,7 @@ async fn durable_commit_survives_redis_loss_and_fences_concurrent_updates() {
         .connect(&url)
         .await
         .unwrap();
-    sqlx::raw_sql(include_str!(
-        "../../../migrations/0010_session_checkpoints.sql"
-    ))
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
     let store = PostgresSessionStore::new(pool.clone(), Arc::new(UnavailableHot));
     let mut session = Session::new(CallerId {
         phone_number: "+6500000000".into(),
@@ -114,6 +109,53 @@ async fn durable_commit_survives_redis_loss_and_fences_concurrent_updates() {
         store.get(&next.id).await.unwrap().is_some(),
         "archival must retain the commit authority"
     );
+    let mut atomic = Session::with_id(
+        SessionId("SIM-ATOMIC-FINISH".into()),
+        session.caller.clone(),
+    );
+    atomic.transition(SessionState::Active).unwrap();
+    assert!(store.create_if_absent(&atomic).await.unwrap());
+    sqlx::query("ALTER TABLE sessions ADD CONSTRAINT injected_archive_failure CHECK (id <> 'SIM-ATOMIC-FINISH')")
+        .execute(&pool).await.unwrap();
+    assert!(store
+        .finish_and_archive(&atomic.id, SessionState::Completed)
+        .await
+        .is_err());
+    let retained = store.get(&atomic.id).await.unwrap().unwrap();
+    assert_eq!(retained.version, atomic.version);
+    assert_eq!(retained.state, SessionState::Active);
+    assert_eq!(store.recovery_sessions().await.unwrap().len(), 1);
+    sqlx::query("ALTER TABLE sessions DROP CONSTRAINT injected_archive_failure")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (first, replay) = tokio::join!(
+        store.finish_and_archive(&atomic.id, SessionState::Completed),
+        store.finish_and_archive(&atomic.id, SessionState::Completed)
+    );
+    assert!(first.unwrap() && replay.unwrap());
+    let completed = store.get(&atomic.id).await.unwrap().unwrap();
+    assert_eq!(completed.version, atomic.version + 1);
+    assert_eq!(completed.state, SessionState::Completed);
+    assert!(store.recovery_sessions().await.unwrap().is_empty());
+    let archived = crate::PostgresArchiveStore::new(pool.clone());
+    use sayangcare_core::ports::ArchiveStore;
+    assert_eq!(
+        archived
+            .fetch_session(&atomic.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .version,
+        completed.version
+    );
+    let mut stale = atomic.clone();
+    stale.transition(SessionState::Completed).unwrap();
+    assert!(store.update_cas(&stale, atomic.version).await.is_err());
+    assert!(store
+        .finish_and_archive(&atomic.id, SessionState::Active)
+        .await
+        .is_err());
     pool.close().await;
     assert!(
         store.create_if_absent(&session).await.is_err(),

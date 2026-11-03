@@ -1,0 +1,23 @@
+{
+    "run_id":  "HPA-20261103T082656Z",
+    "context":  "minikube",
+    "namespace":  "sayangcare",
+    "vus":  100,
+    "load_duration":  "120s",
+    "load_started_utc":  "2026-11-03T08:26:56.7446968Z",
+    "load_ended_utc":  "2026-11-03T08:28:59.4790383Z",
+    "initial_replicas":  3,
+    "max_desired_replicas":  7,
+    "max_ready_replicas":  7,
+    "scale_up_observed":  true,
+    "first_scale_up_desired_seconds":  58.4,
+    "first_additional_pod_ready_seconds":  69.8,
+    "downscale_completed_utc":  "2026-11-03T08:36:16.4385630Z",
+    "downscale_seconds_after_load":  437,
+    "downscale_observed":  true,
+    "k6_exit_code":  99,
+    "k6_summary_path":  "C:\\Users\\darre\\CSC3104-SayangCare Project\\CSC3104-SayangCare\\artifacts\\phase6-current\\hpa\\20261103T082656Z-k6-summary.json",
+    "k6_stdout_path":  "C:\\Users\\darre\\CSC3104-SayangCare Project\\CSC3104-SayangCare\\artifacts\\phase6-current\\hpa\\20261103T082656Z-k6.stdout.log",
+    "k6_stderr_path":  "C:\\Users\\darre\\CSC3104-SayangCare Project\\CSC3104-SayangCare\\artifacts\\phase6-current\\hpa\\20261103T082656Z-k6.stderr.log",
+    "hpa_samples_path":  "C:\\Users\\darre\\CSC3104-SayangCare Project\\CSC3104-SayangCare\\artifacts\\phase6-current\\hpa\\20261103T082656Z-hpa-samples.csv"
+}

@@ -1,0 +1,27 @@
+{
+    "run_id":  "LIFE-baseline-20261103T075137Z",
+    "mode":  "baseline",
+    "vus":  100,
+    "duration":  "30s",
+    "k6_exit_code":  99,
+    "fault":  null,
+    "replacement_ready_seconds":  null,
+    "audit":  {
+                  "rows":  726,
+                  "distinct_ids":  726,
+                  "invalid_transcripts":  0,
+                  "nonterminal":  0,
+                  "checkpoints":  726,
+                  "pending":  0
+              },
+    "error":  "k6 thresholds failed: exit 99.",
+    "image_ids":  [
+                      "sha256:a769bd4ea16baf04ff89820fee9ebce42132a0ad89f6efdc986f000262ae0f35"
+                  ],
+    "iterations":  726,
+    "http_failure_rate":  0,
+    "lifecycle_success_rate":  1,
+    "http_p95_ms":  2293.641449999998,
+    "http_p99_ms":  2802.86607,
+    "consistency_passed":  true
+}

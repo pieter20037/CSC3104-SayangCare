@@ -1,7 +1,14 @@
 # Professor consultation: SayangCare progress, evidence and decisions
 
-Updated 27 October 2026 (Singapore time). This is a speaking brief, not a claim that the
+Updated 3 November 2026 (Singapore time). This is a speaking brief, not a claim that the
 prototype is production-ready or clinically validated.
+
+**Post-consultation implementation:** Redis owns waiting order in both deployment
+modes. The Docker cluster now uses Raft for majority-backed ownership generations;
+PostgreSQL fences protected updates in both modes. See
+[the current fencing runbook and evidence](RAFT_FENCING.md). The dated October
+rehearsal and Phase 5 measurements below remain historical, not validation of the
+new protocol. PostgreSQL can coordinate ownership without Raft too.
 
 ## 0. Presentation plan and startup checklist
 
@@ -14,7 +21,7 @@ specific decisions you need. Use synthetic data only.
 
 | Mode | Start command | Dashboard | What to demonstrate |
 | --- | --- | --- | --- |
-| Docker Raft application | `.\scripts\start-dashboard.ps1 -Mode Raft -OpenBrowser` | http://127.0.0.1:18081/dashboard through port 18083 | Caller lab, escalation, volunteer work, Operations, replicated queue, election and rejoin |
+| Docker Raft application | `.\scripts\start-dashboard.ps1 -Mode Raft -OpenBrowser` | http://127.0.0.1:18081/dashboard through port 18083 | Caller lab, Redis queue, fenced ownership, election and rejoin |
 | Kubernetes application | `.\scripts\start-dashboard.ps1 -Mode Kubernetes -OpenBrowser` | http://127.0.0.1:18080/dashboard | API replicas, Redis/Sentinel, CNPG PostgreSQL HA, HPA and Kubernetes monitoring |
 
 The original command `.\scripts\start-dashboard.ps1 -OpenBrowser` still selects
@@ -109,8 +116,8 @@ database reset or present a static screenshot as live.
 > circuit breakers, bounded fallback, high-risk queueing, Kubernetes deployment,
 > autoscaling and monitoring.
 > In our Raft deployment, the same caller and volunteer application uses a
-> three-node replicated queue, so we can show a leader failing and a survivor
-> continuing to accept escalations.
+> three-node ownership coordinator. We show a leader failing, a survivor
+> committing an ownership transfer, and PostgreSQL rejecting an old generation.
 >
 > Our chaos tests found a real flaw: Redis automatic failover lost 17
 > acknowledged session creations. We changed the design to commit versioned
@@ -137,8 +144,8 @@ database reset or present a static screenshot as live.
 | Recovery | Thirty-second sweep, five-minute inactivity abandonment, terminal recovery | Interrupted/failed archival work can finish after restoration |
 | AI | Groq sentiment and reply stages with separate breakers and deadlines | Provider slowness/failure does not cause unbounded inference waits |
 | Safety boundaries | Deterministic high-risk classification, fixed response, queue/human review | High-risk routing does not depend entirely on generative output; not a validated clinical classifier |
-| Queue | Default Redis priority queue; optional OpenRaft backend | Coordinates volunteer work; Raft is an explicitly enabled alternative, not the default |
-| Assignments/alerts | PostgreSQL assignment history/bindings and shared operator alerts | Auditable ownership and alerts surviving API replacement |
+| Queue | Redis priority queue in both demonstration modes | Risk descending, then FIFO; not the source of fencing generations |
+| Assignments/alerts | PostgreSQL fenced ownership/history, optional Raft ownership coordinator, shared alerts | Retained generations reject stale owners; alerts survive API replacement |
 | Deployment | API replicas, Services/Ingress, Redis/Sentinel, three-instance CNPG, PVCs | Moves state outside API processes and supports pod-level recovery |
 | Elasticity | CPU/memory/request-rate HPA | Changes API replica count with measured demand |
 | Observability | Prometheus metrics/Adapter, seven Grafana panels, stage timings | Shows throughput/errors/latency, pools, breakers and replica behaviour |
@@ -161,7 +168,9 @@ Caller <-> Twilio webhooks <-> API replicas behind Service/Ingress
                     |
              terminal archives, alerts, assignment history
 
-Optional queue alternative: three OpenRaft nodes (separate configured mode).
+Optional ownership coordinator: three OpenRaft nodes, fixed membership,
+separate Docker mode. Redis still orders the queue. PostgreSQL installs committed
+ownership and rejects stale generations; a durable pending journal bridges stores.
 ```
 
 ## 3. Distributed-systems concepts we can explain
@@ -170,7 +179,7 @@ Optional queue alternative: three OpenRaft nodes (separate configured mode).
 | --- | --- | --- |
 | Replication | API replicas; Redis replicas; three PostgreSQL instances | Several pods on one machine are not several failure-independent machines |
 | Leader discovery/failover | Sentinel discovers/promotes Redis master; CNPG changes DB primary | Redis promotion demonstrated; graceful DB replacement measured; not arbitrary partition testing |
-| Consensus/quorum | Optional OpenRaft queue: majority commits and leader election | Docker application rehearsal on 27 October verified leader loss, a new term, another escalation, and restarted-node catch-up; the default Kubernetes queue is still Redis |
+| Consensus/quorum | Optional OpenRaft ownership: majority commits and leader election | Current fencing tests are linked above; the October rehearsal is historical. Kubernetes mode uses PostgreSQL ownership without Raft voters inside HPA pods |
 | Concurrency control | Monotonic versions and SQL compare-and-swap | Competing stale writes cannot silently overwrite the latest checkpoint |
 | Durability | PostgreSQL commit before acknowledgment with synchronous replica requirement | Exact acknowledged operations survive recorded faults; no proof for every possible failure |
 | Partial failure | API, Redis, PostgreSQL and inference can fail independently | Fault tests separate service availability from persistence success |
@@ -356,8 +365,9 @@ necessary. Deterministic escalation responses intentionally remain fixed.
 4. Refresh the queue and click **Claim next**.
 5. Show the actual claimed SID in **Assigned cases**. If older work was
    selected, explain the queue order rather than pretending it is the new call.
-6. Show the selected case's transcript and ownership. If useful, demonstrate
-   the case transfer or resolution controls that are available for that case.
+6. Show the selected case's transcript and generation 1. Transfer to the other
+   on-shift volunteer and show generation 2. Submit an old generation using the
+   runbook HTTP example: expect 409. Add a synthetic note with generation 2.
    Rehearse their preconditions beforehand; do not imply every state permits
    every action.
 
@@ -365,7 +375,8 @@ Say:
 
 > Deterministic high-risk routing bypasses generative replies and requests
 > human support. Priority queueing coordinates work; relational assignment
-> bindings and history record who owns it. Simulated calls do not dial a
+> generations fence stale owners. Optional Raft commits ownership changes by
+> majority; PostgreSQL enforces the token. Simulated calls do not dial a
 > volunteer's phone.
 
 Mention stale-entry handling and assignment recovery. Do not claim the queue
@@ -396,20 +407,21 @@ Say:
    Stop is a graceful process stop; label it as such, not an abrupt crash.
 4. Wait for the panel to show the unavailable node and a new leader. Point
    out the increased term and `2/3` quorum.
-5. Run **Simulate crisis call** again. Show the successful escalation and
-   advancing replicated indexes.
+5. Transfer an assigned case with its current generation, or claim a fresh
+   escalated case. Show the successful response, new generation and advancing
+   indexes. Escalation alone changes the Redis queue, not Raft ownership.
 6. Start the stopped container. Show it rejoining and catching up. Do not
    promise it can never lead again; future elections can change leadership.
 7. Optionally stop a second node while one remains down to show majority
-   loss. New Raft queue commits must not succeed with only one voter. A role
+   loss. New Raft ownership commits must not succeed with only one voter. A role
    label alone is not proof that writes can commit. Restore every node afterward.
 
 Say:
 
 > A three-voter cluster needs two votes to elect a leader and a majority to
 > commit work. Losing one node preserves quorum. Losing two sacrifices write
-> availability rather than allowing independent conflicting committed queues.
-> The election term and a successful post-election queue mutation are more
+> availability rather than allowing conflicting ownership decisions.
+> The election term and a successful post-election ownership mutation are more
 > meaningful evidence than simply seeing a green status label.
 
 For an explicitly requested abrupt-crash experiment, replace `raft-node-1`
@@ -417,7 +429,7 @@ below with the current leader's service and run from the repository root:
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.raft.yml --profile raft kill raft-node-1
-# After observing the election and a successful new escalation:
+# After observing the election and a successful ownership change:
 docker compose -f docker-compose.yml -f docker-compose.raft.yml --profile raft start raft-node-1
 ```
 
@@ -487,7 +499,7 @@ Say:
 
 ### I. Close with decisions, not a claim of perfection (2-3 minutes)
 
-> The prototype demonstrates the application workflow, quorum-based queue
+> The prototype demonstrates the application workflow, quorum-backed ownership
 > failover and measured Kubernetes recovery. Our strongest result is preserving
 > acknowledged data after discovering a real loss mode. The remaining work is
 > database availability/capacity, broader failure testing, and approved live
@@ -502,7 +514,7 @@ section 9.
 | File | Show | Explain |
 | --- | --- | --- |
 | [API assembly](../crates/api/src/main.rs) | Routes and awaited graceful shutdown | One service with multiple interfaces; draining in-flight work |
-| [Application wiring](../crates/api/src/state.rs) | Redis/Raft queue backend selection | Same application ports with an explicitly selected implementation |
+| [Application wiring](../crates/api/src/state.rs) | Redis ordering and optional Raft ownership coordinator | Fixed voters stay separate from Kubernetes HPA replicas |
 | [Call handlers](../crates/api/src/handlers/call.rs) | Create, turn and hangup flow | Stateful lifecycle and acknowledgment boundary |
 | [Checkpoint store](../crates/session-store/src/checkpoint.rs) and [tiered store](../crates/session-store/src/tiered.rs) | SQL versions, commit and projection/archive flow | Root-cause fix for Redis-first loss |
 | [Volunteer handlers](../crates/api/src/handlers/volunteer.rs) and [priority queue crate](../crates/priority-queue) | Claim/ownership and queue implementations | Distributed work coordination, audit and reconciliation limits |

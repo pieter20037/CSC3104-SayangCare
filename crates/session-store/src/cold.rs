@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use sayangcare_core::domain::{CallerId, Session, SessionId, SessionState};
 use sayangcare_core::ports::ArchiveStore;
 use sayangcare_core::{CoreError, CoreResult};
-use sqlx::{PgPool, Row};
+use sqlx::{PgConnection, PgPool, Row};
 use std::fmt::Display;
 
 fn archive_decode_error(error: impl Display) -> CoreError {
@@ -49,9 +49,11 @@ impl PostgresArchiveStore {
     }
 }
 
-#[async_trait]
-impl ArchiveStore for PostgresArchiveStore {
-    async fn archive(&self, session: &Session) -> CoreResult<()> {
+impl PostgresArchiveStore {
+    pub(crate) async fn archive_on(
+        connection: &mut PgConnection,
+        session: &Session,
+    ) -> CoreResult<()> {
         let transcript_json = serde_json::to_value(&session.transcript)
             .map_err(|e| CoreError::Storage(format!("encode transcript: {e}")))?;
         let risk_json = serde_json::to_value(&session.risk)
@@ -68,8 +70,8 @@ impl ArchiveStore for PostgresArchiveStore {
             INSERT INTO sessions
                 (id, is_simulated, caller_phone, caller_display_name, state, transcript, risk,
                  latest_sentiment, handoff_status, assigned_volunteer_id,
-                 escalation_count, operator_acknowledged, created_at, updated_at, version)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                 escalation_count, operator_acknowledged, created_at, updated_at, version, assignment_generation)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             ON CONFLICT (id) DO UPDATE SET
                 is_simulated = EXCLUDED.is_simulated,
                 caller_phone = EXCLUDED.caller_phone,
@@ -80,6 +82,7 @@ impl ArchiveStore for PostgresArchiveStore {
                 latest_sentiment = EXCLUDED.latest_sentiment,
                 handoff_status = EXCLUDED.handoff_status,
                 assigned_volunteer_id = EXCLUDED.assigned_volunteer_id,
+                assignment_generation = EXCLUDED.assignment_generation,
                 escalation_count = EXCLUDED.escalation_count,
                 operator_acknowledged = EXCLUDED.operator_acknowledged,
                 updated_at = EXCLUDED.updated_at,
@@ -102,11 +105,20 @@ impl ArchiveStore for PostgresArchiveStore {
         .bind(session.created_at)
         .bind(session.updated_at)
         .bind(session.version as i64)
-        .execute(&self.pool)
+        .bind(i64::try_from(session.assignment_generation).map_err(archive_decode_error)?)
+        .execute(connection)
         .await
         .map_err(archive_sqlx_error)?;
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl ArchiveStore for PostgresArchiveStore {
+    async fn archive(&self, session: &Session) -> CoreResult<()> {
+        let mut connection = self.pool.acquire().await.map_err(archive_sqlx_error)?;
+        Self::archive_on(&mut connection, session).await
     }
 
     async fn fetch_session(&self, id: &SessionId) -> CoreResult<Option<Session>> {
@@ -114,7 +126,7 @@ impl ArchiveStore for PostgresArchiveStore {
             r#"SELECT id, is_simulated, caller_phone, caller_display_name, state, transcript, risk,
                       latest_sentiment, handoff_status, assigned_volunteer_id,
                       escalation_count, operator_acknowledged, created_at, updated_at,
-                      version
+                      version, assignment_generation
                FROM sessions WHERE id = $1"#,
         )
         .bind(&id.0)
@@ -171,6 +183,11 @@ impl ArchiveStore for PostgresArchiveStore {
                     risk,
                     handoff_status,
                     assigned_volunteer_id,
+                    assignment_generation: u64::try_from(
+                        r.try_get::<i64, _>("assignment_generation")
+                            .map_err(archive_decode_error)?,
+                    )
+                    .map_err(archive_decode_error)?,
                     escalation_count: u8::try_from(escalation_count).unwrap_or_default(),
                     operator_acknowledged,
                     created_at: r.try_get("created_at").map_err(archive_decode_error)?,

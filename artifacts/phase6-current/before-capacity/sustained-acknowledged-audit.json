@@ -1,0 +1,15 @@
+﻿{
+    "run_id":  "LIFE-baseline-20261103T073411Z",
+    "captured_utc":  "2026-11-03T07:43:58.7993801Z",
+    "acknowledged_creates":  3265,
+    "acknowledged_turns":  3251,
+    "acknowledged_hangups":  3246,
+    "missing_create_ids":  [
+
+                           ],
+    "missing_turn_ids":  [
+
+                         ],
+    "pending":  0,
+    "interpretation":  "Failed workload; only successful acknowledged operations are required to persist. Empty transcripts after a failed turn are not evidence of losing acknowledged text."
+}

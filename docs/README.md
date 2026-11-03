@@ -8,6 +8,8 @@ The root [README](../README.md) has separate Windows PowerShell and macOS Termin
 
 ## Running and Testing
 
+- [Volunteer ownership fencing: operation and validation](RAFT_FENCING.md)
+
 - [Phase 6: Guided follow-up testing (Windows)](PHASE6_Windows.md)
 - [Phase 6: Guided follow-up testing (macOS)](PHASE6_MAC.md)
 - [Professor consultation: progress, concepts, evidence and questions](consultation.md)
@@ -24,6 +26,7 @@ The root [README](../README.md) has separate Windows PowerShell and macOS Termin
 
 ## Architecture and Implementation
 
+- [Final milestone proposal: Raft ownership coordination and fencing](RAFT_FENCING_PROPOSAL.md)
 - [Implementation summary](IMPLEMENTATION_SUMMARY.md)
 - [Merged implementations guide](MERGED_IMPLEMENTATIONS_GUIDE.md)
 - [Flow diagrams](FLOW_DIAGRAMS.md)
@@ -33,5 +36,8 @@ The root [README](../README.md) has separate Windows PowerShell and macOS Termin
 ## Report
 
 - [Group 25 report source](GROUP25.md)
+- [Updated Word report](../documents/GROUP25_UPDATED.docx)
+- [Updated PDF report](../documents/GROUP25_UPDATED.pdf)
+- [Current-revision measured results](../artifacts/phase6-current/final-evaluation.json)
 
 The main project overview and local development instructions remain in the root [README](../README.md).

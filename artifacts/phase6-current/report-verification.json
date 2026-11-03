@@ -1,0 +1,18 @@
+{
+  "pdf_pages": 4,
+  "word_pages": 5,
+  "abstract_words": 158,
+  "source_words_including_metadata_references": 3383,
+  "required_current_results_present": true,
+  "figure_present": true,
+  "reports": [
+    {
+      "path": "documents\\GROUP25_UPDATED.docx",
+      "sha256": "9963239631ec8ad0da11e372521617260987a91dd155ae3967e1b35eaef8cefd"
+    },
+    {
+      "path": "documents\\GROUP25_UPDATED.pdf",
+      "sha256": "20c449ae9db3e6e68dfd363b35cb7fd859707a6df07b670e973f68c60c6672e8"
+    }
+  ]
+}

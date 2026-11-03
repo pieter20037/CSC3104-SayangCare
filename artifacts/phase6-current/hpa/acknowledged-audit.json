@@ -1,0 +1,15 @@
+﻿{
+    "run_id":  "HPA-20261103T082656Z",
+    "iterations":  8668,
+    "acknowledged_creates":  8667,
+    "acknowledged_turns":  8667,
+    "acknowledged_hangups":  8667,
+    "missing_create_ids":  [
+
+                           ],
+    "missing_turn_ids":  [
+
+                         ],
+    "pending":  0,
+    "classification":  "One HTTP 502 on an incoming request: failed availability gate, not a lost acknowledged session. All acknowledged creates/turns/hangups persisted."
+}

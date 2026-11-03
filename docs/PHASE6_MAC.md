@@ -4,6 +4,15 @@ Updated 26 October 2026. Commands below use macOS Terminal (zsh/bash).
 Recorded results are from Windows single-node Minikube, **not Mac validation**.
 These Mac procedures have not been executed on a Mac in this session.
 
+Scope update, 3 November: the professor approved dashboard simulation instead
+of live Twilio testing. Synthetic caller/volunteer workflows depict the
+application; real speech, audio, callbacks and ringing remain unvalidated.
+
+For the final ownership-generation milestone, see
+[the fencing runbook](RAFT_FENCING.md). The Rust API and migration apply to
+both platforms; transfer/resolve now require generation and request ID.
+The new PowerShell comparison/fault script is validated on Windows only.
+
 ## 1. The simple plan
 
 1. Start the existing cluster and dashboard (sections 2-3).
@@ -19,6 +28,10 @@ Portable automation is future work, not an already verified Mac feature.
 
 The [Windows guide](PHASE6_Windows.md) contains the complete Phase 6 backlog
 and acceptance definitions. Do not rebuild existing functionality.
+The 3 November fencing-revision Windows rerun passed baseline, API-pod loss,
+Redis promotion and 100-VU HPA load/full cooldown. PostgreSQL replacement
+preserved acknowledged data but still failed strict availability. See the
+[current raw evidence](../artifacts/phase6-current/); these are not Mac results.
 
 ## 2. Start your own cluster
 
@@ -244,7 +257,7 @@ automatically compute per-replica-phase latency or exact recovery criteria.
 | TEST-05 load gates | Repeat sustained load/cooldown after changes; retain native exit and exact SQL evidence | Observed scaling means the latency/error gates passed |
 | Retention/projections | Agree checkpoint retention/privacy policy and stale Redis reconciliation | Redis projection counts equal all durable sessions |
 | Final report | Add Mac evidence only after actually executing it; screenshots, table and layout review | Windows measurements are Mac results |
-| TEL-06 | Professor-approved, consenting live voice/handoff/outbound test | Simulator or Groq-only tests validate Twilio audio |
+| TEL-06 scope | Professor-approved dashboard demonstration; disclose real voice/audio as untested | Simulator or Groq-only tests validate Twilio audio |
 | Extended scope | Ask about multi-node, backups/restore, public TLS/security | Single-node pod replacement proves node/zone HA |
 
 Existing connection projection: `(20 + 1 surge + 1 terminating) * 3 + 16 = 82`

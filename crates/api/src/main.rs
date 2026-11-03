@@ -11,6 +11,9 @@ use actix_web::{middleware::Compress, web, App, HttpServer};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
+
+// Longer than ingress-nginx's 60-second upstream idle timeout.
+const HTTP_KEEP_ALIVE_SECONDS: u64 = 75;
 use tracing_actix_web::TracingLogger;
 
 mod fallback;
@@ -96,7 +99,23 @@ async fn main() -> anyhow::Result<()> {
                     )
                     .route("/calls/incoming", web::post().to(handlers::calls::incoming))
                     .route("/calls/{sid}", web::get().to(handlers::calls::get_session))
+                    .route(
+                        "/calls/{sid}/ownership",
+                        web::get().to(handlers::volunteers::ownership),
+                    )
+                    .route(
+                        "/calls/{sid}/ownership/audit",
+                        web::get().to(handlers::volunteers::ownership_audit),
+                    )
                     .route("/calls/{sid}/turn", web::post().to(handlers::calls::turn))
+                    .route(
+                        "/volunteers/{volunteer_id}/cases/{session_id}/release",
+                        web::post().to(handlers::volunteers::release_case),
+                    )
+                    .route(
+                        "/volunteers/{volunteer_id}/cases/{session_id}/notes",
+                        web::post().to(handlers::volunteers::add_note),
+                    )
                     .route(
                         "/calls/{sid}/hangup",
                         web::post().to(handlers::calls::hangup),
@@ -160,6 +179,7 @@ async fn main() -> anyhow::Result<()> {
             )
     })
     .workers(config.server.workers)
+    .keep_alive(std::time::Duration::from_secs(HTTP_KEEP_ALIVE_SECONDS))
     .disable_signals()
     .shutdown_timeout(20) // Leaves room for the 5-second preStop within the 30-second grace.
     .bind(&bind_addr)?;
@@ -232,6 +252,44 @@ mod shutdown_tests {
     use std::net::TcpListener;
     use std::time::Duration;
     use tokio::sync::{oneshot, Notify};
+
+    #[actix_web::test]
+    async fn upstream_connection_survives_the_previous_five_second_idle_limit() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = HttpServer::new(|| {
+            App::new().route(
+                "/",
+                web::get().to(|request: actix_web::HttpRequest| async move {
+                    HttpResponse::Ok().body(request.peer_addr().unwrap().to_string())
+                }),
+            )
+        })
+        .workers(1)
+        .keep_alive(Duration::from_secs(HTTP_KEEP_ALIVE_SECONDS))
+        .disable_signals()
+        .listen(listener)
+        .unwrap()
+        .run();
+        let handle = server.handle();
+        let serving = actix_web::rt::spawn(server);
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .pool_idle_timeout(Duration::from_secs(60))
+            .build()
+            .unwrap();
+        let url = format!("http://{address}/");
+        let first = client.get(&url).send().await.unwrap().text().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        let second = client.get(&url).send().await.unwrap().text().await.unwrap();
+        assert_eq!(
+            first, second,
+            "the upstream TCP connection must remain reusable"
+        );
+        drop(client);
+        handle.stop(true).await;
+        serving.await.unwrap().unwrap();
+    }
 
     #[actix_web::test]
     async fn shutdown_waits_for_an_in_flight_response() {

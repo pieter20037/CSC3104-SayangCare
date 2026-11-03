@@ -1,0 +1,298 @@
+﻿[
+    {
+        "path":  "crates\\api\\Cargo.toml",
+        "sha256":  "277BAF4CDD92A61C6E922E939781189707EC10C8C5B6F723CD010AF85C02BD6D"
+    },
+    {
+        "path":  "crates\\api\\dashboard.html",
+        "sha256":  "8B8757B342499988B891B86C9F0D67185205404D3F0EA85860E2763B9BB5F8B0"
+    },
+    {
+        "path":  "crates\\api\\src\\fallback.rs",
+        "sha256":  "C5DBBD3CF5ED990D3E6BC3B85D7E8084C459EB10B05C37F86835B2508B490AD7"
+    },
+    {
+        "path":  "crates\\api\\src\\handoff_recovery.rs",
+        "sha256":  "EC763BDD23920C3B0A5BC84F16F5F143CBDA2DE0025E7D53C66A49566874BB00"
+    },
+    {
+        "path":  "crates\\api\\src\\inference.rs",
+        "sha256":  "FAEC4784BB7BBB9FB3E554362D8A85FB9CC6A7479D7AFA3FFB3A4D5BFC8CCF83"
+    },
+    {
+        "path":  "crates\\api\\src\\main.rs",
+        "sha256":  "DE9708F708BDD6B6279871CA02271524E1EC2D7BEB8623C6C5A91928385DFD0C"
+    },
+    {
+        "path":  "crates\\api\\src\\performance.rs",
+        "sha256":  "8DBB30CCC4951FBD5F335BAC1C46EC36BEC14DC553739DE0D510CEABBBA31B4E"
+    },
+    {
+        "path":  "crates\\api\\src\\perf_metrics.rs",
+        "sha256":  "35A5A295071D4222FD52D2E338FC5D4717CBDBE47AAB64D7FBDB3E870E4BDE29"
+    },
+    {
+        "path":  "crates\\api\\src\\sentiment.rs",
+        "sha256":  "7CC1A5A58FDBCCE39416FEF462DDE811915CA807849816E800AAD2462EB6449A"
+    },
+    {
+        "path":  "crates\\api\\src\\state.rs",
+        "sha256":  "0286CDED7CCFC17EC43198524FD23FBB4918577223B06EF57FA6940A21DA602D"
+    },
+    {
+        "path":  "crates\\api\\src\\telemetry.rs",
+        "sha256":  "1080C7906F94EE80F006E392722C3A9A197B1ABDFB10D038ADBE9881CFC8B720"
+    },
+    {
+        "path":  "crates\\api\\src\\handlers\\call.rs",
+        "sha256":  "26A5F7299C2537C4199D7462B6340187B21B418037675A91D4458EDA6F2D2B20"
+    },
+    {
+        "path":  "crates\\api\\src\\handlers\\dashboard.rs",
+        "sha256":  "BFA00CFCD55A82FB9EBE71E73520C1FDAB3C184E1E528DFDD12F4D0A22745D2E"
+    },
+    {
+        "path":  "crates\\api\\src\\handlers\\health.rs",
+        "sha256":  "4B862DED24847F6F5BC11F6C2484CB7CD7C51F8486937ABAC26687CD68CB5958"
+    },
+    {
+        "path":  "crates\\api\\src\\handlers\\mod.rs",
+        "sha256":  "536EE645A01E479F5326200966675DED2CE4354973156AEAA52C568B263322F6"
+    },
+    {
+        "path":  "crates\\api\\src\\handlers\\raft.rs",
+        "sha256":  "1DD8C726E9DFBF79F6CA7475357F83AE0383E820B959BF2D064B9A959AA0A3CB"
+    },
+    {
+        "path":  "crates\\api\\src\\handlers\\twilio.rs",
+        "sha256":  "0C430DC5E2540567252988D83ADFC4A8F00FD95794F799CDBDCB2F526EC19909"
+    },
+    {
+        "path":  "crates\\api\\src\\handlers\\volunteer.rs",
+        "sha256":  "C28D5A4C16C9327CD19C332EEEF2787184F438577A5326A07D8580209248691C"
+    },
+    {
+        "path":  "crates\\api\\src\\handlers\\volunteer_tests.rs",
+        "sha256":  "C3A25C16A8E57FAFA874766865F2DFE55C6088C0E4C2FFFDF35DA66F58E4EEF8"
+    },
+    {
+        "path":  "crates\\api\\src\\middleware\\mod.rs",
+        "sha256":  "4E8F7B5631161D372835674B2F3DF8A3B8F26C2575E973376C4BF96F7374EE44"
+    },
+    {
+        "path":  "crates\\api\\src\\middleware\\request_id.rs",
+        "sha256":  "DB2A8137084D48CF90D3830A317A57948E851EF193AAA908C46D98C3F511E2BC"
+    },
+    {
+        "path":  "crates\\api\\src\\middleware\\twilio_signature.rs",
+        "sha256":  "B3B4151FBD7376B515603EDBC77A2637F9D7864DB25AFCBB71743BCE90FB00C2"
+    },
+    {
+        "path":  "crates\\circuit-breaker\\Cargo.toml",
+        "sha256":  "B8EE65BEC9B7E6421DDCC36570E0FCCA5E9AF7468A576255167D40BB988FDF24"
+    },
+    {
+        "path":  "crates\\circuit-breaker\\src\\adaptive.rs",
+        "sha256":  "278D3B71EE67CD0F815894BED247E381460A28EAE53A65D0E8FBDB1F044CB409"
+    },
+    {
+        "path":  "crates\\circuit-breaker\\src\\breaker.rs",
+        "sha256":  "BC5DCED49919DF6FA6BC0F476EAA3DC9F0CB9B2E4310FE91C2CE6DC5B06775D2"
+    },
+    {
+        "path":  "crates\\circuit-breaker\\src\\lib.rs",
+        "sha256":  "9E55E5645A570EFEECCA9113560373539C1E87D0EC833A914CBD210D53D514D9"
+    },
+    {
+        "path":  "crates\\circuit-breaker\\src\\registry.rs",
+        "sha256":  "251EE86FFA7389B0E4CBA9DACCEAAD5D101BE13DF3B491CD0EB3CD8A543A785E"
+    },
+    {
+        "path":  "crates\\circuit-breaker\\src\\shared.rs",
+        "sha256":  "4BFEBF879469523A2ABA948C8461CF6EF55C1F5F16DA51A594228A39FB4F550C"
+    },
+    {
+        "path":  "crates\\core\\Cargo.toml",
+        "sha256":  "C30CA874F7FC3C45C28FBF6B55BB51D5E80801D861E94C75F8D067E78BE4E4BD"
+    },
+    {
+        "path":  "crates\\core\\src\\config.rs",
+        "sha256":  "2B327728514E8C8F388DABFA8D3E806E8B0761B7F61A7E064CB32CD7A83E9FFE"
+    },
+    {
+        "path":  "crates\\core\\src\\error.rs",
+        "sha256":  "3E55E78211C941C4E5BE10580B3DBEC00D6674E04BFF9EDFB52EA941EC1F22CD"
+    },
+    {
+        "path":  "crates\\core\\src\\lib.rs",
+        "sha256":  "AFC36F288A60B3CE524508B1C474BEF65C5A7A1FFC8F5A64292B6E980DC6F026"
+    },
+    {
+        "path":  "crates\\core\\src\\ownership.rs",
+        "sha256":  "88D9D1336F0D4E2C6D4D110091FCC2CEACC29FA162E4F8BDA334A2A63450AF1F"
+    },
+    {
+        "path":  "crates\\core\\src\\ports.rs",
+        "sha256":  "04AD12769C46E9E9E72C8CA958AF3F2476885F24490A39ED1ED32320DEE6D203"
+    },
+    {
+        "path":  "crates\\core\\src\\domain\\mod.rs",
+        "sha256":  "E5324B5417451DD833A223579EAA74871A50D0B5102B6555F15C11DD60EAF399"
+    },
+    {
+        "path":  "crates\\core\\src\\domain\\risk.rs",
+        "sha256":  "225924EBA1D24372B86D115DE72D81FD474B7AFA2B64DE3BC232B59FAD7732D1"
+    },
+    {
+        "path":  "crates\\core\\src\\domain\\sentiment.rs",
+        "sha256":  "F3F81F289F6820C9B51C94239C6A11EC2DA364343668B857C3C6C90447D67A28"
+    },
+    {
+        "path":  "crates\\core\\src\\domain\\session.rs",
+        "sha256":  "92E3FB9DA7A29A4EC4E4422ED8D36FD389F667878E53EBA036CAD728985E3961"
+    },
+    {
+        "path":  "crates\\core\\src\\domain\\transcript.rs",
+        "sha256":  "07ABA7EF083ED4E15E5CE80644EABCB7CD399A18943D72A60F80C14CC8889ED3"
+    },
+    {
+        "path":  "crates\\priority-queue\\Cargo.toml",
+        "sha256":  "BB9C4BA5181A75108E3AE9E10AD3585F68F290266263D944108FC60303D2623C"
+    },
+    {
+        "path":  "crates\\priority-queue\\src\\lib.rs",
+        "sha256":  "B5BBBD283A557C6A9E5075398CCF596EE923AA81938B2E7C96CB727F54E76FE7"
+    },
+    {
+        "path":  "crates\\priority-queue\\src\\raft_node.rs",
+        "sha256":  "47C869A520074A8F2BD24F0F74F0739640F7B850C6BCE33C73532B5FF712CA4D"
+    },
+    {
+        "path":  "crates\\priority-queue\\src\\raft_runtime.rs",
+        "sha256":  "7497CC37F3FD9FEE74DCC9A2CD540C755F28F0C3C30479EFF1334243896B5E8C"
+    },
+    {
+        "path":  "crates\\priority-queue\\src\\raft_state.rs",
+        "sha256":  "86B78A5A450B92D4F4751065C6DA3C837072F413B2661AFC1387254F96407E16"
+    },
+    {
+        "path":  "crates\\priority-queue\\src\\raft_storage.rs",
+        "sha256":  "9E7BD5474C44785800D184FB5802CD232719709E917DC9AA173C99BC0587EA18"
+    },
+    {
+        "path":  "crates\\priority-queue\\src\\redis_queue.rs",
+        "sha256":  "BB8688C535A6D3D8BCE10004AD764B9BDB24152D26A9E031839C36CBA3ECBBCB"
+    },
+    {
+        "path":  "crates\\redis-client\\Cargo.toml",
+        "sha256":  "5D609E4439328F5B536062DA86D32DE273C496E12FD12BC0AAA9ED166566CA1B"
+    },
+    {
+        "path":  "crates\\redis-client\\src\\lib.rs",
+        "sha256":  "A5D452EC1E30D051E4E7FD068FC9E5AB2640310F8A00C032FDAECC4A44FD76E0"
+    },
+    {
+        "path":  "crates\\session-store\\Cargo.toml",
+        "sha256":  "465AFB4C150AA2461960F3FD51DBC59B2CAFB8F77FB0D435244731FBF5CB2DE6"
+    },
+    {
+        "path":  "crates\\session-store\\src\\checkpoint.rs",
+        "sha256":  "9F9A58584DF648E6FBA2D07793F5DAB9D97148A5A00B855DA108F44CCAB8DFC6"
+    },
+    {
+        "path":  "crates\\session-store\\src\\checkpoint_tests.rs",
+        "sha256":  "6AB528CA6174BE7A15FEF110BB81EB10A983D9BB381435E2D977DB57D97E7880"
+    },
+    {
+        "path":  "crates\\session-store\\src\\cold.rs",
+        "sha256":  "2FA5A90CCD83C1A65F9EF952A4D1DFE222F87F1FCBB672E5DF1742A25D691C20"
+    },
+    {
+        "path":  "crates\\session-store\\src\\hot.rs",
+        "sha256":  "1FC0796C8990628A626C09B888D5AF0CE77801415DED067D78E1884516E8EE18"
+    },
+    {
+        "path":  "crates\\session-store\\src\\lib.rs",
+        "sha256":  "1DA4E180E1362B3874EC0CF330626DA9FBED3FF6A4817DB3DE7B9494704D4CE2"
+    },
+    {
+        "path":  "crates\\session-store\\src\\ownership.rs",
+        "sha256":  "EFFC94AD078D9E1760F303EE2CB05F1E07B9072648BB8E1377284B4EA3CEC809"
+    },
+    {
+        "path":  "crates\\session-store\\src\\ownership_tests.rs",
+        "sha256":  "9FF4D80723FF3E794507176E703CDDD7DBD505B47E9B6B8CFB63453D6377E306"
+    },
+    {
+        "path":  "crates\\session-store\\src\\sweeper.rs",
+        "sha256":  "14F3DC220A79D6063E3D26E8E09246A6B392FEA8F282328BE5B2AA90295E198A"
+    },
+    {
+        "path":  "crates\\session-store\\src\\tiered.rs",
+        "sha256":  "419981F376FB8C23AF0737E692D2F5437EFA3D903240FB65EC41AF5D68129AB6"
+    },
+    {
+        "path":  "crates\\session-store\\src\\volunteer.rs",
+        "sha256":  "8FF84E0D68354F30EC05A7F26F336400CC6DAA03766E4DEADF55BA0E7EA20F11"
+    },
+    {
+        "path":  "crates\\telephony\\Cargo.toml",
+        "sha256":  "2E7E2AC7D34F66995847F8ECB543DF20EC394342636192930A5591BA7879CB8F"
+    },
+    {
+        "path":  "crates\\telephony\\src\\lib.rs",
+        "sha256":  "60E9210D039AC5598090DAFB2E2677CEF27FCE71892FC11754DB299F7F9B8884"
+    },
+    {
+        "path":  "crates\\telephony\\src\\twilio.rs",
+        "sha256":  "F4E58FB82D89C90C9E518E5F5E8990B2C498D574F72EDAA5E75857A958A95C8F"
+    },
+    {
+        "path":  "migrations\\0001_init.sql",
+        "sha256":  "8099842066C8E4823C8E8E250AB10E3EFA94F91FCB98091F5E4C283FD5B59FE4"
+    },
+    {
+        "path":  "migrations\\0002_add_session_recovery_fields.sql",
+        "sha256":  "CAC35ECE9D0E05565E73CE6C5E7D0DD9404EE9B55CC9428F2A579AC99C486BA9"
+    },
+    {
+        "path":  "migrations\\0003_add_volunteer_handoff_fields.sql",
+        "sha256":  "4F99802B5C0B347809C610208D6BBF6AB5277C864D83B28B2BDF70A07A3ED340"
+    },
+    {
+        "path":  "migrations\\0004_add_simulated_session_flag.sql",
+        "sha256":  "A8400AC7614695D4DDDEBB7CD5D42C899002AF2ADAB29A98CB3448B2E46F8A72"
+    },
+    {
+        "path":  "migrations\\0005_volunteer_assignments.sql",
+        "sha256":  "974AFC892F75C24F2D8007FEE9E11FED94686BBF3A5ACE48D9B7FEA0DAB70FAE"
+    },
+    {
+        "path":  "migrations\\0006_assignment_history_and_reclaims.sql",
+        "sha256":  "1B0B8C7279CC4BDBDFCCA538F0C28280EBC33DEF23C6DBD5A4D99EED5399534A"
+    },
+    {
+        "path":  "migrations\\0007_allow_hot_session_assignments.sql",
+        "sha256":  "6BB7AAA0257E82BB029D80FECF9F1A6DC8ACD094A49C043FA5BDCCB641E8AE42"
+    },
+    {
+        "path":  "migrations\\0008_operator_alerts.sql",
+        "sha256":  "6AFC7AB795C5619F69B9F55A81F41E77A8D3EBB5A82182E425F7322AA5C57E57"
+    },
+    {
+        "path":  "migrations\\0009_escalation_reconciliation_indexes.sql",
+        "sha256":  "FB530F51D873EEF435BA84CC9BD16D38CF5E7ADB312CC9C4387F1CA295C897FA"
+    },
+    {
+        "path":  "migrations\\0010_session_checkpoints.sql",
+        "sha256":  "1987C80DAFFE3A6852EFAFCDEA7AC5E29CCDAB599B88B04A4E6280389684BB55"
+    },
+    {
+        "path":  "migrations\\0011_assignment_fencing.sql",
+        "sha256":  "41412F16F623B90E983EE7B8FFD1884016B8BD8121552E3BF3AACA55A5A8A3CD"
+    },
+    {
+        "path":  "config\\default.toml",
+        "sha256":  "88AEAA4B013CB4705D1DDDE92EA17A53A43AE9C28DF0E87006589686FA68CB2A"
+    }
+]

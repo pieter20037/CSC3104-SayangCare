@@ -2,6 +2,11 @@
 
 Demonstrates Redis-backed queue ordering with Raft-replicated volunteer assignments, leader election, and a restarted node catching up. Requires Docker Desktop. Run commands from the repository root.
 
+For the current generation-token protocol, safe upgrades, stale-owner examples,
+and reproducible comparison, follow [Volunteer ownership fencing](RAFT_FENCING.md).
+Existing active legacy Raft assignments require offline reconciliation; do not
+delete retained data to bypass the upgrade guard.
+
 ## Start the Cluster
 
 Create `.env` from `.env.example` if needed. Keep the PostgreSQL password and Twilio settings in `.env`; do not commit the file. The Twilio values may be placeholders for this local dashboard demo.
@@ -19,7 +24,7 @@ The first build may take several minutes; the readiness timeout starts after the
 Use `-TimeoutSeconds 300` for a slower machine, or `-CheckOnly` to validate startup without
 opening a browser. Containers remain running when the launcher exits.
 
-This is the full call/volunteer application with a Raft queue, not a separate election-only
+This is the full call/volunteer application with Redis ordering and optional Raft ownership coordination, not a separate election-only
 viewer. Use its dashboards for both calls and election demonstrations. The default launcher
 mode (`-Mode Kubernetes`, or no mode argument) still opens the existing Minikube deployment,
 which uses Redis queues by default. Running both deployments does not connect their queues
@@ -43,18 +48,19 @@ Wait until the Raft cluster panel shows all three nodes up, one leader, two foll
 ## Demo steps
 
 1. In the **Raft cluster** panel, note the node labelled **Leader** and its node number.
-2. Click **Simulate crisis call**, then claim the case as a volunteer. Redis owns queue ordering; the Raft log advances when the volunteer assignment is committed.
+2. Click **Simulate crisis call**, then claim the case as an on-shift volunteer. Show generation 1. Redis owns queue ordering; the Raft log advances when ownership is committed.
 3. In Docker Desktop, select the matching `raft-node-N` container and click **Stop**. Leave the dashboard open on one of the surviving nodes.
 4. Watch the panel refresh: the stopped node becomes **DOWN**, the cluster reports `2/3 up`, a survivor becomes **Leader**, and the term increases. Quorum remains available, so the cluster still accepts writes.
-5. Claim another case to show the new leader can commit an assignment while Redis continues to own the queue.
-6. In Docker Desktop, select the stopped node and click **Start**. It rejoins as a **Follower** and catches up from its persistent volume; it does not take leadership back.
+5. Transfer the existing case to the other on-shift volunteer. Show generation 2 and a successful response; a completed escalation alone does not demonstrate a Raft write. A note with the old generation 1 must return 409.
+6. In Docker Desktop, select the stopped node and click **Start**. Verify applied indexes and ownership generations converge. It normally rejoins as a follower; a later election can change leadership.
 
 ## What to say
 
 - Raft elects one leader per term. Followers that stop hearing the leader's heartbeat start an election, and a candidate needs a majority (2 of 3) of votes.
 - Killing the leader raises the term and elects a new leader, so the term number is your proof an election happened.
 - Assignment ownership is committed to a majority before the claim succeeds. Redis remains responsible for queue order and pending items.
-- Stop a second node in Docker Desktop. With only one of three nodes available, quorum is lost; the panel warns and writes are refused. Start it again before continuing.
+- PostgreSQL enforces the installed generation on protected updates. PostgreSQL-only mode can enforce fencing too; compare coordination cost and failure behaviour honestly.
+- Stop a second node in Docker Desktop. With only one of three nodes available, new ownership decisions fail closed with 503. An uncertain request remains pending and can commit after recovery: retry its original request ID, not a replacement command. Restore all stopped nodes before continuing.
 
 ## Clean up
 
@@ -64,4 +70,4 @@ Stop the stack while preserving database and Raft data:
 docker compose -f docker-compose.yml -f docker-compose.raft.yml --profile raft down
 ```
 
-To reset the demo completely, remove the named volumes from Docker Desktop or run `docker compose ... down -v`; removing volumes deletes the database and Raft node state.
+Do not remove database or Raft volumes as part of this demonstration.

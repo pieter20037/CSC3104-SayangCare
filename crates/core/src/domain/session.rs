@@ -100,6 +100,8 @@ pub struct Session {
     pub risk: RiskAssessment,
     pub handoff_status: HandoffStatus,
     pub assigned_volunteer_id: Option<String>,
+    #[serde(default)]
+    pub assignment_generation: u64,
     pub escalation_count: u8,
     pub operator_acknowledged: bool,
     pub created_at: DateTime<Utc>,
@@ -125,6 +127,7 @@ impl Session {
             risk: RiskAssessment::default(),
             handoff_status: HandoffStatus::NotRequired,
             assigned_volunteer_id: None,
+            assignment_generation: 0,
             escalation_count: 0,
             operator_acknowledged: false,
             created_at: now,

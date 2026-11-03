@@ -1,0 +1,82 @@
+{
+  "date_utc": "2026-11-03",
+  "evidence_kind": "manually consolidated observations from executed tool calls",
+  "environment": {
+    "api": "four isolated Windows host processes built from the changed Rust workspace",
+    "raft_ports": [18181, 18182, 18183],
+    "postgres_only_port": 18180,
+    "postgres": "disposable PostgreSQL 16 container, separate databases per mode",
+    "redis": "disposable Redis 7 container, separate logical databases per mode",
+    "fault_method": "stop and restart only the owned API process trees, preserving Raft files",
+    "not_tested": ["Docker fault injection", "Kubernetes deployment of this revision", "physical host loss", "network partitions", "live Twilio", "live Groq"]
+  },
+  "scenarios": [
+    {
+      "name": "leader failure with majority",
+      "session_id": "SIM-FENCE-LIVE-FAULT-20261103",
+      "initial_claim_generation": 1,
+      "stopped_node": 1,
+      "leader_before": 1,
+      "leader_after": 2,
+      "term_before": 1,
+      "term_after": 2,
+      "post_election_transfer_status": 200,
+      "post_election_generation": 2,
+      "passed": true
+    },
+    {
+      "name": "one voter cannot commit new ownership",
+      "remaining_node": 2,
+      "transfer_status": 503,
+      "transfer_elapsed_ms": 8123,
+      "note_on_pending_transition_status": 503,
+      "note_elapsed_ms": 11,
+      "fresh_claim_session_id": "SIM-FENCE-LIVE-QUORUM-20261103",
+      "fresh_claim_status": 503,
+      "claim_elapsed_ms": 8056,
+      "fresh_claim_generation_while_pending": 0,
+      "passed": true
+    },
+    {
+      "name": "rejoin catches up and resolves ambiguous intents",
+      "restarted_nodes": [1, 3],
+      "all_nodes_leader": 2,
+      "all_nodes_term": 2,
+      "all_nodes_applied_index": 41,
+      "recovered_transfer_generation": 3,
+      "recovered_claim_generation": 1,
+      "pending_after_recovery": 0,
+      "passed": true
+    },
+    {
+      "name": "A-to-B-to-A fencing after recovery",
+      "stale_owner_generation": 1,
+      "stale_note_status": 409,
+      "current_owner_generation": 3,
+      "current_note_status": 200,
+      "sql_accepted_note_request_id": "live-aba-note-3",
+      "passed": true
+    },
+    {
+      "name": "browser controls with PostgreSQL-only ownership",
+      "source_served_via_test_proxy_port": 18184,
+      "session_id": "SIM-608E456C17A14069A019B4FD50AC6E2D",
+      "claim_generation": 1,
+      "transfer_generation": 2,
+      "note_generation": 2,
+      "release_generation": 3,
+      "reclaim_generation": 4,
+      "resolve_generation": 5,
+      "workspace_error_after_final_action": "",
+      "passed": true
+    }
+  ],
+  "supporting_files": {
+    "automated_comparison": "report.json",
+    "automated_http_requests": "requests.jsonl",
+    "restored_node_snapshots": "restored-node-status.json",
+    "independent_raft_database_audit": "fencing_live_raft-sql-audit.json",
+    "independent_postgres_database_audit": "fencing_live_pg-sql-audit.json"
+  },
+  "interpretation": "A 503 denotes an uncertain operation, not a guarantee of abortion. Pending commands committed after quorum returned. The three-sample comparison is a functional latency smoke test, not a load benchmark."
+}

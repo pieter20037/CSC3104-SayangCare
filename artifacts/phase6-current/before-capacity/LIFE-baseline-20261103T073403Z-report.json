@@ -1,0 +1,14 @@
+{
+    "run_id":  "LIFE-baseline-20261103T073403Z",
+    "mode":  "baseline",
+    "vus":  100,
+    "duration":  "120s",
+    "k6_exit_code":  null,
+    "fault":  null,
+    "replacement_ready_seconds":  null,
+    "audit":  null,
+    "error":  "Exception calling \"Start\" with \"0\" argument(s): \"Only one usage of each socket address (protocol/network address/port) is normally permitted\"",
+    "image_ids":  [
+                      "sha256:27f28ad112146023a30c3662fd19e9bda7bca0cc636a2ec498076d5ea09d69ee"
+                  ]
+}

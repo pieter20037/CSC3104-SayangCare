@@ -1,0 +1,52 @@
+{
+  "date_utc": "2026-11-03",
+  "evidence_kind": "consolidated final command results",
+  "workspace": {
+    "command": "cargo test --workspace --locked",
+    "exit_code": 0,
+    "passed": 112,
+    "failed": 0,
+    "ignored": 7,
+    "result_lines": [
+      "40 passed; 0 failed; 1 ignored",
+      "19 passed; 0 failed; 1 ignored",
+      "23 passed; 0 failed; 0 ignored",
+      "14 passed; 0 failed; 3 ignored",
+      "10 passed; 0 failed; 2 ignored",
+      "6 passed; 0 failed; 0 ignored"
+    ]
+  },
+  "explicit_integration_tests": [
+    {
+      "command": "cargo test -p sayangcare-session-store --locked transactional_fencing_and_ambiguous_commit_recovery -- --ignored",
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "command": "cargo test -p sayangcare-api --locked http_claim_race_transfer_notes_and_stale_owner_are_fenced -- --ignored",
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0
+    }
+  ],
+  "api_build": {
+    "command": "cargo build -p sayangcare-api --locked",
+    "exit_code": 0,
+    "existing_warnings_retained": 5
+  },
+  "other_checks": {
+    "dashboard_javascript_parse": "passed",
+    "git_diff_check": "passed",
+    "changed_markdown_local_links": "resolved",
+    "evidence_json": "parsed",
+    "http_jsonl_records_parsed": 141,
+    "owned_validation_processes_and_containers": "stopped and removed; validation ports no longer listening"
+  },
+  "limits": [
+    "Ignored workspace tests are not counted as passed.",
+    "The two explicitly executed integrations are reported separately from the 112 default workspace passes.",
+    "This summary is not the raw compiler/test output.",
+    "No commit, push, or deployment to the existing team cluster was performed."
+  ]
+}

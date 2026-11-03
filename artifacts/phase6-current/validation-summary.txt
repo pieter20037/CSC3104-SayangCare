@@ -1,0 +1,4 @@
+﻿cargo test --workspace --locked: 113 passed, 7 ignored, 0 failed
+durable_commit_survives_redis_loss_and_fences_concurrent_updates: explicitly executed and passed; includes atomic rollback and concurrent completion
+transactional_fencing_and_ambiguous_commit_recovery: explicitly executed and passed
+upstream_connection_survives_the_previous_five_second_idle_limit: executed and passed, including full workspace

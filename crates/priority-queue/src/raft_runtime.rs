@@ -9,6 +9,10 @@ use openraft::raft::{
 };
 use openraft::{BasicNode, Config, Raft};
 use sayangcare_core::domain::SessionId;
+use sayangcare_core::ownership::{
+    AssignmentOwnership, OwnershipCommand, OwnershipCoordinator, OwnershipDecision,
+    OwnershipTransition,
+};
 use sayangcare_core::ports::PriorityQueue;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -187,6 +191,31 @@ async fn three_node_queue_replicates_and_survives_leader_loss() {
         );
     }
 
+    let ownership_claim = OwnershipCommand {
+        request_id: "ownership-claim".into(),
+        session_id: SessionId("SIM-raft-1".into()),
+        expected_generation: 0,
+        transition: OwnershipTransition::Claim {
+            volunteer_id: "aisha".into(),
+        },
+    };
+    let original = node1
+        .client_write::<tokio::sync::oneshot::error::RecvError>(RaftQueueCommand::Ownership(
+            ownership_claim.clone(),
+        ))
+        .await
+        .unwrap()
+        .data;
+    assert_eq!(
+        original,
+        RaftQueueOutcome::Ownership(OwnershipDecision::Applied {
+            ownership: AssignmentOwnership {
+                volunteer_id: Some("aisha".into()),
+                assignment_generation: 1,
+            },
+        })
+    );
+
     registry.active.lock().await.remove(&1);
     let new_leader = wait_for_leader(&[&node2, &node3], &[2, 3]).await;
     let leader = if new_leader == 2 { &node2 } else { &node3 };
@@ -206,6 +235,129 @@ async fn three_node_queue_replicates_and_survives_leader_loss() {
     sleep(Duration::from_millis(250)).await;
     assert_eq!(state2.inner.read().await.state.peek_highest(), None);
     assert_eq!(state3.inner.read().await.state.peek_highest(), None);
+
+    let transfer = OwnershipCommand {
+        request_id: "ownership-transfer".into(),
+        session_id: ownership_claim.session_id.clone(),
+        expected_generation: 1,
+        transition: OwnershipTransition::Transfer {
+            from_volunteer_id: "aisha".into(),
+            to_volunteer_id: "noor".into(),
+        },
+    };
+    let transferred = leader
+        .client_write::<tokio::sync::oneshot::error::RecvError>(RaftQueueCommand::Ownership(
+            transfer,
+        ))
+        .await
+        .unwrap()
+        .data;
+    assert_eq!(
+        transferred,
+        RaftQueueOutcome::Ownership(OwnershipDecision::Applied {
+            ownership: AssignmentOwnership {
+                volunteer_id: Some("noor".into()),
+                assignment_generation: 2,
+            },
+        })
+    );
+
+    let other = if new_leader == 2 { 3 } else { 2 };
+    registry.active.lock().await.remove(&other);
+    let release = OwnershipCommand {
+        request_id: "ownership-release".into(),
+        session_id: ownership_claim.session_id.clone(),
+        expected_generation: 2,
+        transition: OwnershipTransition::Release {
+            volunteer_id: "noor".into(),
+            resolved: false,
+        },
+    };
+    let isolated = tokio::time::timeout(
+        Duration::from_secs(1),
+        leader.client_write::<tokio::sync::oneshot::error::RecvError>(RaftQueueCommand::Ownership(
+            release.clone(),
+        )),
+    )
+    .await;
+    assert!(
+        !matches!(isolated, Ok(Ok(_))),
+        "a lone member cannot commit"
+    );
+    let leader_state = if new_leader == 2 { &state2 } else { &state3 };
+    assert_eq!(
+        leader_state.inner.read().await.state.ownership_snapshot()["SIM-raft-1"]
+            .assignment_generation,
+        2
+    );
+
+    registry.active.lock().await.extend([1, 2, 3]);
+    sleep(Duration::from_secs(1)).await;
+    let recovered_leader = wait_for_leader(&[&node1, &node2, &node3], &[1, 2, 3]).await;
+    let recovered = match recovered_leader {
+        1 => &node1,
+        2 => &node2,
+        _ => &node3,
+    };
+    let released = tokio::time::timeout(
+        Duration::from_secs(5),
+        recovered.client_write::<tokio::sync::oneshot::error::RecvError>(
+            RaftQueueCommand::Ownership(release),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .data;
+    assert_eq!(
+        released,
+        RaftQueueOutcome::Ownership(OwnershipDecision::Applied {
+            ownership: AssignmentOwnership {
+                volunteer_id: None,
+                assignment_generation: 3
+            },
+        })
+    );
+    let expected = BTreeMap::from([(
+        "SIM-raft-1".into(),
+        AssignmentOwnership {
+            volunteer_id: None,
+            assignment_generation: 3,
+        },
+    )]);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let mut converged = true;
+            for state in [&state1, &state2, &state3] {
+                converged &= state.inner.read().await.state.ownership_snapshot() == expected;
+            }
+            if converged {
+                break;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("rejoined members catch up");
+    assert_eq!(
+        recovered
+            .client_write::<tokio::sync::oneshot::error::RecvError>(RaftQueueCommand::Ownership(
+                ownership_claim
+            ),)
+            .await
+            .unwrap()
+            .data,
+        original
+    );
+    for state in [&state1, &state2, &state3] {
+        assert_eq!(
+            state.inner.read().await.state.ownership_snapshot(),
+            expected
+        );
+    }
+    for node in [&node1, &node2, &node3] {
+        node.shutdown().await.unwrap();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -246,12 +398,28 @@ async fn single_node_raft_queue_implements_full_priority_queue_contract() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn raft_state_survives_node_restart() {
-    let path = std::env::temp_dir().join(format!("raft-restart-{}.json", uuid::Uuid::new_v4()));
+    let path = std::env::current_dir()
+        .unwrap()
+        .join(format!("raft-restart-{}.json", uuid::Uuid::new_v4()));
     let settings = RaftQueueSettings {
         node_id: 1,
         peers: BTreeMap::new(),
         data_file: Some(path.clone()),
         token: None,
+    };
+    let command = OwnershipCommand {
+        request_id: "durable-ownership".into(),
+        session_id: SessionId("durable".into()),
+        expected_generation: 0,
+        transition: OwnershipTransition::Claim {
+            volunteer_id: "aisha".into(),
+        },
+    };
+    let expected = OwnershipDecision::Applied {
+        ownership: AssignmentOwnership {
+            volunteer_id: Some("aisha".into()),
+            assignment_generation: 1,
+        },
     };
     {
         let node = RaftQueueNode::start(settings.clone()).await.unwrap();
@@ -261,15 +429,78 @@ async fn raft_state_survives_node_restart() {
             .enqueue(SessionId("durable".to_string()), 5, chrono::Utc::now())
             .await
             .unwrap();
+        assert_eq!(node.commit(command.clone()).await.unwrap(), expected);
+        assert!(!node.legacy_assignments_present().await);
+        assert!(
+            node.coordinate_assignment(&SessionId("legacy".into()), "noor")
+                .await
+                .unwrap()
+                .0
+        );
+        assert!(node.legacy_assignments_present().await);
         node.raft().shutdown().await.unwrap();
     }
 
     let node = RaftQueueNode::start(settings).await.unwrap();
     node.bootstrap_if_needed().await.unwrap();
-    let queue = RaftPriorityQueue::new(node);
+    let queue = RaftPriorityQueue::new(node.clone());
     assert_eq!(
         queue.peek_highest().await.unwrap(),
         Some(SessionId("durable".to_string()))
     );
+    assert_eq!(node.commit(command.clone()).await.unwrap(), expected);
+    let mut changed = command;
+    changed.expected_generation = 1;
+    assert_eq!(
+        node.commit(changed).await.unwrap(),
+        OwnershipDecision::RequestIdConflict
+    );
+    assert_eq!(
+        node.ownership_snapshot().await["durable"].assignment_generation,
+        1
+    );
+    assert!(node.legacy_assignments_present().await);
+    assert!(node
+        .release_assignment(&SessionId("legacy".into()), "noor")
+        .await
+        .unwrap());
+    assert!(!node.legacy_assignments_present().await);
+    node.raft().shutdown().await.unwrap();
     let _ = std::fs::remove_file(path);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ownership_commit_without_quorum_is_bounded_and_never_falls_back() {
+    let node = RaftQueueNode::start(RaftQueueSettings {
+        node_id: 1,
+        peers: BTreeMap::from([
+            (1, "http://127.0.0.1:0".into()),
+            (2, "http://127.0.0.1:0".into()),
+            (3, "http://127.0.0.1:0".into()),
+        ]),
+        data_file: None,
+        token: None,
+    })
+    .await
+    .unwrap();
+    node.bootstrap_if_needed().await.unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        node.commit(OwnershipCommand {
+            request_id: "no-quorum".into(),
+            session_id: SessionId("uncommitted".into()),
+            expected_generation: 0,
+            transition: OwnershipTransition::Claim {
+                volunteer_id: "aisha".into(),
+            },
+        }),
+    )
+    .await
+    .expect("ownership commits have a total deadline");
+    assert!(matches!(
+        result,
+        Err(sayangcare_core::CoreError::Storage(_))
+    ));
+    assert!(node.ownership_snapshot().await.is_empty());
+    node.raft().shutdown().await.unwrap();
 }

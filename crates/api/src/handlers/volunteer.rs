@@ -1,7 +1,17 @@
 use crate::state::{AppState, Volunteer};
 use actix_web::{web, HttpResponse, Responder};
+use sayangcare_core::domain::{HandoffStatus, Session, SessionId, SessionState};
+use sayangcare_core::ownership::{OwnershipCommand, OwnershipDecision, OwnershipTransition};
+use sayangcare_session_store::OwnershipError;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use uuid::Uuid;
+
+#[cfg(test)]
+#[path = "volunteer_tests.rs"]
+mod tests;
+
+type State = web::Data<Arc<AppState>>;
 
 #[derive(Debug, Deserialize)]
 pub struct ClaimRequest {
@@ -9,14 +19,21 @@ pub struct ClaimRequest {
     #[serde(default)]
     pub simulate: bool,
     pub session_id: Option<String>,
+    pub request_id: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ClaimResponse {
-    pub session_id: Option<String>,
-    pub volunteer_id: Option<String>,
-    pub handoff_status: String,
-    pub raft_log_index: Option<u64>,
+#[derive(Debug, Deserialize)]
+pub struct CaseAction {
+    pub assignment_generation: u64,
+    pub request_id: String,
+    pub to_volunteer_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NoteRequest {
+    pub assignment_generation: u64,
+    pub request_id: String,
+    pub body: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,779 +45,546 @@ pub struct QueueItem {
     pub state: String,
 }
 
-#[derive(Debug, Serialize)]
-pub struct QueueResponse {
-    pub pending: Vec<QueueItem>,
+pub fn ownership_error(error: OwnershipError) -> HttpResponse {
+    tracing::warn!(%error, "volunteer action rejected");
+    let mut response = match error {
+        OwnershipError::Stale | OwnershipError::Conflict => HttpResponse::Conflict(),
+        OwnershipError::Pending | OwnershipError::Unavailable(_) => {
+            HttpResponse::ServiceUnavailable()
+        }
+        OwnershipError::NotFound => HttpResponse::NotFound(),
+        OwnershipError::Invalid(_) => HttpResponse::BadRequest(),
+    };
+    response.json(serde_json::json!({"error": error.to_string()}))
 }
 
-#[derive(Debug, Serialize)]
-pub struct AssignedCaseItem {
-    pub session_id: String,
-    pub risk: u8,
-    pub status: String,
+fn decision_error(decision: &OwnershipDecision) -> Option<HttpResponse> {
+    match decision {
+        OwnershipDecision::Applied { .. } => None,
+        OwnershipDecision::StaleGeneration => Some(ownership_error(OwnershipError::Stale)),
+        OwnershipDecision::Conflict | OwnershipDecision::RequestIdConflict => {
+            Some(ownership_error(OwnershipError::Conflict))
+        }
+        OwnershipDecision::GenerationExhausted => Some(ownership_error(OwnershipError::Invalid(
+            "assignment generation exhausted".into(),
+        ))),
+    }
 }
 
-#[derive(Debug, Serialize)]
-pub struct VolunteerListResponse {
-    pub volunteers: Vec<Volunteer>,
+fn on_shift(state: &AppState, id: &str) -> Option<Volunteer> {
+    state
+        .volunteers
+        .read()
+        .expect("volunteer registry lock poisoned")
+        .get(id)
+        .filter(|volunteer| volunteer.on_shift)
+        .cloned()
 }
 
-#[derive(Debug, Serialize)]
-pub struct AssignedCasesResponse {
-    pub volunteer_id: String,
-    pub cases: Vec<AssignedCaseItem>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ResolveCaseResponse {
-    pub session_id: String,
-    pub volunteer_id: String,
-    pub handoff_status: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct TransferCaseResponse {
-    pub session_id: String,
-    pub volunteer_id: String,
-    pub handoff_status: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AlertsResponse {
-    pub alerts: Vec<crate::state::OperatorAlert>,
-}
-
-pub async fn list_volunteers(state: web::Data<Arc<AppState>>) -> impl Responder {
-    let volunteers = state
+pub async fn list_volunteers(state: State) -> impl Responder {
+    let volunteers: Vec<_> = state
         .volunteers
         .read()
         .expect("volunteer registry lock poisoned")
         .values()
         .cloned()
-        .collect::<Vec<_>>();
-    HttpResponse::Ok().json(VolunteerListResponse { volunteers })
+        .collect();
+    HttpResponse::Ok().json(serde_json::json!({"volunteers": volunteers}))
 }
 
-pub async fn list_pending(state: web::Data<Arc<AppState>>) -> impl Responder {
-    match state.queue.list_pending().await {
-        Ok(sids) => {
-            let mut pending = Vec::new();
-            for sid in sids {
-                if let Ok(Some(session)) = state.sessions.get(&sid).await {
-                    if session.state != sayangcare_core::domain::SessionState::Escalated
-                        || session.handoff_status != sayangcare_core::domain::HandoffStatus::Pending
-                    {
-                        continue;
-                    }
-                    pending.push(QueueItem {
-                        session_id: sid.0,
-                        risk: session.risk.level.0,
-                        handoff_status: format!("{:?}", session.handoff_status).to_lowercase(),
-                        assigned_volunteer_id: session.assigned_volunteer_id,
-                        state: format!("{:?}", session.state).to_lowercase(),
-                    });
-                }
+pub async fn list_pending(state: State) -> impl Responder {
+    let ids = match state.queue.list_pending().await {
+        Ok(ids) => ids,
+        Err(error) => return ownership_error(OwnershipError::Unavailable(error.to_string())),
+    };
+    let mut pending = Vec::new();
+    for sid in ids {
+        match state.sessions.get(&sid).await {
+            Ok(Some(session))
+                if session.state == SessionState::Escalated
+                    && session.handoff_status == HandoffStatus::Pending =>
+            {
+                pending.push(QueueItem {
+                    session_id: sid.0,
+                    risk: session.risk.level.0,
+                    handoff_status: "pending".into(),
+                    assigned_volunteer_id: session.assigned_volunteer_id,
+                    state: "escalated".into(),
+                });
             }
-            HttpResponse::Ok().json(QueueResponse { pending })
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "queue listing failed");
-            HttpResponse::InternalServerError().finish()
+            Ok(_) => {}
+            Err(error) => return ownership_error(OwnershipError::Unavailable(error.to_string())),
         }
     }
+    HttpResponse::Ok().json(serde_json::json!({"pending": pending}))
 }
 
-pub async fn list_assigned(
-    state: web::Data<Arc<AppState>>,
-    volunteer_id: web::Path<String>,
-) -> impl Responder {
-    let volunteer_id = volunteer_id.into_inner();
-    let session_ids = match state
+pub async fn list_assigned(state: State, volunteer_id: web::Path<String>) -> impl Responder {
+    let id = volunteer_id.into_inner();
+    let ids = match state
         .volunteer_bindings
-        .list_active_for_volunteer(&volunteer_id)
+        .list_active_for_volunteer(&id)
         .await
     {
-        Ok(session_ids) => session_ids
-            .into_iter()
-            .map(sayangcare_core::domain::SessionId)
-            .collect::<Vec<_>>(),
-        Err(error) => {
-            tracing::error!(error = %error, volunteer_id = %volunteer_id, "assigned case listing failed");
-            return HttpResponse::InternalServerError().finish();
-        }
+        Ok(ids) => ids,
+        Err(error) => return ownership_error(OwnershipError::Unavailable(error.to_string())),
     };
-
     let mut cases = Vec::new();
-    for session_id in session_ids {
-        let sid = session_id.clone();
-        if let Ok(Some(session)) = state.sessions.get(&sid).await {
-            if session.assigned_volunteer_id.as_deref() != Some(volunteer_id.as_str())
-                || !matches!(
-                    session.handoff_status,
-                    sayangcare_core::domain::HandoffStatus::Assigned
-                        | sayangcare_core::domain::HandoffStatus::Transferred
-                )
-            {
-                continue;
+    for session_id in ids {
+        let view = match state.ownership.current(&session_id).await {
+            Ok(view) => view,
+            Err(error) => return ownership_error(error),
+        };
+        match state.sessions.get(&SessionId(session_id.clone())).await {
+            Ok(Some(session)) if view.volunteer_id.as_deref() == Some(&id) => {
+                cases.push(serde_json::json!({
+                    "session_id": session_id, "risk":session.risk.level.0,
+                    "status": format!("{:?}", session.handoff_status).to_lowercase(),
+                    "assignment_generation":view.assignment_generation,
+                    "pending_operation_id":view.pending_operation_id
+                }));
             }
-            cases.push(AssignedCaseItem {
-                session_id: session_id.0,
-                risk: session.risk.level.0,
-                status: format!("{:?}", session.handoff_status).to_lowercase(),
-            });
+            Ok(_) => {}
+            Err(error) => return ownership_error(OwnershipError::Unavailable(error.to_string())),
         }
     }
-
-    HttpResponse::Ok().json(AssignedCasesResponse {
-        volunteer_id,
-        cases,
-    })
+    HttpResponse::Ok().json(serde_json::json!({"volunteer_id":id,"cases":cases}))
 }
 
-pub async fn claim(
-    state: web::Data<Arc<AppState>>,
-    body: web::Json<ClaimRequest>,
-) -> impl Responder {
-    let volunteer = state
-        .volunteers
-        .read()
-        .expect("volunteer registry lock poisoned")
-        .get(&body.volunteer_id)
-        .cloned();
-    let Some(volunteer) = volunteer.filter(|volunteer| volunteer.on_shift) else {
-        return HttpResponse::Forbidden().json(serde_json::json!({
-            "error": "volunteer is not registered or is off shift",
-            "volunteer_id": body.volunteer_id,
-        }));
-    };
+pub async fn ownership(state: State, sid: web::Path<String>) -> impl Responder {
+    match state.ownership.current(&sid).await {
+        Ok(view) => HttpResponse::Ok().json(view),
+        Err(error) => ownership_error(error),
+    }
+}
 
+pub async fn ownership_audit(state: State, sid: web::Path<String>) -> impl Responder {
+    let audit: Result<(serde_json::Value,serde_json::Value),sqlx::Error> = async {
+        let history: serde_json::Value = sqlx::query_scalar(
+            "SELECT COALESCE(jsonb_agg(jsonb_build_object('volunteer_id',volunteer_id,'assignment_generation',assignment_generation,'status',status,'active',resolved_at IS NULL) ORDER BY assignment_id),'[]'::jsonb) FROM volunteer_assignments WHERE session_id=$1",
+        ).bind(sid.as_str()).fetch_one(&state.postgres).await?;
+        let notes: serde_json::Value = sqlx::query_scalar(
+            "SELECT COALESCE(jsonb_agg(jsonb_build_object('request_id',request_id,'volunteer_id',volunteer_id,'assignment_generation',assignment_generation) ORDER BY note_id),'[]'::jsonb) FROM volunteer_case_notes WHERE session_id=$1",
+        ).bind(sid.as_str()).fetch_one(&state.postgres).await?;
+        Ok((history,notes))
+    }.await;
+    match audit {
+        Ok((history, notes)) => HttpResponse::Ok()
+            .json(serde_json::json!({"session_id":sid.as_str(),"history":history,"notes":notes})),
+        Err(error) => ownership_error(OwnershipError::Unavailable(error.to_string())),
+    }
+}
+
+pub async fn claim(state: State, body: web::Json<ClaimRequest>) -> impl Responder {
+    let Some(volunteer) = on_shift(&state, &body.volunteer_id) else {
+        return HttpResponse::Forbidden()
+            .json(serde_json::json!({"error":"volunteer is not registered or is off shift"}));
+    };
     if body.simulate
         && !body
             .session_id
             .as_deref()
-            .is_some_and(|session_id| session_id.starts_with("SIM-"))
+            .is_some_and(|id| id.starts_with("SIM-"))
     {
-        return HttpResponse::BadRequest()
-            .body("simulation claims require a SIM- prefixed session_id");
+        return HttpResponse::BadRequest().json(
+            serde_json::json!({"error":"simulation claims require a SIM- prefixed session_id"}),
+        );
     }
-
-    let claim_result = if let Some(session_id) = body.session_id.as_deref() {
-        let sid = sayangcare_core::domain::SessionId(session_id.to_string());
-        match state.queue.claim_session(&sid, &body.volunteer_id).await {
-            Ok(true) => Ok(Some(sid)),
-            Ok(false) => Ok(None),
-            Err(error) => Err(error),
-        }
-    } else {
-        loop {
-            match state.queue.claim(&body.volunteer_id).await {
-                Ok(Some(sid)) => match state.sessions.get(&sid).await {
-                    Ok(Some(session))
-                        if session.state == sayangcare_core::domain::SessionState::Escalated
-                            && session.handoff_status
-                                == sayangcare_core::domain::HandoffStatus::Pending =>
-                    {
-                        break Ok(Some(sid));
-                    }
-                    Ok(Some(session)) => {
-                        tracing::warn!(
-                            session_id = %sid,
-                            state = ?session.state,
-                            handoff_status = ?session.handoff_status,
-                            "discarding stale queue entry"
-                        );
-                        if let Err(error) =
-                            state.queue.release_claim(&sid, &body.volunteer_id).await
-                        {
-                            tracing::error!(error = %error, session_id = %sid, "failed to release stale queue claim");
-                        }
-                    }
-                    Ok(None) => {
-                        tracing::warn!(session_id = %sid, "discarding queue entry without a session");
-                        if let Err(error) =
-                            state.queue.release_claim(&sid, &body.volunteer_id).await
-                        {
-                            tracing::error!(error = %error, session_id = %sid, "failed to release stale queue claim");
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(error = %error, session_id = %sid, "session lookup failed while selecting next queue item");
-                        if let Err(release_error) =
-                            state.queue.release_claim(&sid, &body.volunteer_id).await
-                        {
-                            tracing::error!(error = %release_error, session_id = %sid, "failed to release queue claim after lookup failure");
-                        }
-                        break Err(error);
-                    }
-                },
-                result => break result,
-            }
-        }
+    let request_id = body
+        .request_id
+        .clone()
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let prior: Option<String> = match sqlx::query_scalar(
+        "SELECT session_id FROM assignment_operations WHERE request_id=$1",
+    )
+    .bind(&request_id)
+    .fetch_optional(&state.postgres)
+    .await
+    {
+        Ok(prior) => prior,
+        Err(error) => return ownership_error(OwnershipError::Unavailable(error.to_string())),
     };
-
-    match claim_result {
-        Ok(Some(sid)) => {
-            let mut raft_log_index = None;
-            if let Some(coordinator) = state
-                .raft
-                .as_ref()
-                .filter(|_| state.config.queue.raft_assignments)
-            {
-                match coordinator
-                    .coordinate_assignment(&sid, &body.volunteer_id)
-                    .await
-                {
-                    Ok((true, index)) => raft_log_index = Some(index),
-                    Ok((false, _)) => {
-                        let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
-                        return HttpResponse::Conflict().json(serde_json::json!({"error":"case is already coordinated to another volunteer", "session_id":sid.0}));
-                    }
-                    Err(error) => {
-                        let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
-                        tracing::error!(error = %error, session_id = %sid, "Raft assignment coordination failed");
-                        return HttpResponse::ServiceUnavailable().json(serde_json::json!({"error":"assignment coordinator unavailable; retry when Raft quorum is restored"}));
-                    }
-                }
-            }
-            let mut assigned_session = match state.sessions.get(&sid).await {
-                Ok(Some(session)) => session,
+    // Queue selection remains Redis risk/FIFO; durable ownership arbitrates claims.
+    for _ in 0..100 {
+        let sid = match body.session_id.as_ref().or(prior.as_ref()) {
+            Some(id) => SessionId(id.clone()),
+            None => match state.queue.peek_highest().await {
+                Ok(Some(sid)) => sid,
                 Ok(None) => {
-                    if let Some(coordinator) = state
-                        .raft
-                        .as_ref()
-                        .filter(|_| state.config.queue.raft_assignments)
-                    {
-                        let _ = coordinator
-                            .release_assignment(&sid, &body.volunteer_id)
-                            .await;
-                    }
-                    let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
-                    return HttpResponse::NotFound().json(serde_json::json!({
-                        "error": "case session no longer exists",
-                        "session_id": sid.0,
-                    }));
-                }
-                Err(e) => {
-                    if let Some(coordinator) = state
-                        .raft
-                        .as_ref()
-                        .filter(|_| state.config.queue.raft_assignments)
-                    {
-                        let _ = coordinator
-                            .release_assignment(&sid, &body.volunteer_id)
-                            .await;
-                    }
-                    tracing::error!(error = %e, "lookup failed during claim");
-                    let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
-                    let _ = state
-                        .queue
-                        .enqueue(sid.clone(), 4, chrono::Utc::now())
-                        .await;
-                    return HttpResponse::InternalServerError().finish();
-                }
-            };
-
-            if assigned_session.state != sayangcare_core::domain::SessionState::Escalated
-                || assigned_session.handoff_status
-                    != sayangcare_core::domain::HandoffStatus::Pending
-            {
-                if let Some(coordinator) = state
-                    .raft
-                    .as_ref()
-                    .filter(|_| state.config.queue.raft_assignments)
-                {
-                    let _ = coordinator
-                        .release_assignment(&sid, &body.volunteer_id)
-                        .await;
-                }
-                let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
-                return HttpResponse::Conflict().json(serde_json::json!({
-                    "error": "case is no longer pending or claimable",
-                    "session_id": sid.0,
-                    "state": format!("{:?}", assigned_session.state).to_lowercase(),
-                    "handoff_status": format!("{:?}", assigned_session.handoff_status).to_lowercase(),
-                }));
-            }
-
-            let binding_created = match state
-                .volunteer_bindings
-                .claim(&sid.0, &body.volunteer_id, assigned_session.risk.level.0)
-                .await
-            {
-                Ok(true) => true,
-                Ok(false) => {
-                    if let Some(coordinator) = state
-                        .raft
-                        .as_ref()
-                        .filter(|_| state.config.queue.raft_assignments)
-                    {
-                        let _ = coordinator
-                            .release_assignment(&sid, &body.volunteer_id)
-                            .await;
-                    }
-                    let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
-                    return HttpResponse::Conflict().json(serde_json::json!({
-                        "error": "case already has a durable volunteer binding",
-                        "session_id": sid.0,
-                    }));
+                    return HttpResponse::Ok().json(serde_json::json!({
+                        "session_id":null,"volunteer_id":null,"handoff_status":"waiting",
+                        "assignment_generation":null,"request_id":request_id
+                    }))
                 }
                 Err(error) => {
-                    if let Some(coordinator) = state
-                        .raft
-                        .as_ref()
-                        .filter(|_| state.config.queue.raft_assignments)
-                    {
-                        let _ = coordinator
-                            .release_assignment(&sid, &body.volunteer_id)
-                            .await;
-                    }
-                    tracing::error!(error = %error, session_id = %sid, "durable binding claim failed");
-                    let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
-                    return HttpResponse::InternalServerError().finish();
+                    return ownership_error(OwnershipError::Unavailable(error.to_string()))
                 }
-            };
-
-            let expected = assigned_session.version;
-            assigned_session.assign_volunteer(&body.volunteer_id);
-
-            if let Err(error) = state.sessions.update_cas(&assigned_session, expected).await {
-                if let Some(coordinator) = state
-                    .raft
-                    .as_ref()
-                    .filter(|_| state.config.queue.raft_assignments)
-                {
-                    let _ = coordinator
-                        .release_assignment(&sid, &body.volunteer_id)
-                        .await;
-                }
-                tracing::warn!(error = %error, session_id = %sid, volunteer_id = %body.volunteer_id, "failed to persist volunteer assignment");
-                if binding_created {
-                    let _ = state
-                        .volunteer_bindings
-                        .release(&sid.0, &body.volunteer_id)
-                        .await;
-                }
-                let _ = state.queue.release_claim(&sid, &body.volunteer_id).await;
-                let _ = state
-                    .queue
-                    .enqueue(
-                        sid.clone(),
-                        assigned_session.risk.level.0,
-                        chrono::Utc::now(),
-                    )
-                    .await;
-                return HttpResponse::Conflict().json(serde_json::json!({
-                    "error": "case assignment changed; refresh the queue and try again",
-                    "session_id": sid.0,
-                }));
+            },
+        };
+        let view = match state.ownership.current(&sid.0).await {
+            Ok(view) => view,
+            Err(error) => return ownership_error(error),
+        };
+        let session = match state.sessions.get(&sid).await {
+            Ok(session) => session,
+            Err(error) => return ownership_error(OwnershipError::Unavailable(error.to_string())),
+        };
+        let eligible = session.as_ref().is_some_and(|s| {
+            s.state == SessionState::Escalated && s.handoff_status == HandoffStatus::Pending
+        });
+        // A request-id replay must reach the operation journal even after assignment.
+        if !eligible && body.session_id.is_none() && prior.is_none() {
+            if let Err(error) = discard_stale(&state, &sid, &body.volunteer_id).await {
+                return ownership_error(OwnershipError::Unavailable(error.to_string()));
             }
-
-            if assigned_session.is_simulated || sid.0.starts_with("SIM-") || body.simulate {
-                state
-                    .record_alert(
-                        "assigned",
-                        &sid.0,
-                        Some(&body.volunteer_id),
-                        format!(
-                        "Volunteer {} claimed simulated session {}; no live phone call was placed.",
-                        body.volunteer_id, sid.0
-                    ),
-                    )
-                    .await;
-            } else {
-                let dispatch_result = async {
-                    let from_number = state
-                        .config
-                        .telephony
-                        .twilio_from_number
-                        .as_deref()
-                        .filter(|number| !number.trim().is_empty())
-                        .ok_or_else(|| sayangcare_core::CoreError::Telephony(
-                            "SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER is required for outbound volunteer calls".to_string(),
-                        ))?;
-                    let mut connect_url = reqwest::Url::parse(&format!(
-                        "{}{}/outbound-connect",
-                        state.config.telephony.public_base_url.trim_end_matches('/'),
-                        "/twilio"
-                    ))
-                    .map_err(|error| sayangcare_core::CoreError::Telephony(format!(
-                        "invalid public URL for outbound TwiML: {error}"
-                    )))?;
-                    connect_url
-                        .query_pairs_mut()
-                        .append_pair("session_id", &sid.0);
-
-                    let outbound_sid = state
-                        .telephony
-                        .create_outbound_call(
-                            &volunteer.phone_number,
-                            from_number,
-                            connect_url.as_str(),
-                        )
-                        .await?;
-                    let conference = crate::handlers::twilio::conference_name(&sid.0);
-                    if let Err(error) = state
-                        .telephony
-                        .move_call_to_conference(&sid.0, &conference)
-                        .await
-                    {
-                        if let Err(hangup_error) = state.telephony.hangup(&outbound_sid).await {
-                            tracing::warn!(error = %hangup_error, outbound_call_sid = %outbound_sid, "failed to cancel volunteer call after caller conference setup failed");
-                        }
-                        return Err(error);
-                    }
-                    Ok::<String, sayangcare_core::CoreError>(outbound_sid)
-                }
-                .await;
-
-                match dispatch_result {
-                    Ok(outbound_sid) => {
-                        state.record_alert(
-                            "assigned",
-                            &sid.0,
-                            Some(&body.volunteer_id),
-                            format!("Volunteer {} claimed session {} and outbound dispatch {} was started.", body.volunteer_id, sid.0, outbound_sid),
-                        ).await;
-                    }
-                    Err(error) => {
-                        tracing::warn!(error = %error, session_id = %sid, volunteer_id = %body.volunteer_id, "outbound volunteer dispatch failed");
-                        match state
-                            .telephony
-                            .redirect_to_human(&sid.0, &body.volunteer_id)
-                            .await
-                        {
-                            Ok(()) => state.record_alert(
-                                "handoff_fallback",
-                                &sid.0,
-                                Some(&body.volunteer_id),
-                                format!("Outbound dispatch failed for session {}; the existing-call TwiML handoff was attempted instead.", sid.0),
-                            ).await,
-                            Err(fallback_error) => {
-                                tracing::warn!(error = %fallback_error, session_id = %sid, volunteer_id = %body.volunteer_id, "existing-call TwiML handoff fallback failed");
-                                state.record_alert(
-                                    "handoff_failed",
-                                    &sid.0,
-                                    Some(&body.volunteer_id),
-                                    format!("Outbound dispatch for session {} failed; fallback operator review is required.", sid.0),
-                                ).await;
-                            }
-                        }
-                    }
-                }
+            continue;
+        }
+        let command = OwnershipCommand {
+            request_id: request_id.clone(),
+            session_id: sid.clone(),
+            expected_generation: view.assignment_generation,
+            transition: OwnershipTransition::Claim {
+                volunteer_id: body.volunteer_id.clone(),
+            },
+        };
+        // Recover the immutable original payload when retrying an acknowledged or uncertain claim.
+        let (command, replay) = match original_command(&state, command).await {
+            Ok(command) => command,
+            Err(error) => return ownership_error(error),
+        };
+        let decision = match state.ownership.execute(command).await {
+            Ok(result) => result,
+            Err(error) => return ownership_error(error),
+        };
+        if let Some(error) = decision_error(&decision) {
+            return error;
+        }
+        let OwnershipDecision::Applied { ownership } = decision else {
+            unreachable!()
+        };
+        if let Err(error) = state.reconcile_ownership_projections().await {
+            tracing::error!(%error, session_id=%sid, "assignment committed; projection repair remains pending");
+        }
+        if !replay {
+            if let Some(session) = session {
+                dispatch_claim(&state, &session, &volunteer).await;
             }
-
-            HttpResponse::Ok().json(ClaimResponse {
-                session_id: Some(sid.0),
-                volunteer_id: Some(body.volunteer_id.clone()),
-                handoff_status: "assigned".to_string(),
-                raft_log_index,
-            })
         }
-        Ok(None) => HttpResponse::Ok().json(ClaimResponse {
-            session_id: None,
-            volunteer_id: None,
-            handoff_status: "waiting".to_string(),
-            raft_log_index: None,
-        }),
-        Err(e) => {
-            tracing::error!(error = %e, "claim failed");
-            HttpResponse::InternalServerError().finish()
-        }
-    }
-}
-
-pub async fn resolve_case(
-    state: web::Data<Arc<AppState>>,
-    path: web::Path<(String, String)>,
-) -> impl Responder {
-    let (volunteer_id, session_id) = path.into_inner();
-    let sid = sayangcare_core::domain::SessionId(session_id.clone());
-
-    let mut session = match state.sessions.get(&sid).await {
-        Ok(Some(session)) => session,
-        Ok(None) => return HttpResponse::NotFound().finish(),
-        Err(e) => {
-            tracing::error!(error = %e, session_id = %sid, volunteer_id = %volunteer_id, "lookup failed while resolving case");
-            return HttpResponse::InternalServerError().finish();
-        }
-    };
-
-    if session.assigned_volunteer_id.as_deref() != Some(volunteer_id.as_str()) {
-        return HttpResponse::Conflict().json(serde_json::json!({
-            "error": "case is not assigned to this volunteer",
-            "session_id": session_id,
-            "volunteer_id": volunteer_id,
+        return HttpResponse::Ok().json(serde_json::json!({
+            "session_id":sid.0, "volunteer_id":ownership.volunteer_id,
+            "handoff_status":"assigned","assignment_generation":ownership.assignment_generation,
+            "request_id":request_id,"coordinator":state.ownership.mode()
         }));
     }
-
-    let expected = session.version;
-    session.resolve_handoff();
-
-    if let Err(e) = state.sessions.update_cas(&session, expected).await {
-        tracing::warn!(error = %e, session_id = %sid, volunteer_id = %volunteer_id, "failed to persist resolved handoff");
-        return HttpResponse::Conflict().finish();
-    }
-
-    if let Err(error) = state
-        .volunteer_bindings
-        .release(&session_id, &volunteer_id)
-        .await
-    {
-        tracing::warn!(error = %error, session_id = %sid, volunteer_id = %volunteer_id, "failed to resolve durable volunteer binding");
-        return HttpResponse::InternalServerError().finish();
-    }
-
-    if let Some(coordinator) = state
-        .raft
-        .as_ref()
-        .filter(|_| state.config.queue.raft_assignments)
-    {
-        if let Err(error) = coordinator.release_assignment(&sid, &volunteer_id).await {
-            tracing::warn!(error = %error, session_id = %sid, "failed to release Raft assignment coordination");
-        }
-    }
-
-    if let Err(error) = state.queue.release_claim(&sid, &volunteer_id).await {
-        tracing::warn!(error = %error, session_id = %sid, volunteer_id = %volunteer_id, "failed to clear resolved queue claim");
-    }
-
-    state
-        .record_alert(
-            "resolved",
-            &session_id,
-            Some(&volunteer_id),
-            format!(
-                "Volunteer {} resolved case {} after live handoff review.",
-                volunteer_id, session_id
-            ),
-        )
-        .await;
-
-    HttpResponse::Ok().json(ResolveCaseResponse {
-        session_id: session_id.clone(),
-        volunteer_id: volunteer_id.clone(),
-        handoff_status: "resolved".to_string(),
-    })
+    ownership_error(OwnershipError::Unavailable(
+        "too many stale queue entries; retry after reconciliation".into(),
+    ))
 }
 
-pub async fn list_alerts(state: web::Data<Arc<AppState>>) -> impl Responder {
-    match state.list_alerts().await {
-        Ok(alerts) => HttpResponse::Ok().json(AlertsResponse { alerts }),
-        Err(error) => {
-            tracing::error!(error = %error, "failed to list operator alerts");
-            HttpResponse::ServiceUnavailable().finish()
+async fn original_command(
+    state: &AppState,
+    command: OwnershipCommand,
+) -> Result<(OwnershipCommand, bool), OwnershipError> {
+    let original: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT command FROM assignment_operations WHERE request_id=$1")
+            .bind(&command.request_id)
+            .fetch_optional(&state.postgres)
+            .await
+            .map_err(|e| OwnershipError::Unavailable(e.to_string()))?;
+    if let Some(original) = original {
+        let original: OwnershipCommand = serde_json::from_value(original)
+            .map_err(|e| OwnershipError::Unavailable(e.to_string()))?;
+        if original.session_id != command.session_id || original.transition != command.transition {
+            return Err(OwnershipError::Conflict);
         }
+        Ok((original, true))
+    } else {
+        Ok((command, false))
     }
+}
+
+async fn discard_stale(
+    state: &AppState,
+    sid: &SessionId,
+    volunteer: &str,
+) -> sayangcare_core::CoreResult<()> {
+    if state.queue.claim_session(sid, volunteer).await? {
+        state.queue.release_claim(sid, volunteer).await?;
+    }
+    Ok(())
 }
 
 pub async fn transfer_case(
-    state: web::Data<Arc<AppState>>,
+    state: State,
     path: web::Path<(String, String)>,
+    body: web::Json<CaseAction>,
 ) -> impl Responder {
-    let (volunteer_id, session_id) = path.into_inner();
-    let sid = sayangcare_core::domain::SessionId(session_id.clone());
-
-    let mut session = match state.sessions.get(&sid).await {
-        Ok(Some(session)) => session,
-        Ok(None) => return HttpResponse::NotFound().finish(),
-        Err(e) => {
-            tracing::error!(error = %e, session_id = %sid, volunteer_id = %volunteer_id, "lookup failed while transferring case");
-            return HttpResponse::InternalServerError().finish();
+    let (from, id) = path.into_inner();
+    let to = match &body.to_volunteer_id {
+        Some(to) => to.clone(),
+        None => {
+            let volunteers = state
+                .volunteers
+                .read()
+                .expect("volunteer registry lock poisoned");
+            let mut ids: Vec<_> = volunteers
+                .values()
+                .filter(|v| v.on_shift && v.id != from)
+                .map(|v| v.id.clone())
+                .collect();
+            ids.sort();
+            let Some(to) = ids.into_iter().next() else {
+                return ownership_error(OwnershipError::Conflict);
+            };
+            to
         }
     };
-
-    if session.assigned_volunteer_id.as_deref() != Some(volunteer_id.as_str()) {
-        return HttpResponse::Conflict().json(serde_json::json!({
-            "error": "case is not assigned to this volunteer",
-            "session_id": session_id,
-            "volunteer_id": volunteer_id,
-        }));
+    if on_shift(&state, &to).is_none() || to == from {
+        return ownership_error(OwnershipError::Invalid(
+            "target must be a different on-shift volunteer".into(),
+        ));
     }
+    action(
+        &state,
+        id,
+        body.request_id.clone(),
+        body.assignment_generation,
+        OwnershipTransition::Transfer {
+            from_volunteer_id: from,
+            to_volunteer_id: to,
+        },
+        "transferred",
+    )
+    .await
+}
 
-    let next_volunteer = {
-        let volunteers = state
-            .volunteers
-            .read()
-            .expect("volunteer registry lock poisoned");
-        let mut available = volunteers
-            .values()
-            .filter(|volunteer| volunteer.on_shift && volunteer.id != volunteer_id)
-            .cloned()
-            .collect::<Vec<_>>();
-        available.sort_by(|left, right| left.id.cmp(&right.id));
-        available.into_iter().next()
-    };
-    let Some(next_volunteer) = next_volunteer else {
-        return HttpResponse::Conflict().json(serde_json::json!({
-            "error": "no other on-shift volunteer is available",
-            "session_id": session_id,
-            "volunteer_id": volunteer_id,
-        }));
-    };
+pub async fn resolve_case(
+    state: State,
+    path: web::Path<(String, String)>,
+    body: web::Json<CaseAction>,
+) -> impl Responder {
+    let (volunteer_id, id) = path.into_inner();
+    action(
+        &state,
+        id,
+        body.request_id.clone(),
+        body.assignment_generation,
+        OwnershipTransition::Release {
+            volunteer_id,
+            resolved: true,
+        },
+        "resolved",
+    )
+    .await
+}
 
-    if !session.is_simulated && !session_id.starts_with("SIM-") {
-        if let Err(error) = state
-            .telephony
-            .redirect_to_human(&session_id, &next_volunteer.id)
-            .await
-        {
-            tracing::warn!(error = %error, session_id = %sid, from_volunteer = %volunteer_id, to_volunteer = %next_volunteer.id, "live call transfer failed");
-            state
-                .record_alert(
-                    "transfer_failed",
-                    &session_id,
-                    Some(&volunteer_id),
-                    format!(
-                        "Transfer of live session {} to {} failed: {}",
-                        session_id, next_volunteer.id, error
-                    ),
-                )
-                .await;
-            return HttpResponse::BadGateway().json(serde_json::json!({
-                "error": "live call redirect failed",
-                "detail": error.to_string(),
-                "session_id": session_id,
-                "from_volunteer_id": volunteer_id,
-                "to_volunteer_id": next_volunteer.id,
-            }));
-        }
+pub async fn release_case(
+    state: State,
+    path: web::Path<(String, String)>,
+    body: web::Json<CaseAction>,
+) -> impl Responder {
+    let (volunteer_id, id) = path.into_inner();
+    action(
+        &state,
+        id,
+        body.request_id.clone(),
+        body.assignment_generation,
+        OwnershipTransition::Release {
+            volunteer_id,
+            resolved: false,
+        },
+        "pending",
+    )
+    .await
+}
+
+async fn action(
+    state: &AppState,
+    id: String,
+    request_id: String,
+    generation: u64,
+    transition: OwnershipTransition,
+    status: &str,
+) -> HttpResponse {
+    if generation == 0 {
+        return ownership_error(OwnershipError::Invalid(
+            "positive assignment_generation required".into(),
+        ));
     }
-
-    let expected = session.version;
-    session.transfer_handoff_to(next_volunteer.id.clone());
-
-    if let Some(coordinator) = state
-        .raft
-        .as_ref()
-        .filter(|_| state.config.queue.raft_assignments)
-    {
-        match coordinator.transfer_assignment(&sid, &volunteer_id, &next_volunteer.id).await {
-            Ok(true) => {}
-            Ok(false) => return HttpResponse::Conflict().json(serde_json::json!({"error":"Raft assignment changed; refresh and try again", "session_id":session_id})),
-            Err(error) => {
-                tracing::error!(error = %error, session_id = %sid, "Raft assignment transfer failed");
-                return HttpResponse::ServiceUnavailable().json(serde_json::json!({"error":"assignment coordinator unavailable; retry when Raft quorum is restored"}));
-            }
-        }
-    }
-
-    match state
-        .queue
-        .move_claim(&sid, &volunteer_id, &next_volunteer.id)
+    let decision = match state
+        .ownership
+        .execute(OwnershipCommand {
+            request_id: request_id.clone(),
+            session_id: SessionId(id.clone()),
+            expected_generation: generation,
+            transition: transition.clone(),
+        })
         .await
     {
-        Ok(true) => {}
-        Ok(false) => {
-            if let Some(coordinator) = state
-                .raft
-                .as_ref()
-                .filter(|_| state.config.queue.raft_assignments)
-            {
-                let _ = coordinator
-                    .transfer_assignment(&sid, &next_volunteer.id, &volunteer_id)
-                    .await;
-            }
-            return HttpResponse::Conflict().json(serde_json::json!({
-                "error": "case assignment changed; refresh and try again",
-                "session_id": session_id,
-            }));
-        }
-        Err(error) => {
-            if let Some(coordinator) = state
-                .raft
-                .as_ref()
-                .filter(|_| state.config.queue.raft_assignments)
-            {
-                let _ = coordinator
-                    .transfer_assignment(&sid, &next_volunteer.id, &volunteer_id)
-                    .await;
-            }
-            tracing::error!(error = %error, session_id = %sid, "failed to transfer queue claim");
-            return HttpResponse::InternalServerError().finish();
-        }
-    }
-
-    let binding_transferred = match state
-        .volunteer_bindings
-        .transfer(&session_id, &volunteer_id, &next_volunteer.id)
-        .await
-    {
-        Ok(transferred) => transferred,
-        Err(error) => {
-            if let Some(coordinator) = state
-                .raft
-                .as_ref()
-                .filter(|_| state.config.queue.raft_assignments)
-            {
-                let _ = coordinator
-                    .transfer_assignment(&sid, &next_volunteer.id, &volunteer_id)
-                    .await;
-            }
-            tracing::error!(error = %error, session_id = %sid, "failed to transfer durable volunteer binding");
-            let _ = state
-                .queue
-                .move_claim(&sid, &next_volunteer.id, &volunteer_id)
-                .await;
-            return HttpResponse::InternalServerError().finish();
-        }
+        Ok(result) => result,
+        Err(error) => return ownership_error(error),
     };
-    if !binding_transferred {
-        if let Some(coordinator) = state
-            .raft
-            .as_ref()
-            .filter(|_| state.config.queue.raft_assignments)
-        {
-            let _ = coordinator
-                .transfer_assignment(&sid, &next_volunteer.id, &volunteer_id)
-                .await;
-        }
-        let _ = state
-            .queue
-            .move_claim(&sid, &next_volunteer.id, &volunteer_id)
-            .await;
-        return HttpResponse::Conflict().json(serde_json::json!({
-            "error": "durable volunteer binding changed; refresh and try again",
-            "session_id": session_id,
-        }));
+    if let Some(error) = decision_error(&decision) {
+        return error;
     }
-
-    if let Err(e) = state.sessions.update_cas(&session, expected).await {
-        if let Some(coordinator) = state
-            .raft
-            .as_ref()
-            .filter(|_| state.config.queue.raft_assignments)
-        {
-            let _ = coordinator
-                .transfer_assignment(&sid, &next_volunteer.id, &volunteer_id)
-                .await;
-        }
-        tracing::warn!(error = %e, session_id = %sid, volunteer_id = %volunteer_id, "failed to persist transferred handoff");
-        let _ = state
-            .queue
-            .move_claim(&sid, &next_volunteer.id, &volunteer_id)
-            .await;
-        let _ = state
-            .volunteer_bindings
-            .transfer(&session_id, &next_volunteer.id, &volunteer_id)
-            .await;
-        return HttpResponse::Conflict().finish();
+    let OwnershipDecision::Applied { ownership } = decision else {
+        unreachable!()
+    };
+    if let Err(error) = state.reconcile_ownership_projections().await {
+        tracing::error!(%error, session_id=%id, "ownership committed; projection repair pending");
     }
-
+    if let OwnershipTransition::Transfer {
+        to_volunteer_id, ..
+    } = transition
+    {
+        match state.sessions.get(&SessionId(id.clone())).await {
+            Ok(Some(session)) if !session.is_simulated && !id.starts_with("SIM-") => {
+                if let Err(error) = state
+                    .telephony
+                    .redirect_to_human(&id, &to_volunteer_id)
+                    .await
+                {
+                    tracing::error!(%error, session_id=%id, "ownership transferred but live redirect failed");
+                    state
+                        .record_alert(
+                            "transfer_failed",
+                            &id,
+                            Some(&to_volunteer_id),
+                            error.to_string(),
+                        )
+                        .await;
+                    return HttpResponse::BadGateway().json(serde_json::json!({
+                        "error":"ownership committed but live redirect failed", "assignment_generation":ownership.assignment_generation,
+                        "request_id":request_id,"session_id":id
+                    }));
+                }
+            }
+            Ok(_) => {}
+            Err(error) => return ownership_error(OwnershipError::Unavailable(error.to_string())),
+        }
+    }
     state
         .record_alert(
-            "transferred",
-            &session_id,
-            Some(&next_volunteer.id),
+            status,
+            &id,
+            ownership.volunteer_id.as_deref(),
             format!(
-                "Volunteer {} transferred session {} to volunteer {}.",
-                volunteer_id, session_id, next_volunteer.id
+                "Ownership {status}; generation {}",
+                ownership.assignment_generation
             ),
         )
         .await;
+    HttpResponse::Ok().json(serde_json::json!({
+        "session_id":id,"volunteer_id":ownership.volunteer_id,"assignment_generation":ownership.assignment_generation,
+        "handoff_status":status,"request_id":request_id,"coordinator":state.ownership.mode()
+    }))
+}
 
-    HttpResponse::Ok().json(TransferCaseResponse {
-        session_id: session_id.clone(),
-        volunteer_id: next_volunteer.id,
-        handoff_status: "transferred".to_string(),
-    })
+pub async fn add_note(
+    state: State,
+    path: web::Path<(String, String)>,
+    body: web::Json<NoteRequest>,
+) -> impl Responder {
+    let (volunteer, id) = path.into_inner();
+    match state.ownership.add_note(&id,&volunteer,body.assignment_generation,&body.request_id,&body.body).await {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({"session_id":id,"assignment_generation":body.assignment_generation,"request_id":body.request_id})),
+        Err(error) => ownership_error(error),
+    }
+}
+
+pub async fn list_alerts(state: State) -> impl Responder {
+    match state.list_alerts().await {
+        Ok(alerts) => HttpResponse::Ok().json(serde_json::json!({"alerts":alerts})),
+        Err(error) => ownership_error(OwnershipError::Unavailable(error.to_string())),
+    }
+}
+
+async fn dispatch_claim(state: &AppState, session: &Session, volunteer: &Volunteer) {
+    let sid = &session.id.0;
+    if session.is_simulated || sid.starts_with("SIM-") {
+        state
+            .record_alert(
+                "assigned",
+                sid,
+                Some(&volunteer.id),
+                format!(
+                    "Volunteer {} claimed simulated session {}; no live phone call was placed.",
+                    volunteer.id, sid
+                ),
+            )
+            .await;
+        return;
+    }
+    let dispatch = async {
+        let from = state
+            .config
+            .telephony
+            .twilio_from_number
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+            .ok_or_else(|| {
+                sayangcare_core::CoreError::Telephony("TWILIO_FROM_NUMBER required".into())
+            })?;
+        let mut url = reqwest::Url::parse(&format!(
+            "{}/twilio/outbound-connect",
+            state.config.telephony.public_base_url.trim_end_matches('/')
+        ))
+        .map_err(|e| sayangcare_core::CoreError::Telephony(e.to_string()))?;
+        url.query_pairs_mut().append_pair("session_id", sid);
+        let outbound = state
+            .telephony
+            .create_outbound_call(&volunteer.phone_number, from, url.as_str())
+            .await?;
+        let conference = crate::handlers::twilio::conference_name(sid);
+        if let Err(error) = state
+            .telephony
+            .move_call_to_conference(sid, &conference)
+            .await
+        {
+            if let Err(cancel) = state.telephony.hangup(&outbound).await {
+                tracing::error!(%cancel,"failed to cancel outbound dispatch");
+            }
+            return Err(error);
+        }
+        Ok::<_, sayangcare_core::CoreError>(outbound)
+    }
+    .await;
+    match dispatch {
+        Ok(outbound) => {
+            state
+                .record_alert(
+                    "assigned",
+                    sid,
+                    Some(&volunteer.id),
+                    format!("Outbound dispatch {outbound} started"),
+                )
+                .await
+        }
+        Err(error) => {
+            tracing::error!(%error,session_id=%sid,"outbound dispatch failed; attempting existing-call handoff");
+            match state.telephony.redirect_to_human(sid, &volunteer.id).await {
+                Ok(()) => {
+                    state
+                        .record_alert(
+                            "handoff_fallback",
+                            sid,
+                            Some(&volunteer.id),
+                            error.to_string(),
+                        )
+                        .await
+                }
+                Err(fallback) => {
+                    tracing::error!(%fallback,session_id=%sid,"fallback handoff failed");
+                    state
+                        .record_alert(
+                            "handoff_failed",
+                            sid,
+                            Some(&volunteer.id),
+                            fallback.to_string(),
+                        )
+                        .await;
+                }
+            }
+        }
+    }
 }

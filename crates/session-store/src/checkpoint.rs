@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sayangcare_core::domain::{Session, SessionId};
+use sayangcare_core::domain::{Session, SessionId, SessionState};
 use sayangcare_core::ports::SessionStore;
 use sayangcare_core::{CoreError, CoreResult};
 use sqlx::PgPool;
@@ -70,6 +70,75 @@ impl PostgresSessionStore {
             .into_iter()
             .map(|value| serde_json::from_value(value).map_err(Self::error))
             .collect()
+    }
+
+    pub async fn finish_and_archive(
+        &self,
+        id: &SessionId,
+        terminal_state: SessionState,
+    ) -> CoreResult<bool> {
+        if !matches!(
+            terminal_state,
+            SessionState::Completed
+                | SessionState::Failed
+                | SessionState::Escalated
+                | SessionState::Abandoned
+        ) {
+            return Err(Self::error("finish requires a terminal state"));
+        }
+        let mut tx = self.pool.begin().await.map_err(Self::error)?;
+        let snapshot: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT snapshot FROM session_checkpoints WHERE id=$1 FOR UPDATE")
+                .bind(&id.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(Self::error)?;
+        let Some(snapshot) = snapshot else {
+            return Ok(false);
+        };
+        let mut session: Session = serde_json::from_value(snapshot).map_err(Self::error)?;
+        let projection_version = session.version;
+        if !matches!(
+            session.state,
+            SessionState::Completed
+                | SessionState::Failed
+                | SessionState::Escalated
+                | SessionState::Abandoned
+        ) {
+            session.transition(terminal_state)?;
+        }
+        crate::PostgresArchiveStore::archive_on(&mut tx, &session).await?;
+        let (version, snapshot) = Self::encode(&session)?;
+        sqlx::query(
+            "UPDATE session_checkpoints SET version=$2,snapshot=$3,updated_at=$4,archived=true WHERE id=$1",
+        )
+        .bind(&id.0)
+        .bind(version)
+        .bind(snapshot)
+        .bind(session.updated_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(Self::error)?;
+        tx.commit().await.map_err(Self::error)?;
+        self.clean_projection(id, projection_version).await;
+        Ok(true)
+    }
+
+    async fn clean_projection(&self, id: &SessionId, expected_version: u64) {
+        match timeout(
+            Duration::from_millis(100),
+            self.hot.delete_if_version(id, expected_version),
+        )
+        .await
+        {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                warn!(session_id=%id, %error, "archived checkpoint retained; Redis cleanup failed")
+            }
+            Err(_) => {
+                warn!(session_id=%id, "archived checkpoint retained; Redis cleanup timed out")
+            }
+        }
     }
 }
 
@@ -152,20 +221,7 @@ impl SessionStore for PostgresSessionStore {
         if affected == 0 {
             return Ok(false);
         }
-        match timeout(
-            Duration::from_millis(100),
-            self.hot.delete_if_version(id, expected_version),
-        )
-        .await
-        {
-            Ok(Ok(_)) => {}
-            Ok(Err(error)) => {
-                warn!(session_id=%id, %error, "archived checkpoint retained; Redis cleanup failed")
-            }
-            Err(_) => {
-                warn!(session_id=%id, "archived checkpoint retained; Redis cleanup timed out")
-            }
-        }
+        self.clean_projection(id, expected_version).await;
         Ok(true)
     }
 

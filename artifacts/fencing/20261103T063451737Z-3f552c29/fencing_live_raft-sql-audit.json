@@ -1,0 +1,112 @@
+﻿{
+    "captured_at":  "2026-11-03T06:42:24.168436+00:00",
+    "database":  "fencing_live_raft",
+    "summary":  {
+                    "cases":  8,
+                    "pending":  0,
+                    "max_generation":  6
+                },
+    "unfinished_operations":  0,
+    "ownership":  [
+                      {
+                          "session_id":  "SIM-FENCE-LIVE-FAULT-20261103",
+                          "volunteer_id":  "volunteer-aisha",
+                          "assignment_generation":  3,
+                          "pending_operation_id":  null,
+                          "coordinator":  "raft"
+                      },
+                      {
+                          "session_id":  "SIM-FENCE-LIVE-QUORUM-20261103",
+                          "volunteer_id":  "volunteer-aisha",
+                          "assignment_generation":  1,
+                          "pending_operation_id":  null,
+                          "coordinator":  "raft"
+                      },
+                      {
+                          "session_id":  "SIM-fencing-1db0a814953845fead4f246d9a48b102",
+                          "volunteer_id":  null,
+                          "assignment_generation":  5,
+                          "pending_operation_id":  null,
+                          "coordinator":  "raft"
+                      },
+                      {
+                          "session_id":  "SIM-fencing-2992392f23704897a2942c587b171a42",
+                          "volunteer_id":  null,
+                          "assignment_generation":  5,
+                          "pending_operation_id":  null,
+                          "coordinator":  "raft"
+                      },
+                      {
+                          "session_id":  "SIM-fencing-35ea93942a964958b6875db398e32862",
+                          "volunteer_id":  null,
+                          "assignment_generation":  3,
+                          "pending_operation_id":  null,
+                          "coordinator":  "raft"
+                      },
+                      {
+                          "session_id":  "SIM-fencing-725b1b1db3ae4e7ab6842c017196f0b2",
+                          "volunteer_id":  null,
+                          "assignment_generation":  5,
+                          "pending_operation_id":  null,
+                          "coordinator":  "raft"
+                      },
+                      {
+                          "session_id":  "SIM-fencing-aaa9ec48e11749f8a5002928ca1f92dc",
+                          "volunteer_id":  null,
+                          "assignment_generation":  6,
+                          "pending_operation_id":  null,
+                          "coordinator":  "raft"
+                      },
+                      {
+                          "session_id":  "SIM-fencing-e22310eb7b3549358ab81d277017965b",
+                          "volunteer_id":  null,
+                          "assignment_generation":  5,
+                          "pending_operation_id":  null,
+                          "coordinator":  "raft"
+                      }
+                  ],
+    "notes":  [
+                  {
+                      "note_id":  6,
+                      "session_id":  "SIM-FENCE-LIVE-FAULT-20261103",
+                      "request_id":  "live-aba-note-3",
+                      "volunteer_id":  "volunteer-aisha",
+                      "assignment_generation":  3
+                  },
+                  {
+                      "note_id":  4,
+                      "session_id":  "SIM-fencing-1db0a814953845fead4f246d9a48b102",
+                      "request_id":  "fencing-a408ccbbb5744843a2fe436019cd77bd",
+                      "volunteer_id":  "volunteer-noor",
+                      "assignment_generation":  2
+                  },
+                  {
+                      "note_id":  2,
+                      "session_id":  "SIM-fencing-2992392f23704897a2942c587b171a42",
+                      "request_id":  "fencing-d28335b0c9d547059f2373d03d5d3734",
+                      "volunteer_id":  "volunteer-noor",
+                      "assignment_generation":  2
+                  },
+                  {
+                      "note_id":  3,
+                      "session_id":  "SIM-fencing-725b1b1db3ae4e7ab6842c017196f0b2",
+                      "request_id":  "fencing-ad1c3949253c49ad922f8727c77300a8",
+                      "volunteer_id":  "volunteer-noor",
+                      "assignment_generation":  2
+                  },
+                  {
+                      "note_id":  1,
+                      "session_id":  "SIM-fencing-aaa9ec48e11749f8a5002928ca1f92dc",
+                      "request_id":  "fencing-e1332933c7744d94b225670d8c5a0a75",
+                      "volunteer_id":  "volunteer-noor",
+                      "assignment_generation":  2
+                  },
+                  {
+                      "note_id":  5,
+                      "session_id":  "SIM-fencing-e22310eb7b3549358ab81d277017965b",
+                      "request_id":  "fencing-9c70a10288e24abb83230cb431590c9a",
+                      "volunteer_id":  "volunteer-noor",
+                      "assignment_generation":  2
+                  }
+              ]
+}

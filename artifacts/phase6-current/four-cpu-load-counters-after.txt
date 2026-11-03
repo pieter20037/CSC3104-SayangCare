@@ -1,0 +1,16 @@
+﻿400000 100000
+usage_usec 835243601
+user_usec 314074489
+system_usec 521169111
+nice_usec 0
+nr_periods 3633
+nr_throttled 1729
+throttled_usec 1239093832
+nr_bursts 0
+burst_usec 0
+low 0
+high 0
+max 0
+oom 0
+oom_kill 0
+oom_group_kill 0

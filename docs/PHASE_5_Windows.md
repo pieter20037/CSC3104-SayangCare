@@ -29,7 +29,9 @@ are in the [queue and load-testing guide](./QUEUE_AND_LOAD_TESTING.md).
 The new TEST-01/02/05 runs use checkpointing; historical measurements below
 remain clearly separated. DOC-01's report source is
 updated; a separate updated Word/PDF copy avoids overwriting the open original.
-Final screenshots, page-limit/requirements review and TEL-06 remain team work.
+Final screenshots and page-limit/requirements review remain team work.
+As agreed with the professor on 3 November, demonstrate through the dashboard;
+live Twilio validation is outside submission scope and must remain a stated limitation.
 
 The local API HPA currently has CPU, memory, and request-rate metrics enabled.
 Its request-rate target is 25 requests/second per API pod.

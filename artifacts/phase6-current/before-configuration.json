@@ -1,0 +1,121 @@
+﻿{
+    "captured_utc":  "2026-11-03T06:59:03.4817135Z",
+    "base_commit":  "6f1dca634835e428c35f5904b1cae4929195adcc",
+    "worktree_modified":  true,
+    "context":  "minikube",
+    "api_image":  "sayangcare-api:dev",
+    "pool":  "3",
+    "hpa":  {
+                "behavior":  {
+                                 "scaleDown":  {
+                                                   "policies":  [
+                                                                    {
+                                                                        "periodSeconds":  60,
+                                                                        "type":  "Percent",
+                                                                        "value":  25
+                                                                    }
+                                                                ],
+                                                   "selectPolicy":  "Max",
+                                                   "stabilizationWindowSeconds":  300
+                                               },
+                                 "scaleUp":  {
+                                                 "policies":  [
+                                                                  {
+                                                                      "periodSeconds":  60,
+                                                                      "type":  "Percent",
+                                                                      "value":  100
+                                                                  },
+                                                                  {
+                                                                      "periodSeconds":  60,
+                                                                      "type":  "Pods",
+                                                                      "value":  4
+                                                                  }
+                                                              ],
+                                                 "selectPolicy":  "Max",
+                                                 "stabilizationWindowSeconds":  0
+                                             }
+                             },
+                "maxReplicas":  20,
+                "metrics":  [
+                                {
+                                    "resource":  {
+                                                     "name":  "cpu",
+                                                     "target":  {
+                                                                    "averageUtilization":  65,
+                                                                    "type":  "Utilization"
+                                                                }
+                                                 },
+                                    "type":  "Resource"
+                                },
+                                {
+                                    "resource":  {
+                                                     "name":  "memory",
+                                                     "target":  {
+                                                                    "averageUtilization":  75,
+                                                                    "type":  "Utilization"
+                                                                }
+                                                 },
+                                    "type":  "Resource"
+                                },
+                                {
+                                    "pods":  {
+                                                 "metric":  {
+                                                                "name":  "sayangcare_http_requests_per_second"
+                                                            },
+                                                 "target":  {
+                                                                "averageValue":  "25",
+                                                                "type":  "AverageValue"
+                                                            }
+                                             },
+                                    "type":  "Pods"
+                                }
+                            ],
+                "minReplicas":  3,
+                "scaleTargetRef":  {
+                                       "apiVersion":  "apps/v1",
+                                       "kind":  "Deployment",
+                                       "name":  "sayangcare-api"
+                                   }
+            },
+    "database_resources":  {
+                               "limits":  {
+                                              "cpu":  "1",
+                                              "memory":  "1Gi"
+                                          },
+                               "requests":  {
+                                                "cpu":  "250m",
+                                                "memory":  "256Mi"
+                                            }
+                           },
+    "database_synchronous":  {
+                                 "dataDurability":  "required",
+                                 "method":  "any",
+                                 "number":  1
+                             },
+    "smart_shutdown_seconds":  5,
+    "database_parameters":  {
+                                "archive_mode":  "on",
+                                "archive_timeout":  "5min",
+                                "dynamic_shared_memory_type":  "posix",
+                                "full_page_writes":  "on",
+                                "log_destination":  "csvlog",
+                                "log_directory":  "/controller/log",
+                                "log_filename":  "postgres",
+                                "log_rotation_age":  "0",
+                                "log_rotation_size":  "0",
+                                "log_truncate_on_rotation":  "false",
+                                "logging_collector":  "on",
+                                "max_parallel_workers":  "32",
+                                "max_replication_slots":  "32",
+                                "max_worker_processes":  "32",
+                                "shared_memory_type":  "mmap",
+                                "shared_preload_libraries":  "",
+                                "ssl_max_protocol_version":  "TLSv1.3",
+                                "ssl_min_protocol_version":  "TLSv1.3",
+                                "wal_keep_size":  "512MB",
+                                "wal_level":  "logical",
+                                "wal_log_hints":  "on",
+                                "wal_receiver_timeout":  "5s",
+                                "wal_sender_timeout":  "5s"
+                            }
+}

@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use sayangcare_core::domain::SessionId;
+use sayangcare_core::ownership::{AssignmentOwnership, OwnershipCommand, OwnershipDecision};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::Cursor;
@@ -58,11 +59,13 @@ pub enum RaftQueueCommand {
         session_id: SessionId,
         volunteer_id: String,
     },
+    Ownership(OwnershipCommand),
 }
 
 impl RaftQueueCommand {
     fn request_id(&self) -> &str {
         match self {
+            Self::Ownership(command) => &command.request_id,
             Self::Enqueue { request_id, .. }
             | Self::ClaimHighest { request_id, .. }
             | Self::ClaimSession { request_id, .. }
@@ -88,6 +91,7 @@ pub enum RaftQueueOutcome {
     Applied {
         ok: bool,
     },
+    Ownership(OwnershipDecision),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -107,18 +111,26 @@ pub struct RaftQueueState {
     entries: BTreeMap<String, QueueEntry>,
     #[serde(default)]
     assignments: BTreeMap<String, String>,
+    #[serde(default)]
+    ownership: BTreeMap<String, AssignmentOwnership>,
+    #[serde(default)]
+    ownership_results: BTreeMap<String, (OwnershipCommand, OwnershipDecision)>,
     request_results: BTreeMap<String, RaftQueueOutcome>,
 }
 
 impl RaftQueueState {
     /// Apply a committed command. Raft serializes this call in log order on every member.
     pub fn apply(&mut self, command: RaftQueueCommand) -> RaftQueueOutcome {
+        if let RaftQueueCommand::Ownership(command) = &command {
+            return RaftQueueOutcome::Ownership(self.apply_ownership(command.clone()));
+        }
         if let Some(previous) = self.request_results.get(command.request_id()) {
             return previous.clone();
         }
 
         let request_id = command.request_id().to_owned();
         let outcome = match command {
+            RaftQueueCommand::Ownership(_) => unreachable!("ownership handled before legacy dedup"),
             RaftQueueCommand::Enqueue {
                 session_id,
                 risk,
@@ -258,6 +270,38 @@ impl RaftQueueState {
         outcome
     }
 
+    fn apply_ownership(&mut self, command: OwnershipCommand) -> OwnershipDecision {
+        if let Some((previous, decision)) = self.ownership_results.get(&command.request_id) {
+            return if previous == &command {
+                decision.clone()
+            } else {
+                OwnershipDecision::RequestIdConflict
+            };
+        }
+        let current = self
+            .ownership
+            .get(&command.session_id.0)
+            .cloned()
+            .unwrap_or_default();
+        let decision = current.decide(&command);
+        if let OwnershipDecision::Applied { ownership } = &decision {
+            self.ownership
+                .insert(command.session_id.0.clone(), ownership.clone());
+        }
+        // Recovery retries stable request ids even after compaction and long outages.
+        self.ownership_results
+            .insert(command.request_id.clone(), (command, decision.clone()));
+        decision
+    }
+
+    pub fn ownership_snapshot(&self) -> BTreeMap<String, AssignmentOwnership> {
+        self.ownership.clone()
+    }
+
+    pub fn legacy_assignments_present(&self) -> bool {
+        !self.assignments.is_empty()
+    }
+
     fn pending_ordered(&self) -> Vec<&String> {
         let mut pending: Vec<_> = self
             .entries
@@ -303,6 +347,205 @@ mod tests {
     use super::{RaftQueueCommand, RaftQueueOutcome, RaftQueueState};
     use chrono::{TimeZone, Utc};
     use sayangcare_core::domain::SessionId;
+    use sayangcare_core::ownership::{
+        AssignmentOwnership, OwnershipCommand, OwnershipDecision, OwnershipTransition,
+        MAX_ASSIGNMENT_GENERATION,
+    };
+
+    fn ownership(
+        request_id: &str,
+        generation: u64,
+        transition: OwnershipTransition,
+    ) -> RaftQueueCommand {
+        RaftQueueCommand::Ownership(OwnershipCommand {
+            request_id: request_id.into(),
+            session_id: SessionId("session".into()),
+            expected_generation: generation,
+            transition,
+        })
+    }
+
+    fn claim(request_id: &str, generation: u64, volunteer: &str) -> RaftQueueCommand {
+        ownership(
+            request_id,
+            generation,
+            OwnershipTransition::Claim {
+                volunteer_id: volunteer.into(),
+            },
+        )
+    }
+
+    fn applied(volunteer: Option<&str>, generation: u64) -> RaftQueueOutcome {
+        RaftQueueOutcome::Ownership(OwnershipDecision::Applied {
+            ownership: AssignmentOwnership {
+                volunteer_id: volunteer.map(str::to_owned),
+                assignment_generation: generation,
+            },
+        })
+    }
+
+    #[test]
+    fn ownership_races_follow_log_order_and_reject_stale_generation() {
+        for (first, second) in [("aisha", "noor"), ("noor", "aisha")] {
+            let mut state = RaftQueueState::default();
+            assert_eq!(
+                state.apply(claim("first", 0, first)),
+                applied(Some(first), 1)
+            );
+            assert_eq!(
+                state.apply(claim("second", 0, second)),
+                RaftQueueOutcome::Ownership(OwnershipDecision::StaleGeneration)
+            );
+            assert_eq!(
+                state.apply(claim("occupied", 1, second)),
+                RaftQueueOutcome::Ownership(OwnershipDecision::Conflict)
+            );
+            assert_eq!(
+                state.ownership_snapshot()["session"]
+                    .volunteer_id
+                    .as_deref(),
+                Some(first)
+            );
+        }
+    }
+
+    #[test]
+    fn ownership_transfer_release_and_reclaim_never_reset_generation() {
+        let mut state = RaftQueueState::default();
+        assert_eq!(
+            state.apply(claim("claim", 0, "aisha")),
+            applied(Some("aisha"), 1)
+        );
+        assert_eq!(
+            state.apply(ownership(
+                "transfer",
+                1,
+                OwnershipTransition::Transfer {
+                    from_volunteer_id: "aisha".into(),
+                    to_volunteer_id: "noor".into(),
+                }
+            )),
+            applied(Some("noor"), 2)
+        );
+        assert_eq!(
+            state.apply(ownership(
+                "wrong-owner",
+                2,
+                OwnershipTransition::Release {
+                    volunteer_id: "aisha".into(),
+                    resolved: false,
+                }
+            )),
+            RaftQueueOutcome::Ownership(OwnershipDecision::Conflict)
+        );
+        assert_eq!(
+            state.apply(ownership(
+                "release",
+                2,
+                OwnershipTransition::Release {
+                    volunteer_id: "noor".into(),
+                    resolved: true,
+                }
+            )),
+            applied(None, 3)
+        );
+        assert_eq!(
+            state.ownership_snapshot()["session"].assignment_generation,
+            3
+        );
+        assert_eq!(
+            state.apply(claim("stale-reclaim", 0, "aisha")),
+            RaftQueueOutcome::Ownership(OwnershipDecision::StaleGeneration)
+        );
+        assert_eq!(
+            state.apply(claim("reclaim", 3, "aisha")),
+            applied(Some("aisha"), 4)
+        );
+    }
+
+    #[test]
+    fn ownership_dedup_retains_original_payload_and_failed_decisions() {
+        let mut state = RaftQueueState::default();
+        let original = claim("stable", 0, "aisha");
+        let expected = state.apply(original.clone());
+        let stale = claim("stale", 0, "noor");
+        let stale_result = state.apply(stale.clone());
+        assert_eq!(
+            state.apply(claim("stable", 1, "noor")),
+            RaftQueueOutcome::Ownership(OwnershipDecision::RequestIdConflict)
+        );
+        for index in 0..=super::MAX_REMEMBERED_REQUESTS {
+            state.apply(claim(&format!("later-{index}"), 0, "noor"));
+        }
+        let bytes = serde_json::to_vec(&state).unwrap();
+        let mut restored: RaftQueueState = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(restored.apply(original), expected);
+        assert_eq!(restored.apply(stale), stale_result);
+        assert_eq!(
+            restored.ownership_snapshot()["session"].assignment_generation,
+            1
+        );
+        assert!(restored.ownership_results.len() > super::MAX_REMEMBERED_REQUESTS);
+    }
+
+    #[test]
+    fn ownership_rejects_all_request_payload_changes() {
+        let original = ownership(
+            "stable",
+            1,
+            OwnershipTransition::Release {
+                volunteer_id: "aisha".into(),
+                resolved: false,
+            },
+        );
+        let mut state = RaftQueueState::default();
+        state.apply(claim("claim", 0, "aisha"));
+        let expected = state.apply(original.clone());
+        let RaftQueueCommand::Ownership(command) = &original else {
+            unreachable!()
+        };
+        let mut changed_session = command.clone();
+        changed_session.session_id = SessionId("other".into());
+        let mut changed_generation = command.clone();
+        changed_generation.expected_generation = 2;
+        let mut changed_resolution = command.clone();
+        changed_resolution.transition = OwnershipTransition::Release {
+            volunteer_id: "aisha".into(),
+            resolved: true,
+        };
+        for changed in [changed_session, changed_generation, changed_resolution] {
+            assert_eq!(
+                state.apply(RaftQueueCommand::Ownership(changed)),
+                RaftQueueOutcome::Ownership(OwnershipDecision::RequestIdConflict)
+            );
+        }
+        assert_eq!(state.apply(original), expected);
+    }
+
+    #[test]
+    fn ownership_generation_exhaustion_and_legacy_snapshot_compatibility() {
+        let mut state: RaftQueueState = serde_json::from_value(serde_json::json!({
+            "entries": {}, "assignments": {"old": "aisha"}, "request_results": {}
+        }))
+        .unwrap();
+        assert!(state.legacy_assignments_present());
+        assert!(state.ownership_snapshot().is_empty());
+        state.ownership.insert(
+            "session".into(),
+            AssignmentOwnership {
+                volunteer_id: None,
+                assignment_generation: MAX_ASSIGNMENT_GENERATION,
+            },
+        );
+        assert_eq!(
+            state.apply(claim("exhausted", MAX_ASSIGNMENT_GENERATION, "aisha")),
+            RaftQueueOutcome::Ownership(OwnershipDecision::GenerationExhausted)
+        );
+        assert_eq!(
+            state.ownership_snapshot()["session"].assignment_generation,
+            MAX_ASSIGNMENT_GENERATION
+        );
+    }
 
     fn timestamp(seconds: i64) -> chrono::DateTime<Utc> {
         Utc.timestamp_opt(seconds, 0).single().unwrap()

@@ -1,0 +1,11 @@
+﻿NanoCpus=4000000000 Memory=4089446400
+400000 100000
+usage_usec 169960161
+user_usec 74587636
+system_usec 95372525
+nice_usec 0
+nr_periods 896
+nr_throttled 774
+throttled_usec 755809456
+nr_bursts 0
+burst_usec 0

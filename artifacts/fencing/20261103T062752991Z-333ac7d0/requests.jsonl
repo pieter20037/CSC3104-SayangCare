@@ -1,0 +1,1 @@
+﻿{"utc":"2026-11-03T06:27:53.8087909Z","url":"http://localhost:59798/api/v1/health","operation":"diagnostic","phase":"correctness","request":null,"status":0,"milliseconds":36.6604,"error":"ProtocolViolationException: Cannot send a content-body with this verb-type.","parse_error":null,"response":null,"raw_body":null}

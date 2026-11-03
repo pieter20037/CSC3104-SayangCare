@@ -1,0 +1,36 @@
+{
+    "run_id":  "HPA-20261103T085504Z",
+    "captured_utc":  "2026-11-03T08:59:51.3429440Z",
+    "archives":  9248,
+    "checkpoints":  9248,
+    "invalid_transcripts":  0,
+    "nonterminal":  0,
+    "pending":  0,
+    "missing_or_mismatched_checkpoint":  0,
+    "stages":  [
+                   {
+                       "stage":  "SESSION",
+                       "acknowledged":  9248,
+                       "missing_ids":  [
+
+                                       ],
+                       "exact_set_match":  true
+                   },
+                   {
+                       "stage":  "TURN",
+                       "acknowledged":  9248,
+                       "missing_ids":  [
+
+                                       ],
+                       "exact_set_match":  true
+                   },
+                   {
+                       "stage":  "HANGUP",
+                       "acknowledged":  9248,
+                       "missing_ids":  [
+
+                                       ],
+                       "exact_set_match":  true
+                   }
+               ]
+}

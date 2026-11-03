@@ -125,6 +125,12 @@ impl TieredSessionStore {
             )));
         }
 
+        if let Some(checkpoints) = &self.checkpoints {
+            if checkpoints.finish_and_archive(id, terminal_state).await? {
+                return Ok(true);
+            }
+        }
+
         let Some(mut session) = self.get(id).await? else {
             return Ok(false);
         };

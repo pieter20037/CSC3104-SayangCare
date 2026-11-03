@@ -1,0 +1,22 @@
+[
+    {
+        "label":  "Fencing / 2 CPUs",
+        "source":  "artifacts\\phase6-current\\before-capacity\\LIFE-baseline-20261103T073309Z-report.json",
+        "p95_ms":  1510.5520749999998
+    },
+    {
+        "label":  "Atomic finish / 2 CPUs",
+        "source":  "artifacts\\phase6-current\\optimized\\LIFE-baseline-20261103T075137Z-report.json",
+        "p95_ms":  2293.641449999998
+    },
+    {
+        "label":  "Atomic finish / 4 CPUs",
+        "source":  "artifacts\\phase6-current\\four-cpu\\LIFE-baseline-20261103T082512Z-report.json",
+        "p95_ms":  210.7060349999993
+    },
+    {
+        "label":  "Final revision / 4 CPUs",
+        "source":  "artifacts\\phase6-current\\final-lifecycle\\LIFE-baseline-20261103T084205Z-report.json",
+        "p95_ms":  360.2513999999989
+    }
+]

@@ -1,7 +1,30 @@
 # Phase 6 (Windows): What to run, what to fix, and what to submit
 
-Updated 26 October 2026. Run PowerShell from the repository root.
+Updated 3 November 2026. Run PowerShell from the repository root.
 This is a follow-up to Phase 5, not a request to rebuild completed features.
+
+**Agreed demonstration scope:** the professor approved the dashboard instead of
+live Twilio calls. Demonstrate synthetic caller turns, escalation and volunteer
+ownership. Live speech/audio/callback/outbound delivery remains an explicit
+limitation, not a submission blocker or a claimed test pass.
+
+## Final milestone: ownership generations
+
+The fencing enhancement keeps Redis waiting order and adds generation-guarded
+ownership in both PostgreSQL-only and Raft modes. Read
+[the fencing runbook](RAFT_FENCING.md) before upgrading or running faults.
+Transfer/resolve now require an explicit generation and request ID; the updated
+dashboard sends them. Existing images must be rebuilt/deployed to use this API.
+Do not delete legacy data to bypass a migration/reconciliation error.
+
+```powershell
+cargo test --workspace --locked
+.\scripts\test-raft-fencing.ps1
+```
+
+The comparison requires both configured deployments; fault injection is
+separately opt-in. New fencing results are not supplied by the older Phase 5
+reports below.
 
 ## 1. Start here if you are lost
 
@@ -20,18 +43,43 @@ pods, expose credentials, or use real caller data.
 
 | Item | Latest verified Windows result | Meaning |
 | --- | --- | --- |
-| TEST-01 baseline | 100 VUs / 30 s; 1,358 lifecycles; native exit 0; zero HTTP failures; SQL verified | Passed |
-| TEST-02 API pod deletion | 100 VUs / 60 s; 2,090 lifecycles; native exit 0; zero HTTP failures; SQL verified; replacement Ready 10.112 s | Passed after graceful-shutdown repair |
-| Redis automatic promotion | 20 VUs / 120 s; 2,149 lifecycles; no HTTP failures or missing acknowledged operations | Passed in the recorded experiment |
-| TEST-04 PostgreSQL replacement | Recovery 27.943 s; HTTP failures 1.600%; all 1,461 acknowledged creates/turns/hangups preserved; native exit 99 | Recovery passes; availability does not |
-| TEST-05 HPA | 100 VUs / 120 s; 3,421 iterations; 3 -> 5 -> 3 replicas; native exit 99 | Scaling measured; load gates fail |
-| PERF-02 | AI deadlines/fallback/concurrency and connection budgeting implemented | Database pool wait timeouts remain under sustained load |
+| TEST-01 baseline | 100 VUs / 30 s; 2,100 lifecycles; p95/p99 360.25/830.41 ms; native exit 0; zero HTTP failures; SQL verified | Passed on fencing revision |
+| TEST-02 API pod deletion | 100 VUs / 60 s; 4,410 lifecycles; p95/p99 325.80/651.11 ms; native exit 0; zero HTTP failures; SQL verified; replacement Ready 8.903 s | Passed |
+| Redis automatic promotion | 20 VUs / 120 s; 2,208 lifecycles; promotion/readiness 8.157 s; no HTTP failures or missing acknowledged operations | Passed |
+| TEST-04 PostgreSQL replacement | Recovery 18.662 s; HTTP failures 0.609%; all 1,958 acknowledged creates/turns/hangups preserved; native exit 99 | Recovery passes; strict availability still fails |
+| TEST-05 HPA | 100 VUs / 120 s; 9,248 lifecycles; 3 -> 10 -> 3 replicas; zero HTTP failures; p95/p99 281.64/507.44 ms; native exit 0; SQL verified | Scaling, load gates and consistency pass |
+| PERF-02 | Atomic terminal persistence, four actual node CPUs, 75-second API keep-alive; pool/deadlines/durability unchanged | Previous pool/latency gaps no longer reproduced in final baseline/HPA workload |
 | Real Groq sample | Ten successful sentiment/reply pairs; no audio fallback; caller median 1.13 s, maximum 1.44 s | Small live smoke, not capacity evidence |
 
-The final HPA run had seven HTTP failures out of 13,676 requests and HTTP p95
-2,200.26 ms (target below 2,000 ms). Logs identify database pool acquisition
-timeouts. Exact-ID SQL checks found no missing acknowledged operations.
-See [raw evidence and history](TEST04_AND_AI_VALIDATION.md).
+Latest evidence is in [the current-revision evidence directory](../artifacts/phase6-current/).
+The deployed image is `sayangcare-api:evaluated-20261103`; source/image hashes
+are recorded there. Final HPA desired scale-up took 50.5 s, additional Ready
+61.7 s and full cooldown 502.6 s. Exact-ID SQL auditing matched all 9,248
+acknowledged IDs at every stage; no pending work or version mismatch remained.
+The PostgreSQL follow-up sweep archived all 1,959 committed checkpoints, including
+unacknowledged abandoned work. It does not erase the real request failures.
+Earlier failed runs remain in [the historical evaluation](TEST04_AND_AI_VALIDATION.md)
+and the current evidence directory; they are not final passes.
+
+### What changed, without weakening acceptance
+
+- Terminal transition, archive and checkpoint retirement now share one database
+  transaction rather than three synchronous commits; rollback/replay tests pass.
+- Docker capped Minikube at two CPUs while Kubernetes advertised 16. The actual
+  quota is now four CPUs with the same 3,900-MiB memory and retained volumes.
+  HPA adds pods, not physical host capacity. Recheck after a Minikube restart:
+  `docker inspect minikube --format '{{.HostConfig.NanoCpus}}'` should report
+  `4000000000` for this evaluated configuration. The existing profile could not
+  be resized by `minikube start`; no cluster deletion was performed.
+- Actix keep-alive is 75 seconds, longer than the verified 60-second ingress
+  upstream timeout. The earlier mismatch caused a recorded incoming 502;
+  a real six-second-idle connection regression now passes.
+- Pool size three, two-second acquisition timeout, required synchronous replica
+  acknowledgment, WAL durability and the original k6 thresholds were retained.
+
+Workspace validation: **113 passed, seven ignored, zero failed**; relevant
+checkpoint/ownership database integrations passed explicitly. Code and CPU
+changes are separate interventions; do not attribute all gains to one algorithm.
 
 ## 3. Open the existing program
 
@@ -98,7 +146,7 @@ by deleting the database.
 - Use the synthetic crisis/escalation workflow to show queue priority and
   volunteer claiming. The displayed risk is heuristic, not clinical diagnosis.
 - Explain operator alerts are shared PostgreSQL data, not owned by one API pod.
-- Do not assume a simulation makes a real phone call; TEL-06 remains deferred.
+- Simulation makes no real phone call. Live Twilio is outside the agreed demonstration scope.
 
 For monitoring, open separate terminals and leave each forward running:
 
@@ -268,14 +316,14 @@ key is necessary for a dashboard-only demonstration.
 
 ## 10. Phase 6 checklist and evidence handoff
 
-- [ ] TEST-04 follow-up: reduce PostgreSQL interruption or agree/report the SLO limitation.
-- [ ] PERF-02 follow-up: resolve measured pool waits within capacity and deadlines.
-- [ ] TEST-05 follow-up: rerun after changes; meet unchanged latency/error gates.
-- [ ] REG-01: repeat affected tests after changes, including pod-loss/baseline.
+- [x] TEST-04 follow-up: reduced observed interruption and documented remaining strict availability failure; zero-error failover is not achieved.
+- [x] PERF-02 follow-up: final baseline/HPA pass within unchanged connection capacity and deadlines.
+- [x] TEST-05 follow-up: final 100-VU rerun passes load gates, scale-up, full cooldown and SQL consistency.
+- [x] REG-01: workspace, relevant integrations, baseline, pod-loss and dependency faults repeated.
 - [ ] DATA-06/07: checkpoint retention/privacy policy and projection reconciliation.
-- [ ] TEST-03/DOC-01: final results table, screenshots, reproducible commands, team review.
+- [x] TEST-03/DOC-01: final measured results, graph, reproducible commands and report updated; team submission review remains.
 - [ ] OBS-03: retain dashboard provisioning/screenshots; decide whether persistence is needed.
-- [ ] TEL-06: only after professor approval, consenting live inbound/outbound tests.
+- [x] TEL-06 scope decision: professor-approved dashboard demonstration; document unvalidated live telephony as a limitation.
 - [ ] If required: multi-node failure testing, off-cluster backup/restore and public TLS/access control.
 
 For each experiment save workload, code/image/config version, native code,

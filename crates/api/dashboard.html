@@ -509,7 +509,7 @@
             <div class="divider"></div>
             <button class="button accent" id="full-test-button" type="button"><span class="arrow" aria-hidden="true">▶</span> Simulate crisis call</button>
             <p class="microcopy">Runs a two-turn caller simulation and leaves any escalation in the volunteer queue. Claim it to test assignment; simulated calls never dial a phone.</p>
-            <div class="assignment-proof" id="assignment-proof" role="status" aria-live="polite">Run a crisis simulation, then claim its case from the Volunteer desk. The Raft commit receipt will appear here.</div>
+            <div class="assignment-proof" id="assignment-proof" role="status" aria-live="polite">Run a crisis simulation, then claim its case from the Volunteer desk. The ownership generation will appear here.</div>
           </div>
         </section>
 
@@ -566,6 +566,8 @@
             <div class="button-row">
               <button class="button primary" id="assigned-button" type="button"><span class="arrow" aria-hidden="true">↻</span> My cases</button>
             </div>
+            <label for="case-note-input">Synthetic case note</label>
+            <textarea id="case-note-input" maxlength="4000" placeholder="Enter synthetic text, then click Add case note on the intended case. No real personal data."></textarea>
             <div class="activity-list" id="assigned-list"><div class="empty-activity">Select a volunteer to view assigned cases.</div></div>
           </div>
         </section>
@@ -597,6 +599,7 @@
             <div class="stat"><span class="stat-label">Sentiment · valence / arousal / distress / markers</span><span class="stat-value sentiment-value" id="stat-sentiment" title="Continuous sentiment estimate; separate from safety risk.">Not analyzed</span></div>
             <div class="stat"><span class="stat-label">Handoff</span><span class="stat-value" id="stat-handoff">—</span></div>
             <div class="stat"><span class="stat-label">Volunteer</span><span class="stat-value" id="stat-volunteer">—</span></div>
+            <div class="stat"><span class="stat-label">Assignment generation</span><span class="stat-value" id="stat-generation">—</span></div>
           </div>
           <div class="transcript" id="transcript-view"><div class="empty-state">Session turns will appear here.</div></div>
         </section>
@@ -829,20 +832,21 @@
       lastRaftAssignmentReceipt = {
         session_id: result.session_id,
         volunteer_id: result.volunteer_id,
-        log_index: result.raft_log_index ?? null
+        generation: result.assignment_generation,
+        coordinator: result.coordinator
       };
       sessionStorage.setItem("sayangcare-raft-assignment-receipt", JSON.stringify(lastRaftAssignmentReceipt));
     }
 
-    function renderAssignmentProof(sessionId, volunteerId) {
+    function renderAssignmentProof(sessionId, volunteerId, generation) {
       const receipt = lastRaftAssignmentReceipt;
       const proof = $("assignment-proof");
-      if (receipt?.session_id === sessionId && receipt.log_index != null) {
-        proof.textContent = `Raft committed this assignment: ${sessionId} → ${receipt.volunteer_id}. Commit log index ${receipt.log_index}.`;
+      if (receipt?.session_id === sessionId && receipt.generation === generation) {
+        proof.textContent = `Ownership accepted through ${receipt.coordinator}: ${sessionId} → ${receipt.volunteer_id}. Generation ${receipt.generation}; installed in PostgreSQL.`;
       } else if (volunteerId) {
-        proof.textContent = `${sessionId} is assigned to ${volunteerId}. This browser has no Raft commit receipt for that claim; claim a case from this dashboard to display its log index.`;
+        proof.textContent = `${sessionId} is assigned to ${volunteerId}, generation ${generation}. Inspect ownership status for pending transitions.`;
       } else {
-        proof.textContent = `${sessionId} is not assigned yet. Open Volunteer desk and claim this case; its Raft commit receipt will appear here.`;
+        proof.textContent = `${sessionId} has no active owner. Retained generation ${generation ?? 0}; claim from Volunteer desk when eligible.`;
       }
     }
 
@@ -873,6 +877,7 @@
       $("stat-sentiment").textContent = "Not analyzed";
       $("stat-handoff").textContent = "—";
       $("stat-volunteer").textContent = "—";
+      $("stat-generation").textContent = "—";
       $("overview-turns").textContent = "—";
       $("transcript-view").innerHTML = '<div class="empty-state">Waiting for the selected session.</div>';
     }
@@ -956,7 +961,7 @@
       const state = String(session.state || "unknown").replaceAll("_", " ");
       const handoff = String(session.handoff_status || "not_required").replaceAll("_", " ");
       const volunteer = session.assigned_volunteer_id || "Unassigned";
-      renderAssignmentProof(session.id, session.assigned_volunteer_id);
+      renderAssignmentProof(session.id, session.assigned_volunteer_id, session.assignment_generation);
       const pill = $("state-pill");
       pill.textContent = state;
       pill.className = `state-pill ${state}`;
@@ -981,6 +986,7 @@
       }
       $("stat-handoff").textContent = `${handoff}${session.operator_acknowledged ? " · acked" : " · pending"}`;
       $("stat-volunteer").textContent = volunteer;
+      $("stat-generation").textContent = session.assignment_generation ?? 0;
       const turns = session.transcript?.turns || [];
       $("overview-turns").textContent = turns.length;
       $("stat-turns").textContent = turns.length;
@@ -1213,7 +1219,7 @@
         const meta = document.createElement("div");
         meta.style.color = "#5d6d64";
         meta.style.fontSize = "11px";
-        meta.textContent = `Status: ${entry.status}`;
+        meta.textContent = `Status: ${entry.status} · Generation: ${entry.assignment_generation}${entry.pending_operation_id ? " · ownership change pending" : ""}`;
 
         const openBtn = document.createElement("button");
         openBtn.type = "button";
@@ -1227,7 +1233,9 @@
         transferBtn.textContent = "Transfer";
         transferBtn.addEventListener("click", () => {
           withBusy(async () => {
-            const result = await request("Transfer case", "POST", `${api}/volunteers/${encodeURIComponent(volunteerId)}/cases/${encodeURIComponent(entry.session_id)}/transfer`);
+            const result = await request("Transfer case", "POST", `${api}/volunteers/${encodeURIComponent(volunteerId)}/cases/${encodeURIComponent(entry.session_id)}/transfer`, {
+              assignment_generation: entry.assignment_generation, request_id: crypto.randomUUID()
+            });
             if (result?.handoff_status === "transferred") {
               $("volunteer-select").value = result.volunteer_id;
               await loadSession();
@@ -1243,7 +1251,9 @@
         resolveBtn.textContent = "Resolve";
         resolveBtn.addEventListener("click", () => {
           withBusy(async () => {
-            const result = await request("Resolve case", "POST", `${api}/volunteers/${encodeURIComponent(volunteerId)}/cases/${encodeURIComponent(entry.session_id)}/resolve`);
+            const result = await request("Resolve case", "POST", `${api}/volunteers/${encodeURIComponent(volunteerId)}/cases/${encodeURIComponent(entry.session_id)}/resolve`, {
+              assignment_generation: entry.assignment_generation, request_id: crypto.randomUUID()
+            });
             if (result?.handoff_status === "resolved") {
               await loadSession();
               await loadAssignedCases(volunteerId);
@@ -1251,7 +1261,33 @@
           }).catch(() => {});
         });
 
-        row.append(top, meta, openBtn, transferBtn, resolveBtn);
+        const noteBtn = document.createElement("button");
+        noteBtn.type = "button";
+        noteBtn.className = "button";
+        noteBtn.textContent = "Add case note";
+        noteBtn.addEventListener("click", () => {
+          const body = $("case-note-input").value.trim();
+          withBusy(async () => {
+            await request("Add case note", "POST", `${api}/volunteers/${encodeURIComponent(volunteerId)}/cases/${encodeURIComponent(entry.session_id)}/notes`, {
+              assignment_generation: entry.assignment_generation, request_id: crypto.randomUUID(), body
+            });
+            $("case-note-input").value = "";
+          }).catch(() => {});
+        });
+        const releaseBtn = document.createElement("button");
+        releaseBtn.type = "button";
+        releaseBtn.className = "button";
+        releaseBtn.textContent = "Release to queue";
+        releaseBtn.addEventListener("click", () => withBusy(async () => {
+          await request("Release case", "POST", `${api}/volunteers/${encodeURIComponent(volunteerId)}/cases/${encodeURIComponent(entry.session_id)}/release`, {
+            assignment_generation: entry.assignment_generation, request_id: crypto.randomUUID()
+          });
+          await loadAssignedCases(volunteerId);
+          await loadSession();
+          await loadQueue();
+        }).catch(() => {}));
+        transferBtn.disabled = resolveBtn.disabled = noteBtn.disabled = releaseBtn.disabled = !!entry.pending_operation_id;
+        row.append(top, meta, openBtn, transferBtn, resolveBtn, noteBtn, releaseBtn);
         list.append(row);
       });
     }
@@ -1283,7 +1319,7 @@
 
     async function claimNext() {
       const data = await request("Claim next", "POST", `${api}/volunteers/claim`, {
-        volunteer_id: selectedVolunteerId()
+        volunteer_id: selectedVolunteerId(), request_id: crypto.randomUUID()
       });
       rememberRaftAssignment(data);
       if (data?.session_id) {
@@ -1300,7 +1336,7 @@
       list.replaceChildren();
       if (data.backend !== "raft") {
         $("raft-meta").textContent = "Raft not enabled";
-        list.innerHTML = '<div class="empty-activity">This node uses the Redis queue backend. Start with <code>SAYANGCARE__QUEUE__BACKEND=raft</code> to see the cluster.</div>';
+        list.innerHTML = '<div class="empty-activity">This deployment uses PostgreSQL-only ownership. The separate Docker Raft mode keeps Redis queue ordering and enables majority-backed ownership coordination.</div>';
         return;
       }
       const nodes = data.nodes || [];

@@ -101,10 +101,10 @@ pub async fn status(state: State) -> HttpResponse {
     let Some(node) = state.raft.as_ref() else {
         return HttpResponse::Ok().json(serde_json::json!({ "backend": "redis" }));
     };
-    HttpResponse::Ok().json(local_status(node))
+    HttpResponse::Ok().json(local_status(node).await)
 }
 
-fn local_status(node: &RaftQueueNode) -> serde_json::Value {
+async fn local_status(node: &RaftQueueNode) -> serde_json::Value {
     let metrics = node.raft().metrics().borrow().clone();
     serde_json::json!({
         "backend": "raft",
@@ -114,6 +114,7 @@ fn local_status(node: &RaftQueueNode) -> serde_json::Value {
         "current_leader": metrics.current_leader,
         "last_log_index": metrics.last_log_index,
         "last_applied": metrics.last_applied.map(|id| id.index),
+        "ownership": node.ownership_snapshot().await,
     })
 }
 
@@ -123,7 +124,7 @@ pub async fn cluster(state: State) -> HttpResponse {
     let Some(node) = state.raft.clone() else {
         return HttpResponse::Ok().json(serde_json::json!({ "backend": "redis" }));
     };
-    let local = local_status(&node);
+    let local = local_status(&node).await;
     let this_node = local["node_id"].as_u64().unwrap_or_default();
 
     let client = reqwest::Client::builder()

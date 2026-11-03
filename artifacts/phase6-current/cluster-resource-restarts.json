@@ -1,0 +1,295 @@
+﻿[
+    {
+        "namespace":  "cnpg-system",
+        "name":  "cnpg-controller-manager-757f87f8f5-fvrft",
+        "statuses":  [
+                         {
+                             "name":  "manager",
+                             "restarts":  10,
+                             "last_reason":  "Completed",
+                             "last_exit":  0,
+                             "last_finished":  "2026-11-03T07:50:13Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "ingress-nginx",
+        "name":  "ingress-nginx-controller-d7cd8c989-zfbrs",
+        "statuses":  [
+                         {
+                             "name":  "controller",
+                             "restarts":  9,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "kube-system",
+        "name":  "coredns-559f6c778d-7tqdc",
+        "statuses":  [
+                         {
+                             "name":  "coredns",
+                             "restarts":  9,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "kube-system",
+        "name":  "etcd-minikube",
+        "statuses":  [
+                         {
+                             "name":  "etcd",
+                             "restarts":  9,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "kube-system",
+        "name":  "kindnet-bfn24",
+        "statuses":  [
+                         {
+                             "name":  "kindnet-cni",
+                             "restarts":  9,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "kube-system",
+        "name":  "kube-apiserver-minikube",
+        "statuses":  [
+                         {
+                             "name":  "kube-apiserver",
+                             "restarts":  9,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "kube-system",
+        "name":  "kube-controller-manager-minikube",
+        "statuses":  [
+                         {
+                             "name":  "kube-controller-manager",
+                             "restarts":  10,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "kube-system",
+        "name":  "kube-proxy-b5dzq",
+        "statuses":  [
+                         {
+                             "name":  "kube-proxy",
+                             "restarts":  9,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "kube-system",
+        "name":  "kube-scheduler-minikube",
+        "statuses":  [
+                         {
+                             "name":  "kube-scheduler",
+                             "restarts":  9,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "kube-system",
+        "name":  "metrics-server-768f9f6999-mpl4b",
+        "statuses":  [
+                         {
+                             "name":  "metrics-server",
+                             "restarts":  13,
+                             "last_reason":  "Completed",
+                             "last_exit":  0,
+                             "last_finished":  "2026-11-03T07:38:43Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "kube-system",
+        "name":  "storage-provisioner",
+        "statuses":  [
+                         {
+                             "name":  "storage-provisioner",
+                             "restarts":  20,
+                             "last_reason":  "Error",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T07:49:25Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "monitoring",
+        "name":  "grafana-6f66f75c54-4wpjv",
+        "statuses":  [
+                         {
+                             "name":  "grafana",
+                             "restarts":  4,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "monitoring",
+        "name":  "prometheus-adapter-6f597fb984-b2dpd",
+        "statuses":  [
+                         {
+                             "name":  "prometheus-adapter",
+                             "restarts":  9,
+                             "last_reason":  "Error",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:56:09Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "monitoring",
+        "name":  "prometheus-server-f88757f6f-nrlxk",
+        "statuses":  [
+                         {
+                             "name":  "prometheus-server",
+                             "restarts":  7,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         },
+                         {
+                             "name":  "prometheus-server-configmap-reload",
+                             "restarts":  7,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "sayangcare",
+        "name":  "redis-0",
+        "statuses":  [
+                         {
+                             "name":  "redis",
+                             "restarts":  8,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "sayangcare",
+        "name":  "redis-1",
+        "statuses":  [
+                         {
+                             "name":  "redis",
+                             "restarts":  7,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "sayangcare",
+        "name":  "redis-2",
+        "statuses":  [
+                         {
+                             "name":  "redis",
+                             "restarts":  5,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "sayangcare",
+        "name":  "redis-sentinel-0",
+        "statuses":  [
+                         {
+                             "name":  "sentinel",
+                             "restarts":  4,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "sayangcare",
+        "name":  "redis-sentinel-1",
+        "statuses":  [
+                         {
+                             "name":  "sentinel",
+                             "restarts":  4,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "sayangcare",
+        "name":  "redis-sentinel-2",
+        "statuses":  [
+                         {
+                             "name":  "sentinel",
+                             "restarts":  4,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "sayangcare",
+        "name":  "sayangcare-db-1",
+        "statuses":  [
+                         {
+                             "name":  "postgres",
+                             "restarts":  4,
+                             "last_reason":  "Unknown",
+                             "last_exit":  255,
+                             "last_finished":  "2026-11-03T06:55:12Z"
+                         }
+                     ]
+    },
+    {
+        "namespace":  "sayangcare",
+        "name":  "sayangcare-db-3",
+        "statuses":  [
+                         {
+                             "name":  "postgres",
+                             "restarts":  8,
+                             "last_reason":  "Completed",
+                             "last_exit":  0,
+                             "last_finished":  "2026-11-03T07:49:44Z"
+                         }
+                     ]
+    }
+]

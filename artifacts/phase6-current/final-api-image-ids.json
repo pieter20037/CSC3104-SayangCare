@@ -1,0 +1,37 @@
+﻿[
+    {
+        "name":  "sayangcare-api-79c7496bcf-4ksrb",
+        "image":  "sha256:a769bd4ea16baf04ff89820fee9ebce42132a0ad89f6efdc986f000262ae0f35",
+        "ready":  true
+    },
+    {
+        "name":  "sayangcare-api-79c7496bcf-9kctx",
+        "image":  "sha256:a769bd4ea16baf04ff89820fee9ebce42132a0ad89f6efdc986f000262ae0f35",
+        "ready":  true
+    },
+    {
+        "name":  "sayangcare-api-79c7496bcf-gg7hw",
+        "image":  "sha256:a769bd4ea16baf04ff89820fee9ebce42132a0ad89f6efdc986f000262ae0f35",
+        "ready":  true
+    },
+    {
+        "name":  "sayangcare-api-79c7496bcf-h4v8g",
+        "image":  "sha256:a769bd4ea16baf04ff89820fee9ebce42132a0ad89f6efdc986f000262ae0f35",
+        "ready":  true
+    },
+    {
+        "name":  "sayangcare-api-79c7496bcf-hfgvk",
+        "image":  "sha256:a769bd4ea16baf04ff89820fee9ebce42132a0ad89f6efdc986f000262ae0f35",
+        "ready":  true
+    },
+    {
+        "name":  "sayangcare-api-79c7496bcf-lf5cp",
+        "image":  "sha256:a769bd4ea16baf04ff89820fee9ebce42132a0ad89f6efdc986f000262ae0f35",
+        "ready":  true
+    },
+    {
+        "name":  "sayangcare-api-79c7496bcf-sqfn8",
+        "image":  "sha256:a769bd4ea16baf04ff89820fee9ebce42132a0ad89f6efdc986f000262ae0f35",
+        "ready":  true
+    }
+]

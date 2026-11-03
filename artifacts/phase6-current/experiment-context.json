@@ -1,0 +1,36 @@
+{
+  "date": "2026-11-03",
+  "scope": "synthetic dashboard/JSON workflows; no live Twilio or high-volume Groq calls",
+  "environment": "single-node Docker-driver Minikube on Windows",
+  "before": {
+    "actual_node_cpu_quota": 2,
+    "kubernetes_advertised_cpu": 16,
+    "node_memory_bytes": 4089446400,
+    "api_pool_per_pod": 3,
+    "postgres_max_connections": 100,
+    "hpa_min_replicas": 3,
+    "hpa_max_replicas": 20,
+    "finding": "Parent cgroup CPU throttling was hidden by Kubernetes reporting host CPU capacity. HPA adds pods, not physical CPU quota."
+  },
+  "changes": [
+    "Terminal checkpoint transition, cold archive and retirement now commit in one PostgreSQL transaction.",
+    "Existing minikube Docker container CPU quota raised to 4, preserving memory and volumes.",
+    "Actix upstream keep-alive changed from the default 5 seconds to 75, exceeding ingress-nginx's verified 60-second upstream idle timeout."
+  ],
+  "unchanged": [
+    "Two-second SQLx pool-acquisition timeout",
+    "Three API database connections per pod",
+    "PostgreSQL max_connections=100",
+    "Required synchronous acknowledgment from one replica",
+    "fsync, full_page_writes and synchronous_commit remain enabled",
+    "Original k6 latency/error/zero-failed-step thresholds",
+    "HPA minimum, maximum and cooldown policy"
+  ],
+  "qualifications": [
+    "Minikube refused to change the CPU count of an existing profile. The verified change used docker update --cpus=4 minikube instead; no cluster deletion was performed. Recheck actual Docker quota after future restarts.",
+    "The before-capacity PostgreSQL fault overlapped an image build and experienced control-plane contention/restarts. Retain its observations, but do not use its 134.929-second recovery as an isolated algorithm comparison.",
+    "The first four-CPU HPA run failed one incoming HTTP request with 502. All 8667 acknowledged creates, turns and hangups persisted. A failed unacknowledged creation is not acknowledged-data loss.",
+    "The first HPA run's strict all-iterations SQL audit failed because it included the unsuccessful creation. The supplementary acknowledged-ID audit records the valid consistency claim; availability remains failed.",
+    "Code, CPU allocation and connection settings are separate interventions. Combined final gains must not be attributed solely to Raft or terminal-transaction optimization."
+  ]
+}

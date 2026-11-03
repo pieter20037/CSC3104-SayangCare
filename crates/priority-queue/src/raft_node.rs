@@ -13,6 +13,9 @@ use openraft::raft::{
 };
 use openraft::{BasicNode, Config, Raft, SnapshotPolicy};
 use sayangcare_core::domain::SessionId;
+use sayangcare_core::ownership::{
+    AssignmentOwnership, OwnershipCommand, OwnershipCoordinator, OwnershipDecision,
+};
 use sayangcare_core::ports::PriorityQueue;
 use sayangcare_core::{CoreError, CoreResult};
 use serde::de::DeserializeOwned;
@@ -124,6 +127,20 @@ impl RaftQueueNode {
     /// Every cluster member's base URL keyed by node id (empty for a single-node cluster).
     pub fn peers(&self) -> &BTreeMap<u64, String> {
         &self.settings.peers
+    }
+
+    /// Local applied state for diagnostics, not a linearizable ownership read.
+    pub async fn ownership_snapshot(&self) -> BTreeMap<String, AssignmentOwnership> {
+        self.storage.inner.read().await.state.ownership_snapshot()
+    }
+
+    pub async fn legacy_assignments_present(&self) -> bool {
+        self.storage
+            .inner
+            .read()
+            .await
+            .state
+            .legacy_assignments_present()
     }
 
     /// Commit a volunteer ownership decision without putting queue ordering in Raft.
@@ -307,6 +324,27 @@ impl RaftQueueNode {
 
     pub async fn leader_id(&self) -> Option<u64> {
         self.raft.current_leader().await
+    }
+}
+
+#[async_trait]
+impl OwnershipCoordinator for RaftQueueNode {
+    /// A timeout leaves the outcome unknown; retries must reuse the identical command.
+    async fn commit(&self, command: OwnershipCommand) -> CoreResult<OwnershipDecision> {
+        let reply = tokio::time::timeout(
+            Duration::from_secs(8),
+            self.write_reply(RaftQueueCommand::Ownership(command)),
+        )
+        .await
+        .map_err(|_| {
+            CoreError::Storage("raft ownership commit timed out; outcome unknown".into())
+        })??;
+        match reply.outcome {
+            RaftQueueOutcome::Ownership(decision) => Ok(decision),
+            other => Err(CoreError::Storage(format!(
+                "unexpected Raft ownership outcome {other:?}"
+            ))),
+        }
     }
 }
 

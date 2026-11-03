@@ -1,0 +1,238 @@
+﻿{
+    "run_id":  "20261103T063722073Z-b733b58b",
+    "started_utc":  "2026-11-03T06:37:22.1700037Z",
+    "updated_utc":  "2026-11-03T06:37:22.9453418Z",
+    "finished_utc":  "2026-11-03T06:37:22.9453418Z",
+    "outcome":  "failed",
+    "exit_code":  1,
+    "errors":  [
+                   "Assertion failed: http://localhost:56349/api/v1 actual ownership coordinator is raft"
+               ],
+    "git_revision":  "6f1dca634835e428c35f5904b1cae4929195adcc",
+    "configuration":  {
+                          "latency_only":  false,
+                          "stop_grace_seconds":  5,
+                          "raft_database_topology":  "LOCAL MOCK: no database, no live acceptance evidence",
+                          "raft_urls":  [
+                                            "http://localhost:56349",
+                                            "http://localhost:56350",
+                                            "http://localhost:56351"
+                                        ],
+                          "election_timeout_seconds":  45,
+                          "ai_policy":  "Fresh SIM case; exactly one built-in crisis keyword turn; immediate escalation bypasses inference",
+                          "race_concurrency":  2,
+                          "http_timeout_seconds":  12,
+                          "recovery_timeout_seconds":  90,
+                          "fault_sequence":  "stop leader, elect with 2/3, stop follower, restore both",
+                          "inject_faults":  false,
+                          "latency_concurrency":  1,
+                          "postgres_database_topology":  "LOCAL MOCK: no database, no live acceptance evidence",
+                          "postgres_url":  "http://localhost:56352",
+                          "warmup":  0,
+                          "skip_postgres":  true,
+                          "unavailable_bound_seconds":  10,
+                          "samples":  1,
+                          "image_identity":  "Unverified unless fault-mode Compose inspection runs; custom local processes need not use images"
+                      },
+    "comparison":  "N/A: PostgreSQL comparison explicitly skipped; no relative latency claim.",
+    "preflight":  [
+
+                  ],
+    "sessions":  [
+
+                 ],
+    "assertions":  [
+                       {
+                           "name":  "raft storage/readiness preflight http://localhost:56349/api/v1/health expected HTTP 200",
+                           "passed":  true,
+                           "observed":  {
+                                            "status":  200,
+                                            "error":  null,
+                                            "milliseconds":  47.404900000000005
+                                        },
+                           "utc":  "2026-11-03T06:37:22.8501081Z"
+                       },
+                       {
+                           "name":  "raft storage/readiness preflight http://localhost:56349/api/v1/ready expected HTTP 200",
+                           "passed":  true,
+                           "observed":  {
+                                            "status":  200,
+                                            "error":  null,
+                                            "milliseconds":  0.7078
+                                        },
+                           "utc":  "2026-11-03T06:37:22.8626158Z"
+                       },
+                       {
+                           "name":  "ownership SIM-fencing-preflight-426349ec083d49669e630510185c6899 expected HTTP 200",
+                           "passed":  true,
+                           "observed":  {
+                                            "status":  200,
+                                            "error":  null,
+                                            "milliseconds":  0.685
+                                        },
+                           "utc":  "2026-11-03T06:37:22.8872113Z"
+                       },
+                       {
+                           "name":  "ownership includes volunteer_id",
+                           "passed":  true,
+                           "observed":  {
+                                            "volunteer_id":  null,
+                                            "assignment_generation":  0,
+                                            "pending_operation_id":  null,
+                                            "coordinator":  "postgres"
+                                        },
+                           "utc":  "2026-11-03T06:37:22.8954811Z"
+                       },
+                       {
+                           "name":  "ownership includes assignment_generation",
+                           "passed":  true,
+                           "observed":  {
+                                            "volunteer_id":  null,
+                                            "assignment_generation":  0,
+                                            "pending_operation_id":  null,
+                                            "coordinator":  "postgres"
+                                        },
+                           "utc":  "2026-11-03T06:37:22.8954811Z"
+                       },
+                       {
+                           "name":  "ownership includes pending_operation_id",
+                           "passed":  true,
+                           "observed":  {
+                                            "volunteer_id":  null,
+                                            "assignment_generation":  0,
+                                            "pending_operation_id":  null,
+                                            "coordinator":  "postgres"
+                                        },
+                           "utc":  "2026-11-03T06:37:22.8954811Z"
+                       },
+                       {
+                           "name":  "ownership includes coordinator",
+                           "passed":  true,
+                           "observed":  {
+                                            "volunteer_id":  null,
+                                            "assignment_generation":  0,
+                                            "pending_operation_id":  null,
+                                            "coordinator":  "postgres"
+                                        },
+                           "utc":  "2026-11-03T06:37:22.8954811Z"
+                       },
+                       {
+                           "name":  "ownership generation is not null",
+                           "passed":  true,
+                           "observed":  {
+                                            "volunteer_id":  null,
+                                            "assignment_generation":  0,
+                                            "pending_operation_id":  null,
+                                            "coordinator":  "postgres"
+                                        },
+                           "utc":  "2026-11-03T06:37:22.9064867Z"
+                       },
+                       {
+                           "name":  "http://localhost:56349/api/v1 actual ownership coordinator is raft",
+                           "passed":  false,
+                           "observed":  {
+                                            "volunteer_id":  null,
+                                            "assignment_generation":  0,
+                                            "pending_operation_id":  null,
+                                            "coordinator":  "postgres"
+                                        },
+                           "utc":  "2026-11-03T06:37:22.9064867Z"
+                       }
+                   ],
+    "requests":  [
+                     {
+                         "utc":  "2026-11-03T06:37:22.8053213Z",
+                         "url":  "http://localhost:56349/api/v1/health",
+                         "operation":  "diagnostic",
+                         "phase":  "correctness",
+                         "request":  null,
+                         "status":  200,
+                         "milliseconds":  47.404900000000005,
+                         "error":  null,
+                         "parse_error":  null,
+                         "response":  {
+                                          "status":  "ok"
+                                      },
+                         "raw_body":  "{\"status\":\"ok\"}"
+                     },
+                     {
+                         "utc":  "2026-11-03T06:37:22.8554149Z",
+                         "url":  "http://localhost:56349/api/v1/ready",
+                         "operation":  "diagnostic",
+                         "phase":  "correctness",
+                         "request":  null,
+                         "status":  200,
+                         "milliseconds":  0.7078,
+                         "error":  null,
+                         "parse_error":  null,
+                         "response":  {
+                                          "status":  "ok"
+                                      },
+                         "raw_body":  "{\"status\":\"ok\"}"
+                     },
+                     {
+                         "utc":  "2026-11-03T06:37:22.8733441Z",
+                         "url":  "http://localhost:56349/api/v1/calls/SIM-fencing-preflight-426349ec083d49669e630510185c6899/ownership",
+                         "operation":  "diagnostic",
+                         "phase":  "correctness",
+                         "request":  null,
+                         "status":  200,
+                         "milliseconds":  0.685,
+                         "error":  null,
+                         "parse_error":  null,
+                         "response":  {
+                                          "volunteer_id":  null,
+                                          "assignment_generation":  0,
+                                          "pending_operation_id":  null,
+                                          "coordinator":  "postgres"
+                                      },
+                         "raw_body":  "{\"volunteer_id\":null,\"assignment_generation\":0,\"pending_operation_id\":null,\"coordinator\":\"postgres\"}"
+                     }
+                 ],
+    "native_commands":  [
+                            {
+                                "exit_code":  0,
+                                "arguments":  [
+                                                  "rev-parse",
+                                                  "HEAD"
+                                              ],
+                                "executable":  "git"
+                            }
+                        ],
+    "api_exposed_sql_audits":  [
+
+                               ],
+    "recovery_intervals":  [
+
+                           ],
+    "latency":  {
+
+                },
+    "containers":  [
+
+                   ],
+    "target":  null,
+    "unresolved_sessions":  [
+
+                            ],
+    "unresolved_operation_ids":  [
+
+                                 ],
+    "faults":  {
+                   "raft":  "not run (requires -InjectFaults and approval)",
+                   "postgres":  "N/A: no Raft election or quorum in PostgreSQL mode"
+               },
+    "sql_audit":  {
+                      "status":  "Independent admin SQL NOT RUN: specify -AuditPostgresContainer; API-exposed PostgreSQL query evidence is separately labelled"
+                  },
+    "not_covered":  [
+                        "Database-failure-after-commit injection",
+                        "counter exhaustion and legacy migration",
+                        "API replica failure",
+                        "physical-machine isolation"
+                    ],
+    "restoration":  "not needed",
+    "remaining_stopped_containers":  [
+
+                                     ]
+}

@@ -55,6 +55,7 @@ pub struct AppState {
     pub queue: Arc<dyn PriorityQueue>,
     pub raft: Option<Arc<RaftQueueNode>>,
     pub volunteer_bindings: Arc<VolunteerBindingStore>,
+    pub ownership: Arc<sayangcare_session_store::OwnershipStore>,
     pub telephony: Arc<dyn TelephonyProvider>,
     pub inference: Option<Arc<dyn InferenceService>>,
     pub volunteers: Arc<RwLock<HashMap<String, Volunteer>>>,
@@ -162,6 +163,21 @@ impl AppState {
         if config.queue.raft_assignments {
             info!("Raft volunteer assignment coordination enabled");
         }
+        let coordinator = if config.queue.raft_assignments {
+            let node = raft.as_ref().expect("Raft initialized").clone();
+            if node.legacy_assignments_present().await {
+                return Err(sayangcare_core::CoreError::Storage(
+                    "legacy Raft assignments require offline reconciliation before fencing can be enabled; do not delete data volumes".into(),
+                ));
+            }
+            Some(node as Arc<dyn sayangcare_core::ownership::OwnershipCoordinator>)
+        } else {
+            None
+        };
+        let ownership = Arc::new(sayangcare_session_store::OwnershipStore::new(
+            pg_pool.clone(),
+            coordinator,
+        ));
         let queue: Arc<dyn PriorityQueue> = match backend.as_str() {
             "raft" => Arc::new(RaftPriorityQueue::new(
                 raft.as_ref().expect("Raft initialized").clone(),
@@ -229,6 +245,7 @@ impl AppState {
             queue,
             raft,
             volunteer_bindings,
+            ownership,
             telephony,
             inference,
             volunteers,
@@ -403,6 +420,12 @@ impl AppState {
             loop {
                 tokio::select! {
                     _ = tick.tick() => {
+                        if let Err(error) = state.ownership.recover().await {
+                            tracing::error!(%error, "pending ownership recovery failed; protected actions remain fenced");
+                        }
+                        if let Err(error) = state.reconcile_ownership_projections().await {
+                            tracing::warn!(%error, "ownership projection repair will retry");
+                        }
                         if let Err(err) = state.reconcile_pending_handoffs().await {
                             tracing::warn!(error = %err, "pending handoff reconciliation failed");
                         }
@@ -495,16 +518,31 @@ impl AppState {
         for (volunteer_id, session_id) in stale_ids {
             let sid = SessionId(session_id.clone());
             match self.sessions.get(&sid).await {
-                Ok(Some(mut session)) => {
+                Ok(Some(session)) => {
                     if session.is_handoff_stale(HANDOFF_TIMEOUT) {
-                        let expected = session.version;
-                        session.assigned_volunteer_id = None;
-                        session.handoff_status = HandoffStatus::Pending;
-                        session.updated_at = Utc::now();
-                        session.version += 1;
-
-                        if let Err(err) = self.sessions.update_cas(&session, expected).await {
-                            tracing::warn!(error = %err, session_id = %sid, volunteer_id = %volunteer_id, "failed to clear stale assignment");
+                        let view = self
+                            .ownership
+                            .current(&session_id)
+                            .await
+                            .map_err(|e| sayangcare_core::CoreError::Storage(e.to_string()))?;
+                        let command = sayangcare_core::ownership::OwnershipCommand {
+                            request_id: format!(
+                                "expire:{}:{}",
+                                session_id, view.assignment_generation
+                            ),
+                            session_id: sid.clone(),
+                            expected_generation: view.assignment_generation,
+                            transition: sayangcare_core::ownership::OwnershipTransition::Release {
+                                volunteer_id: volunteer_id.clone(),
+                                resolved: false,
+                            },
+                        };
+                        let decision = self.ownership.execute(command).await;
+                        if !matches!(
+                            decision,
+                            Ok(sayangcare_core::ownership::OwnershipDecision::Applied { .. })
+                        ) {
+                            tracing::warn!(?decision, session_id=%sid, "stale assignment release deferred");
                             continue;
                         }
 
@@ -514,39 +552,12 @@ impl AppState {
                             Some(&volunteer_id),
                             format!("Stale assignment expired for session {} and was returned to the volunteer queue.", session_id),
                         ).await;
-                    } else if session.handoff_status != HandoffStatus::Pending
-                        || session.assigned_volunteer_id.is_some()
-                    {
-                        continue;
+                        self.reconcile_ownership_projections().await?;
+                        info!(session_id = %sid, volunteer_id = %volunteer_id, "stale handoff requeued for reassignment");
                     }
-
-                    if let Err(err) = self.queue.release_claim(&sid, &volunteer_id).await {
-                        tracing::warn!(error = %err, session_id = %sid, volunteer_id = %volunteer_id, "failed to release stale Redis queue claim");
-                        continue;
-                    }
-                    if let Err(err) = self
-                        .queue
-                        .enqueue(sid.clone(), session.risk.level.0, Utc::now())
-                        .await
-                    {
-                        tracing::warn!(error = %err, session_id = %sid, volunteer_id = %volunteer_id, "failed to requeue stale session");
-                        continue;
-                    }
-                    if let Err(err) = self
-                        .volunteer_bindings
-                        .release(&session_id, &volunteer_id)
-                        .await
-                    {
-                        tracing::warn!(error = %err, session_id = %sid, volunteer_id = %volunteer_id, "failed to close stale durable binding");
-                        continue;
-                    }
-                    info!(session_id = %sid, volunteer_id = %volunteer_id, "stale handoff requeued for reassignment");
                 }
                 Ok(None) => {
-                    let _ = self.queue.release_claim(&sid, &volunteer_id).await;
-                    self.volunteer_bindings
-                        .release(&session_id, &volunteer_id)
-                        .await?;
+                    tracing::error!(session_id=%sid, "active binding lacks checkpoint; manual reconciliation required");
                 }
                 Err(err) => {
                     tracing::warn!(error = %err, session_id = %sid, volunteer_id = %volunteer_id, "stale handoff requeue aborted");
@@ -554,6 +565,78 @@ impl AppState {
             }
         }
 
+        Ok(())
+    }
+
+    pub async fn reconcile_ownership_projections(&self) -> CoreResult<()> {
+        use sayangcare_core::ownership::{
+            OwnershipCommand, OwnershipDecision, OwnershipTransition,
+        };
+        let rows: Vec<(String, serde_json::Value, serde_json::Value)> = sqlx::query_as(
+            "SELECT request_id,command,outcome FROM assignment_operations WHERE outcome IS NOT NULL AND projected_at IS NULL ORDER BY created_at LIMIT 100",
+        ).fetch_all(&self.postgres).await.map_err(|e| sayangcare_core::CoreError::Storage(e.to_string()))?;
+        for (request_id, command, outcome) in rows {
+            let command: OwnershipCommand = serde_json::from_value(command)
+                .map_err(|e| sayangcare_core::CoreError::Storage(e.to_string()))?;
+            let outcome: OwnershipDecision = serde_json::from_value(outcome)
+                .map_err(|e| sayangcare_core::CoreError::Storage(e.to_string()))?;
+            if matches!(outcome, OwnershipDecision::Applied { .. }) {
+                let old_owner = match &command.transition {
+                    OwnershipTransition::Claim { volunteer_id } => volunteer_id,
+                    OwnershipTransition::Transfer {
+                        from_volunteer_id, ..
+                    } => from_volunteer_id,
+                    OwnershipTransition::Release { volunteer_id, .. } => volunteer_id,
+                };
+                self.queue
+                    .release_claim(&command.session_id, old_owner)
+                    .await?;
+                let view = self
+                    .ownership
+                    .current(&command.session_id.0)
+                    .await
+                    .map_err(|e| sayangcare_core::CoreError::Storage(e.to_string()))?;
+                if view.pending_operation_id.is_some() {
+                    continue;
+                }
+                if let Some(session) = self.sessions.get(&command.session_id).await? {
+                    if session.handoff_status == HandoffStatus::Pending
+                        || view.volunteer_id.is_some()
+                    {
+                        self.queue
+                            .enqueue(
+                                command.session_id.clone(),
+                                session.risk.level.0,
+                                session.updated_at,
+                            )
+                            .await?;
+                        if let Some(owner) = view.volunteer_id {
+                            if !self
+                                .queue
+                                .claim_session(&command.session_id, &owner)
+                                .await?
+                            {
+                                tracing::warn!(session_id=%command.session_id, "queue projection already claimed; durable ownership remains authoritative");
+                            }
+                        }
+                    }
+                    if let Err(error) = tokio::time::timeout(
+                        Duration::from_millis(100),
+                        self.hot_sessions.put(&session),
+                    )
+                    .await
+                    .map_err(|e| sayangcare_core::CoreError::Storage(e.to_string()))?
+                    {
+                        return Err(error);
+                    }
+                }
+            }
+            sqlx::query("UPDATE assignment_operations SET projected_at=now() WHERE request_id=$1")
+                .bind(&request_id)
+                .execute(&self.postgres)
+                .await
+                .map_err(|e| sayangcare_core::CoreError::Storage(e.to_string()))?;
+        }
         Ok(())
     }
 }

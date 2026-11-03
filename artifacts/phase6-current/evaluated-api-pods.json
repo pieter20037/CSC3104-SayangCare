@@ -1,0 +1,14 @@
+﻿[
+    {
+        "name":  "sayangcare-api-5d496f8548-9drmb",
+        "image":  "sha256:1c5d19e8da0f07b65ace822e9f5e870cd443875787cd847dd5f4032e155aaad3"
+    },
+    {
+        "name":  "sayangcare-api-5d496f8548-fj2sf",
+        "image":  "sha256:1c5d19e8da0f07b65ace822e9f5e870cd443875787cd847dd5f4032e155aaad3"
+    },
+    {
+        "name":  "sayangcare-api-5d496f8548-hk5gq",
+        "image":  "sha256:1c5d19e8da0f07b65ace822e9f5e870cd443875787cd847dd5f4032e155aaad3"
+    }
+]

@@ -1,0 +1,140 @@
+﻿[
+    {
+        "status":  {
+                       "backend":  "raft",
+                       "current_leader":  2,
+                       "current_term":  2,
+                       "last_applied":  41,
+                       "last_log_index":  41,
+                       "node_id":  1,
+                       "ownership":  {
+                                         "SIM-FENCE-LIVE-FAULT-20261103":  {
+                                                                               "assignment_generation":  3,
+                                                                               "volunteer_id":  "volunteer-aisha"
+                                                                           },
+                                         "SIM-FENCE-LIVE-QUORUM-20261103":  {
+                                                                                "assignment_generation":  1,
+                                                                                "volunteer_id":  "volunteer-aisha"
+                                                                            },
+                                         "SIM-fencing-1db0a814953845fead4f246d9a48b102":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-2992392f23704897a2942c587b171a42":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-35ea93942a964958b6875db398e32862":  {
+                                                                                              "assignment_generation":  3,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-725b1b1db3ae4e7ab6842c017196f0b2":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-aaa9ec48e11749f8a5002928ca1f92dc":  {
+                                                                                              "assignment_generation":  6,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-e22310eb7b3549358ab81d277017965b":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          }
+                                     },
+                       "state":  "Follower"
+                   },
+        "port":  18181
+    },
+    {
+        "status":  {
+                       "backend":  "raft",
+                       "current_leader":  2,
+                       "current_term":  2,
+                       "last_applied":  41,
+                       "last_log_index":  41,
+                       "node_id":  2,
+                       "ownership":  {
+                                         "SIM-FENCE-LIVE-FAULT-20261103":  {
+                                                                               "assignment_generation":  3,
+                                                                               "volunteer_id":  "volunteer-aisha"
+                                                                           },
+                                         "SIM-FENCE-LIVE-QUORUM-20261103":  {
+                                                                                "assignment_generation":  1,
+                                                                                "volunteer_id":  "volunteer-aisha"
+                                                                            },
+                                         "SIM-fencing-1db0a814953845fead4f246d9a48b102":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-2992392f23704897a2942c587b171a42":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-35ea93942a964958b6875db398e32862":  {
+                                                                                              "assignment_generation":  3,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-725b1b1db3ae4e7ab6842c017196f0b2":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-aaa9ec48e11749f8a5002928ca1f92dc":  {
+                                                                                              "assignment_generation":  6,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-e22310eb7b3549358ab81d277017965b":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          }
+                                     },
+                       "state":  "Leader"
+                   },
+        "port":  18182
+    },
+    {
+        "status":  {
+                       "backend":  "raft",
+                       "current_leader":  2,
+                       "current_term":  2,
+                       "last_applied":  41,
+                       "last_log_index":  41,
+                       "node_id":  3,
+                       "ownership":  {
+                                         "SIM-FENCE-LIVE-FAULT-20261103":  {
+                                                                               "assignment_generation":  3,
+                                                                               "volunteer_id":  "volunteer-aisha"
+                                                                           },
+                                         "SIM-FENCE-LIVE-QUORUM-20261103":  {
+                                                                                "assignment_generation":  1,
+                                                                                "volunteer_id":  "volunteer-aisha"
+                                                                            },
+                                         "SIM-fencing-1db0a814953845fead4f246d9a48b102":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-2992392f23704897a2942c587b171a42":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-35ea93942a964958b6875db398e32862":  {
+                                                                                              "assignment_generation":  3,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-725b1b1db3ae4e7ab6842c017196f0b2":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-aaa9ec48e11749f8a5002928ca1f92dc":  {
+                                                                                              "assignment_generation":  6,
+                                                                                              "volunteer_id":  null
+                                                                                          },
+                                         "SIM-fencing-e22310eb7b3549358ab81d277017965b":  {
+                                                                                              "assignment_generation":  5,
+                                                                                              "volunteer_id":  null
+                                                                                          }
+                                     },
+                       "state":  "Follower"
+                   },
+        "port":  18183
+    }
+]
