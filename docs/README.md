@@ -36,8 +36,8 @@ The root [README](../README.md) has separate Windows PowerShell and macOS Termin
 ## Report
 
 - [Group 25 report source](GROUP25.md)
-- [Updated Word report](../documents/GROUP25_UPDATED.docx)
-- [Updated PDF report](../documents/GROUP25_UPDATED.pdf)
+- [Final Word report](../documents/GROUP25.docx)
+- [Final PDF report](../documents/GROUP25.pdf)
 - [Current-revision measured results](../artifacts/phase6-current/final-evaluation.json)
 - [Later PostgreSQL recovery follow-up](PHASE6_Windows.md#postgresql-recovery-follow-up-3-november-chews-local-cluster)
 

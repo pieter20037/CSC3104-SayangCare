@@ -534,9 +534,10 @@ professor asks. Further procedure: [Raft demo guide](RAFT_DEMO_GUIDE.md),
 [current validation](TEST04_AND_AI_VALIDATION.md).
 
 Report copies:
-[Word](../documents/GROUP25_UPDATED.docx),
-[PDF](../documents/GROUP25_UPDATED.pdf),
-[source](GROUP25.md). These remain drafts pending team/requirements review.
+[Word](../documents/GROUP25.docx),
+[PDF](../documents/GROUP25.pdf),
+[source](GROUP25.md). Review author names, contributions and submission packaging
+before upload.
 
 ## 7. Questions to ask the professor (highest priority first)
 
