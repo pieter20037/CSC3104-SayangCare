@@ -35,6 +35,7 @@ The root [README](../README.md) has separate Windows PowerShell and macOS Termin
 
 ## Report
 
+- [Presentation, live demo, evidence commands and reusable AI/PowerPoint prompt](PRESENTATION_AND_AI_HANDOFF.md)
 - [Group 25 report source](GROUP25.md)
 - [Final Word report](../documents/GROUP25.docx)
 - [Final PDF report](../documents/GROUP25.pdf)

@@ -1,0 +1,86 @@
+﻿{
+    "run_id":  "20261116T070323820Z-9faed4d8",
+    "started_utc":  "2026-11-16T07:03:24.2622118Z",
+    "updated_utc":  "2026-11-16T07:03:24.4403935Z",
+    "finished_utc":  null,
+    "outcome":  "running",
+    "exit_code":  null,
+    "errors":  [
+
+               ],
+    "git_revision":  null,
+    "configuration":  {
+                          "latency_only":  false,
+                          "stop_grace_seconds":  5,
+                          "raft_database_topology":  "Not independently verified; typically Docker single PostgreSQL",
+                          "raft_urls":  [
+                                            "http://localhost:18081",
+                                            "http://localhost:18082",
+                                            "http://localhost:18083"
+                                        ],
+                          "election_timeout_seconds":  45,
+                          "ai_policy":  "Fresh SIM case; exactly one built-in crisis keyword turn; immediate escalation bypasses inference",
+                          "race_concurrency":  2,
+                          "http_timeout_seconds":  12,
+                          "recovery_timeout_seconds":  90,
+                          "fault_sequence":  "stop leader, elect with 2/3, stop follower, restore both",
+                          "inject_faults":  false,
+                          "latency_concurrency":  1,
+                          "postgres_database_topology":  "Not independently verified; port 18080 may be Minikube/replicated PostgreSQL",
+                          "postgres_url":  "http://localhost:18080",
+                          "warmup":  2,
+                          "skip_postgres":  false,
+                          "unavailable_bound_seconds":  10,
+                          "samples":  10,
+                          "image_identity":  "Unverified unless fault-mode Compose inspection runs; custom local processes need not use images"
+                      },
+    "comparison":  "Deployment comparison only; Docker Raft and port-18080 topology/database replication may differ. Not isolated Raft overhead.",
+    "preflight":  [
+
+                  ],
+    "sessions":  [
+
+                 ],
+    "assertions":  [
+
+                   ],
+    "requests":  [
+
+                 ],
+    "native_commands":  [
+
+                        ],
+    "api_exposed_sql_audits":  [
+
+                               ],
+    "recovery_intervals":  [
+
+                           ],
+    "latency":  {
+
+                },
+    "containers":  [
+
+                   ],
+    "target":  null,
+    "unresolved_sessions":  [
+
+                            ],
+    "unresolved_operation_ids":  [
+
+                                 ],
+    "faults":  {
+                   "raft":  "not run (requires -InjectFaults and approval)",
+                   "postgres":  "N/A: no Raft election or quorum in PostgreSQL mode"
+               },
+    "sql_audit":  {
+                      "status":  "Independent admin SQL NOT RUN: specify -AuditPostgresContainer; API-exposed PostgreSQL query evidence is separately labelled"
+                  },
+    "not_covered":  [
+                        "Database-failure-after-commit injection",
+                        "counter exhaustion and legacy migration",
+                        "API replica failure",
+                        "physical-machine isolation"
+                    ],
+    "restoration":  "not needed"
+}

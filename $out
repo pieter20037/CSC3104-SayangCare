@@ -1,0 +1,200 @@
+=== PDF PAGE 1 ===
+1  
+ 
+ 
+CSC3104: Cloud and Distributed Computing 
+Project: 2026-2027 
+ 
+Date issued Friday, 11 September 2026 
+Proposal submission 23:59 (11:59pm) Friday, 25 September 2026 
+Progress Presentation 13:00 – 16:00 (Tutorial), Tuesday, 29 October 2026 
+Final submission deadline 23:59 (11:59pm), Sunday, 15 November 2026 
+Dell Cloud Native Award 
+Presentation XX November 2026 (TBC with DELL) 
+ 
+This is an assessment component for the Cloud and Distributed Computing module worth 30%. 
+ 
+Description 
+You are asked to design and implement a (smart) (intelligent) (reliable) (secure) cloud-based distributed 
+system. You will then write a report in the form of a research article documenting your design and 
+implementation. The implemented system should demonstrate some original contribution that you will 
+need to argue in your report by comparing and contrasting it to related research and/or industrial work. 
+You are free to choose what will be the focus of your contribution. It can be a distributed (Gen)(AI) 
+application utilising cloud computing and cloud native that introduce some novel functionality, for 
+example, a distributed measurement system to give a network-wide view of performance; an integrated 
+distributed system employing technologies ranging from cloud computing, artificial intelligence and 
+embedded system; a distributed data collection and analytic framework for environmental monitoring. 
+Your project MUST incorporate the cloud native framework such as container and/or Kubernetes, 
+applying what you have learnt from the Dell’s online courses in this module. 
+You will undertake this assignment in groups to accommodate for the extra load of research in deriving 
+your own specification and design for the system you will be implementing. It is the group members’ 
+responsibility to divide the work and manage the overall project. 
+The following list contains a few past examples of what can constitute an original contribution but it is 
+by no means exhaustive: 
+• A smart distributed sensor-actuator application that offers intelligent automation in a home area 
+network. 
+• Implementation of a (new) consensus algorithm for a mini-Blockchain 
+• Building a Raspberry Pi cloud (https://ieeexplore.ieee.org/document/6679872) 
+(https://raspberrypicloud.wordpress.com/) 
+• Porting an existing cloud-based distributed system to Google RPC (https://grpc.io) 
+• Adding distribution and containerise some centralised/monolithic systems, implement microservice 
+architecture 
+
+=== PDF PAGE 2 ===
+CDC 
+ 2026-2027 
+ Project 
+2 
+ 
+ 
+ 
+• Distributed indoor localisation system for robots. 
+• Implementation of federated learning with an emphasis on distributed reliability and privacy 
+preservation 
+• Adding redundancy to an existing distributed computation to ensure e.g. correctness through voting 
+or better performance 
+• An implementation of a novel distributed algorithm for communication or coordination (e.g. leader 
+election, mutual exclusion, multicast, etc.) 
+• An implementation of a distributed algorithm with the help from cloud computing that tackles an 
+unsolved problem/works under certain conditions where other (equivalent) algorithms fail (e.g. by 
+converting certain types of failures to more acceptable types or avoiding them altogether) 
+You will have to argue about the originality of your contribution in your article. 
+The following events and outlets can give you an idea of research contributions in cloud & distributed 
+systems and related areas. Some of the systems/approaches described therein may seem overly complex 
+(your coursework can be something much simpler!) but they should still give you good inspiration for 
+the kinds of systems you can focus on as well as an idea of how to shape your article. You should 
+definitely do some research at these places (and others you can find online) before initiating discussions 
+within your group about the system/functionality you will be developing. 
+ACM/IFIP/USENIX International Middleware Conferences: 
+https://middleware-conf.github.io/2024/program/full-program/  
+IEEE International Parallel & Distributed Processing Symposium 
+https://www.ipdps.org/ 
+IEEE International Conference on Cloud Computing 
+https://cloud.conferences.computer.org/2024/ 
+https://conferences.computer.org/cloud/2023/ 
+IEEE Pervasive Computing conferences: 
+https://www.percom.org/ or https://ieeexplore.ieee.org/xpl/conhome/1000551/all-proceedings 
+https://www.sigmobile.org/mobisys/ 
+IEEE World Forum on Internet of Things (WF-IoT) 
+https://wfiot2024.iot.ieee.org/or https://wfiot2023.iot.ieee.org/ 
+IEEE Transactions on Parallel and Distributed Systems (TPDS): 
+https://ieeexplore.ieee.org/xpl/RecentIssue.jsp?punumber=71 
+Elsevier Journal of Parallel and Distributed Computing: 
+https://www.elsevier.com/wps/find/journaldescription.cws_home/622895/description 
+You should be able to access papers from these outlets via the Glasgow University’s electronic 
+subscriptions (e.g. to IEEEXplore and the ACM Digital Library) using your GUID, or SIT University 
+Network (access through SIT VPN). 
+ 
+Each group is required to submit a project proposal (no more than 2 pages) in Week 4 to outline your 
+initial idea, motivation, problems and challenges that the proposal is trying address. The proposal is 
+important to allow for the lecturer to provide early feedback on the idea, so that it can be improved 
+further. Individual group consultation sessions can be organised as part of the tutorial/lab sessions to 
+discuss the project ideas. 
+=== PDF PAGE 3 ===
+CDC 
+ 2026-2027 
+ Project 
+3 
+ 
+ 
+ 
+Your code can be written in any programming languages, such as Java, Python, C++ and it must use 
+Container and/or Kubernetes. Marks will be awarded based on the elegance of your implementation, 
+the level of challenge involved in realising it, and features included such as e.g. handling concurrency 
+(interference, memory consistency etc.), use of cloud services, concurrent tasks for e.g. housekeeping. 
+You must containerise (part of) your project and test your code before submission; excuses such as “it 
+worked at home” are not acceptable. 
+ 
+Your final article should be around 3,000 words and no more than 6 pages long following either the 
+IEEE or the ACM proceedings format. MS Word and LaTeX templates can be found at the following 
+locations (feel free to increase font to 11pt.), respectively: 
+http://www.ieee.org/conferences_events/conferences/publishing/templates.html 
+https://www.acm.org/publications/proceedings-template 
+The final article should contain at least the following sections (title, additional sections, sub-sections, 
+numbering and actual heading names are left at your discretion): 
+Abstract: A summary of your contribution; what problem does your system solve; what new 
+functionality it enables; what you have achieved by building it; no more than 200 words. 
+Introduction (and motivation): Put your work into a wider context; give a brief history of the area and 
+the state of the art; elaborate on your choice of building the particular system; justify why this system 
+is important and why it is needed (expand on the main points sententiously covered in the abstract and 
+explain what the work documented in the article is all about). 
+System Design: Describe your design choices and give a high-level overview of your system and its 
+functionality; include figures and/or diagrams to explain concepts, interactions between components 
+etc.; justify your design choices and discuss any resulting implications 
+Implementation: Describe the details of your implementation; how you have realised your design; what 
+aspects of it worked as expected and whether there has been any missing functionality; how you have 
+dealt with important issues such as concurrency, server-to-client communication, fault and failure 
+handling, etc. 
+Evaluation: Provide evidence that your system works; include quantitative indicators that verify any 
+claims you have made; provide proof of the performance of your system; use graphs to visualise your 
+main results. 
+Related Work: Critically describe related work in the field you chose to focus on and highlight the most 
+important contributions made by others; compare and contrast existing work with the system you have 
+implemented and therefore highlight your main achievements; say what existing systems do not do that 
+your system does. 
+Conclusions (and future work): Provide a brief description of the overall system you have documented 
+and highlight your main contributions. Include a main take-away message and possibly identify future 
+dimensions for your work. 
+References: Provide a numbered list of related works you have identified and discussed; it should 
+include articles and possibly on-line resources; this is not a bibliography, only include works that you 
+have cited from within your article. 
+ 
+Assessment 
+Proposal (17%): Marks will be awarded for coherent proposal that clearly articulates the application 
+domain(s) of the project, problems and challenges and how cloud and distributed algorithms can be 
+used to address them. The proposal must clearly describe the current state-of-the-art (i.e., what are the 
+existing approaches in designing and implementing the proposed application). Finally, a sketch of your 
+idea, outlining the approach and algorithms that you plan to implement for the proposed project. 
+=== PDF PAGE 4 ===
+CDC 
+ 2026-2027 
+ Project 
+4 
+ 
+ 
+ 
+Progress Presentation (15%): This is a mid-point check on your project’s progress. Marks will be 
+allocated based on the progress made. You will be given 5-10 mins of presentation time in the tutorial 
+session and each group member is expected to explain his/her contribution. 
+Implementation (25%): Marks will be awarded for working systems that implement the advertised 
+functionality. Level of marks will depend on the originality and contribution of the system and the level 
+of challenge involved in realising it. Inclusion of advanced features such as concurrency control, 
+serverless architecture, server callbacks, etc. will also be taken into consideration. You are NOT 
+expected to provide any sophisticated (G)UI for your system. Your solution should mainly focus on 
+aspects of the system that make it functions in a cloud native and distributed fashion. 
+Presentation (18%): Each group will be required to submit a short video of 10 to 15-minute in duration, 
+describing their implementation, detailing the functionalities and the design justification of the 
+distributed application they have developed. **The top 3 project teams will be invited to present 
+their project to a panel of judges to be considered for the Dell Cloud Native Award. 
+Article/Report (25%): Marks will be awarded for coherent articles that will satisfactorily address the 
+main points of the relevant sections outlined above. Particular attention should be given to the 
+construction of the argument regarding the originality of the implemented system and its comparison to 
+related work, as well as to the quantitative evaluation of the system. 
+ 
+*Note: Each member be required to submit a peer evaluation score to rate the other members’ 
+contribution at the end of the project. The final mark will be adjusted based on the peer 
+evaluation score. 
+ 
+ 
+What to submit 
+The proposal (max. 2 pages) – a single .pdf file called GROUPNN.pdf, will be submitted electronically 
+via LMS no later than 23:59 (11:59pm), Friday, 25th September 2026. A submission link will be 
+provided on LMS Cloud and Distributed Computing page. Only one submission per group. 
+ 
+The final mini project will be submitted electronically via LMS no later than 23:59pm (11:59pm), 
+Sunday, 15th November 2026. A submission link will be provided on LMS Cloud and Distributed 
+Computing page for the following items: 
+• Softcopy version of your system – all of the source code for your system (.java .cpp .py, launch 
+scripts, test data, etc.) should be packaged into a Docker container image to be submitted or specify 
+an URL or github repo. 
+• Softcopy version of your article – a single .pdf file called GROUPNN.pdf where NN is your group 
+number. 
+• Softcopy version of your testing instructions – a single .pdf file containing detailed instructions of 
+how you expect me to test your system. You should be explicit about steps I should take for testing 
+your program. The file should be called GROUPNN_INSTRUCTIONS.pdf, where NN is your 
+group number. 
+• Video presentation (you can either upload your video onto xSite or specify a URL/youtube link to 
+access your video).  
+ 
+One submission for each of the aforementioned four files should be made per group by one of the 
+members. 

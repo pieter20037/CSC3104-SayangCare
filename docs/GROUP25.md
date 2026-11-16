@@ -77,7 +77,7 @@ The circuit-breaker crate stores bounded samples in Redis, tracks error rate and
 
 The priority-queue crate adds an ownership-coordinator contract to its queue abstraction. OpenRaft supports leader forwarding, snapshots, retained generations and payload-aware request deduplication. Docker runs three fixed voters on ports 18081–18083; Kubernetes API replicas are not voters and use PostgreSQL-only ownership. Cases retain their authority: Raft-owned or pending cases never fall back during quorum loss, while legacy PostgreSQL-owned cases remain actionable. Dashboard cards display the authority. Archive-only cases restore a full PostgreSQL snapshot transactionally before ownership changes, after validating retained owner and generation; transfers, releases and resolves preserve audit history.
 
-The professor approved dashboard-only demonstration of synthetic callers and volunteer actions; international calls and public callbacks are unnecessary for that scope but remain unvalidated. GPT-OSS uses low reasoning effort and JSON sentiment output. A custom Prometheus-client exporter (not the `actix-web-prom` middleware) provides bounded route/method/status counters and duration histograms, alongside session, archive, pool and breaker metrics. Prometheus scraping, request-rate HPA and seven provisioned Grafana panels were verified locally.
+The team attempted Twilio integration using a US trial number. Local-access and trial constraints led to the professor-approved dashboard demonstration of synthetic callers and volunteer actions, not a live telephony evaluation. This is the team's experience, not a claim that every trial provides only US numbers; Twilio documents trial recipient and geographic restrictions [10]. GPT-OSS uses low reasoning effort and JSON sentiment output. A custom Prometheus-client exporter (not `actix-web-prom`) provides route/method/status counters and duration histograms, plus session, archive, pool and breaker metrics. Prometheus scraping, request-rate HPA and seven provisioned Grafana panels were verified locally.
 
 ## 5. Evaluation
 
@@ -102,9 +102,9 @@ The four-CPU host advertised 16 CPUs to Kubernetes while Docker had capped it at
 
 For HPA, desired scale-up began after 50.5 s, an additional pod became Ready after 61.7 s, and scale-down returned to three replicas 502.6 s after load. Independent SQL and exact-ID audits matched all 9,248 acknowledged creates, turns and hangups to valid archives/checkpoints with no pending work or version mismatch. This validates the measured two-minute workload, not indefinite capacity or the subsequent code revision.
 
-![Figure 3. HPA desired, current and Ready replicas during the 100-VU load and full cooldown; measurements are sampled from Kubernetes status.](../documents/phase6-hpa-replicas.png){width=3.25in}
+![Figure 2. HPA desired, current and Ready replicas during the 100-VU load and full cooldown; measurements are sampled from Kubernetes status.](../documents/phase6-hpa-replicas.png){width=3.25in}
 
-![Figure 2. Baseline HTTP p95 at 100 VUs for 30 seconds; the dashed line is the unchanged 2,000-ms gate. Runs change both code and available CPU, so this is not a single-variable causal comparison.](../documents/phase6-evaluation.png){width=3.25in}
+![Figure 3. Baseline HTTP p95 at 100 VUs for 30 seconds; the dashed line is the unchanged 2,000-ms gate. Runs change both code and available CPU, so this is not a single-variable causal comparison.](../documents/phase6-evaluation.png){width=3.25in}
 
 The original Redis-first fault lost 17 acknowledged creations and motivated PostgreSQL commit authority. On two CPUs, a durable-session sustained test later reached p95 2,220.53 ms with pool timeouts. Wait samples indicated WAL synchronization, while cgroup counters showed CPU throttling. The implementation then combined terminal transition, archive and checkpoint retirement into one transaction, increased actual four-CPU host capacity, and raised Actix keep-alive above the 60-second ingress upstream timeout. The last change addressed a recorded upstream 502 and has a six-second connection-reuse regression. As these were sequential interventions, the performance gain cannot be attributed to one code change alone. Earlier failed experiments are retained, not relabelled.
 
@@ -136,7 +136,7 @@ Keyword risk scoring is not a substitute for a trained and independently evaluat
 
 SayangCare integrates signed voice-webhook contracts, durable versioned checkpoints, adaptive inference degradation and generation-fenced volunteer handoff. Redis orders the queue; PostgreSQL preserves durable state and rejects stale owners; optional three-node Raft coordinates ownership through a majority without being embedded in autoscaled API pods. The measured baseline, API-loss, Redis-promotion and HPA runs passed on the earlier evaluated image. A separate later primary-replacement run passed strict gates after targeted recovery changes. The evidence supports a tested prototype, not production capacity, live telephony reliability or multi-node availability.
 
-Dashboard simulation is the professor-approved demonstration scope, so live Twilio is not a submission blocker; speech recognition, audio delivery, callbacks and outbound ringing remain unvalidated. Next work is to repeat baseline, API-loss and HPA acceptance against the exact post-fix submission image, define checkpoint/journal retention, implement and test projection reconciliation if required, and perform multi-node and backup-restoration tests. Telephony effects after ambiguous ownership recovery require operator review; no transactional phone-dispatch outbox is implemented. Neither synthetic success nor a small AI smoke establishes readiness for real emergencies.
+Dashboard simulation is the approved demonstration scope; it does not validate speech recognition, carrier audio, public callbacks or outbound ringing. With funding, a future pilot could obtain a voice-capable Singapore Twilio number, subject to availability and number-specific regulatory eligibility, and validate both call directions. Singapore domestic outbound guidance requires a Twilio Singapore caller ID [11]; national numbers require business documentation and Level-6 numbers a Singapore business address [12]. Payment alone does not ensure eligibility. Next work includes exact post-fix baseline/API-loss/HPA regression, checkpoint/journal retention, projection reconciliation, multi-node and backup-restoration testing. Ambiguous telephony recovery still needs operator review: no transactional dispatch outbox exists. Synthetic success does not establish emergency-service readiness.
 
 ## References
 
@@ -157,5 +157,11 @@ Dashboard simulation is the professor-approved demonstration scope, so live Twil
 [8] Y. Yang, C. Wang, X. Xiang, and R. An, “AI applications to reduce loneliness among older adults: A systematic review of effectiveness and technologies,” _Healthcare_, vol. 13, no. 5, p. 446, 2025, doi: 10.3390/healthcare13050446.
 
 [9] M. Kleppmann, “How to do distributed locking,” 2016. [Online]. Available: https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html
+
+[10] Twilio, “Get started with your Twilio free trial account.” [Online]. Available: https://www.twilio.com/docs/usage/tutorials/how-to-use-your-free-trial-account. Accessed: Nov. 16, 2026.
+
+[11] Twilio, “Singapore: Voice guidelines.” [Online]. Available: https://www.twilio.com/en-us/guidelines/sg/voice. Accessed: Nov. 16, 2026.
+
+[12] Twilio, “Singapore: Regulatory guidelines.” [Online]. Available: https://www.twilio.com/en-us/guidelines/sg/regulatory. Accessed: Nov. 16, 2026.
 
 :::
