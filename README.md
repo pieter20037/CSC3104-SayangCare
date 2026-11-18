@@ -595,6 +595,7 @@ databases unless the data owner explicitly approves permanent data loss.
 | [Final report PDF](documents/GROUP25_FINAL_REVISED.pdf) | Submitted-report candidate; review before submission |
 | [Final report Word](documents/GROUP25_FINAL_REVISED.docx) | Editable report; review before submission |
 | [Presentation and AI handoff](docs/PRESENTATION_AND_AI_HANDOFF.md) | Seven-person presentation, demo, statistics and evidence provenance |
+| [Report metrics traceability](docs/REPORT_METRICS_TRACEABILITY.md) | Exact artifacts, JSON keys, chart columns and read-only Q&A proof commands |
 
 Selected **historical** Windows experiments are indexed in
 [`artifacts/phase6-current/final-evaluation.json`](artifacts/phase6-current/final-evaluation.json).
