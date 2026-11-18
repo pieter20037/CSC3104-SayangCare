@@ -2,8 +2,8 @@
 
 Prepared 16 November 2026 for Team 25, CSC3104 Cloud and Distributed Computing.
 This is a reusable prompt document and rehearsal manual, not a new experiment.
-Use it with the [IEEE article](GROUP25.md), [final PDF](../documents/GROUP25.pdf)
-and [final Word report](../documents/GROUP25.docx).
+Use it with the [IEEE article](GROUP25.md), [final PDF](../documents/GROUP25_FINAL_REVISED.pdf)
+and [final Word report](../documents/GROUP25_FINAL_REVISED.docx).
 
 ## 1. How to use this document
 
@@ -278,7 +278,7 @@ kubectl --context minikube -n sayangcare get pods -l app=sayangcare-api -o wide
 
 Record running image IDs/source manifest and host resources if rerunning a
 benchmark. A source checkout does not rebuild or replace running containers.
-Use [the deployment guide](PHASE6_Windows.md) for controlled image rollout.
+Use [the deployment guide](../README.md#kubernetes-minikube) for controlled image rollout.
 Do not claim a current Git HEAD is the source of every historical run.
 
 For an already installed Kubernetes deployment:
@@ -677,7 +677,7 @@ use dedicated output directories and inspect every native exit code.
 
 Before tests, ensure deterministic/mock AI, appropriate available resources,
 healthy primary/synchronous standby and no conflicting test. Read
-[Phase 6 Windows](PHASE6_Windows.md) and each script's help.
+the [testing instructions](../README.md#testing-and-evaluation) and each script's help.
 Do not disable synchronous replication, weaken gates or increase pool sizes
 without measured capacity evidence.
 

@@ -1,7 +1,7 @@
 # Base deployment. Apply with `kubectl apply -k k8s/base` (kustomize orders the
 # Namespace and ConfigMap ahead of the workloads, which `kubectl apply -f k8s/`
 # does not). The Secret `sayangcare-secrets` is created out-of-band; see
-# docs/PHASE_4_KUBERNETES.md.
+# README.md.
 #
 # Variants:
 #   overlays/minikube          local cluster, ngrok-fronted HTTP ingress

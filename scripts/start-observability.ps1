@@ -222,7 +222,7 @@ try {
 
     $minikubeStatus = & $script:minikubePath status --profile minikube 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -and $minikubeStatus -match 'Profile .*not found') {
-        throw 'The Minikube profile is missing. Complete the one-time setup in docs/PHASE_4_KUBERNETES.md, then rerun this launcher.'
+        throw 'The Minikube profile is missing. Complete the one-time setup in README.md, then rerun this launcher.'
     }
     if ($minikubeStatus -notmatch '(?im)^host:\s+Running\s*$') {
         Write-Host 'Starting the existing Minikube profile...' -ForegroundColor Cyan
@@ -235,7 +235,7 @@ try {
 
     $apiDeployment = & $script:kubectlPath --context minikube -n sayangcare get deployment sayangcare-api -o name 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $apiDeployment) {
-        throw 'The Phase 4 SayangCare application is not installed in this cluster. Complete its one-time setup in docs/PHASE_4_KUBERNETES.md first.'
+        throw 'The SayangCare application is not installed in this cluster. Complete its one-time setup in README.md first.'
     }
 
     Write-Host 'Waiting for the Phase 4 application...' -ForegroundColor Cyan

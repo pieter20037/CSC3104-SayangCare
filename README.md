@@ -1,911 +1,622 @@
-# CSC3104-SayangCare
+# SayangCare
 
-SayangCare is a Rust-based, voice-first telehealth service for handling inbound calls, maintaining conversation state, detecting distress, and escalating high-risk sessions to human volunteers.
+SayangCare is a distributed voice-support **prototype** for CSC3104 Cloud and
+Distributed Computing. A Rust/Actix Web API maintains caller sessions, detects
+synthetic high-risk turns, and coordinates volunteer handoffs. The dashboard
+provides a simulated caller and volunteer workflow for the project demonstration.
 
-This repository is the CSC3104 cloud-computing project. It demonstrates a modular backend with:
-
-- Actix Web HTTP and Twilio webhook endpoints
-- Redis Sentinel for hot, replicated session state
-- PostgreSQL for durable session archives and audit data
-- A Redis-backed priority queue for volunteer escalation
-- An adaptive circuit breaker for degraded-mode behavior
-- Docker Compose for local infrastructure
-- Kubernetes manifests for a multi-replica deployment
-
-The current codebase is a working scaffold. The JSON Call Lab simulator and live Twilio `/gather` path apply deterministic risk triage and can generate supportive replies through Groq's OpenAI-compatible Chat Completions API. High-risk turns bypass the LLM and use a fixed safety response before queue escalation. Without a Groq API key, both paths use deterministic fallback replies. Readiness checks Redis and PostgreSQL; `/api/v1/metrics` exports a per-process HTTP request counter. See [Known Limitations](#known-limitations).
+> **Use synthetic data only.** This is not a clinical tool or emergency service.
+> Dashboard role selectors are not authentication. Live Twilio calls, carrier
+> audio and real caller outcomes have not been validated end to end.
 
 ## Contents
 
 - [Architecture](#architecture)
-- [Repository Layout](#repository-layout)
 - [Requirements](#requirements)
-- [Quick Start: Local Development](#quick-start-local-development)
-- [Verification](#verification)
-- [Useful Commands](#useful-commands)
+- [Windows setup](#windows-setup)
+- [macOS setup](#macos-setup)
+- [Dashboard demonstration](#dashboard-demonstration)
 - [Configuration](#configuration)
-- [Database and Migrations](#database-and-migrations)
-- [HTTP API](#http-api)
-- [Twilio Webhook Flow](#twilio-webhook-flow)
-- [Storage and Reliability Design](#storage-and-reliability-design)
-- [Docker](#docker)
-- [Kubernetes](#kubernetes)
-- [Observability](#observability)
+- [Optional: three-node Raft](#optional-three-node-raft)
+- [Kubernetes (Minikube)](#kubernetes-minikube)
+- [Monitoring](#monitoring)
+- [Testing and evaluation](#testing-and-evaluation)
+- [API reference](#api-reference)
 - [Troubleshooting](#troubleshooting)
-- [Project Documentation](docs/README.md)
-- [Phase 1 Test Guide](docs/PHASE_1_TEST_GUIDE.md)
-- [Raft Leader Election Demo](docs/RAFT_DEMO_GUIDE.md)
-- [Known Limitations](#known-limitations)
-- [Development Guidelines](#development-guidelines)
+- [Repository and submission evidence](#repository-and-submission-evidence)
+- [Limitations](#limitations)
 
 ## Architecture
 
 ```text
-Caller
-	|
-	v
-Twilio ------------------------+
-	|                            |
-	| form-encoded webhooks      | Twilio REST API
-	v                            v
-SayangCare API (Actix Web) --> Twilio
-	|
-	+--> Redis Sentinel --> Redis master/replicas
-	|       |
-	|       +--> hot session state, CAS updates, escalation queue
-	|
-	+--> PostgreSQL --> durable terminal sessions and transcripts
-	|
-	+--> adaptive circuit breaker --> degraded mode / escalation behavior
+ Dashboard / Twilio webhooks
+              |
+       Actix Web API  <---->  Groq (optional; breaker and fallback)
+              |
+       +------+---------------------------------------+
+       |                      |                       |
+  PostgreSQL             Redis / Sentinel     OpenRaft (optional)
+  checkpoint authority   hot projection       3 fixed ownership voters
+  transcripts + audit    risk DESC / FIFO     majority = 2 of 3
+  generation fencing     waiting queue
 ```
 
-The API is built as a Cargo workspace. The `core` crate owns domain types and ports; infrastructure crates implement those ports; the `api` crate assembles everything and exposes HTTP routes.
+The application is a **modular monolith**, not seven separately deployed
+services. PostgreSQL commits versioned checkpoints before acknowledging session
+mutations, archives terminal transcripts, and enforces ownership generations.
+Redis supplies best-effort hot projections and queue order; Sentinel monitors
+and promotes replicas in the Kubernetes deployment. Circuit breakers, bounded
+AI concurrency and response deadlines protect against slow inference.
 
-## Repository Layout
-
-| Path                      | Responsibility                                                         |
-| ------------------------- | ---------------------------------------------------------------------- |
-| `Cargo.toml`              | Workspace members, shared dependencies, Rust version, release profile  |
-| `crates/core`             | Domain models, configuration, errors, and hexagonal-architecture ports |
-| `crates/api`              | Actix Web binary, application bootstrap, routes, middleware, telemetry |
-| `crates/session-store`    | Redis hot store, PostgreSQL archive store, and tiered storage facade   |
-| `crates/priority-queue`   | Redis sorted-set queue and atomic volunteer claims                     |
-| `crates/circuit-breaker`  | Circuit states, rolling counters, adaptive thresholds, registry        |
-| `crates/telephony`        | Twilio REST API implementation of the telephony port                   |
-| `crates/redis-client`     | Shared Redis connection provider with periodic Sentinel master refresh |
-| `migrations/`             | SQLx PostgreSQL migrations                                             |
-| `config/default.toml`     | Default non-secret application configuration                           |
-| `docker-compose.yml`      | Local PostgreSQL, Redis, Redis Sentinel, and single API service        |
-| `docker-compose.raft.yml` | Three-node Raft demo stack using the shared local infrastructure       |
-| `Dockerfile`              | Multi-stage release image build                                        |
-| `k8s/`                    | Kubernetes namespace, configuration, workloads, probes, and HPA        |
-| `.sqlx/`                  | Committed SQLx offline query metadata                                  |
+Optional OpenRaft orders volunteer ownership changes. An initial claim receives
+generation 1, transfer 2, release 3 and reclaim 4. PostgreSQL rejects protected
+actions with a stale generation (`409 Conflict`). PostgreSQL-only mode can
+enforce fencing too. Kubernetes HPA API replicas are **not** Raft voters:
+the default Kubernetes deployment uses PostgreSQL-only ownership.
 
 ## Requirements
 
-- Rust `1.88` or newer, including Cargo
-- Docker Desktop with Docker Compose
-- SQLx CLI only if applying or inspecting migrations manually
-- `psql` is optional; it is available inside the PostgreSQL container
-- `curl` for endpoint checks
-- `kubectl` only if deploying to Kubernetes
+| Requirement | Local dashboard | Kubernetes / evaluation |
+| --- | --- | --- |
+| Docker Desktop with running Linux container engine and Compose | Required | Required for Docker-driver Minikube |
+| Git | To clone | To clone |
+| Rust and Cargo 1.88+ | Required for native API; not required for Compose | Required for Cargo tests |
+| `kubectl`, Minikube | No | Required |
+| Helm | No | Optional Prometheus/Grafana installation |
+| k6 | No | Optional load testing |
+| PowerShell | Windows already includes it | Windows evaluation scripts |
 
-Install SQLx CLI if needed:
+Install Docker Desktop from [Docker](https://docs.docker.com/get-started/get-docker/)
+and Rust from [rustup](https://rustup.rs/). On Windows, use Docker Desktop's
+WSL 2 backend and Linux containers. On macOS, use Docker Desktop for your
+processor architecture. Native Rust builds also need the platform's C toolchain:
+Visual Studio C++ Build Tools on Windows, or Xcode Command Line Tools on macOS
+(`xcode-select --install`). For Kubernetes, install
+[Minikube](https://minikube.sigs.k8s.io/docs/start/),
+[`kubectl`](https://kubernetes.io/docs/tasks/tools/) and optionally
+[Helm](https://helm.sh/docs/intro/install/).
 
-```bash
-cargo install sqlx-cli --no-default-features --features postgres,rustls
-```
+Run all repository commands from its root directory. Allow time for the first
+Rust build and container downloads. Do not copy real credentials into source
+control, screenshots, logs or chat.
 
-Check the toolchain:
+## Windows setup
 
-```bash
-rustc --version
-cargo --version
-docker --version
+Open **PowerShell** in the project directory and start Docker Desktop. If you
+need a new checkout:
+
+```powershell
+git clone https://github.com/pieter20037/CSC3104-SayangCare.git
+Set-Location CSC3104-SayangCare
+docker version
 docker compose version
 ```
 
-## Quick Start: Local Development
-
-The native development workflow is the same on Windows and macOS: Docker runs PostgreSQL and Redis/Sentinel, while Cargo runs the API on port `8081`. The `.env.example` defaults use PostgreSQL `127.0.0.1:5434`, Redis `127.0.0.1:6379`, and Sentinel `127.0.0.1:26379`. Port `5434` avoids conflicts with host PostgreSQL services on `5432` or `5433`.
-
-The repository ignores `.env` because it can contain credentials. Copy the example once and keep real credentials out of Git. The example Twilio values are placeholders; they let the local scaffold start but do not connect a real Twilio account.
-
-### Windows (PowerShell)
-
-From the repository root:
+`docker version` should show both client and server. If using the native API,
+also check `rustc --version` and `cargo --version`. Create a local configuration
+**only if one does not already exist**:
 
 ```powershell
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-docker compose up -d --wait postgres redis-master redis-replica redis-sentinel
-docker compose ps
 ```
 
-In terminal 1, start the API and leave it running:
+For a synthetic demo, keep the optional Groq API key unset, including in an
+existing `.env` and inherited shell environment. The included Twilio account
+values are placeholders and are not usable for live calls. For a fresh local
+database, the example password is development-only; if changing it, update
+`POSTGRES_PASSWORD`, `DATABASE_URL` and `SAYANGCARE__POSTGRES__URL` consistently.
+Existing PostgreSQL volumes retain their original password; changing `.env`
+alone does not change it.
+
+### Option A: API in Docker Compose
 
 ```powershell
-cargo run -p sayangcare-api
-```
-
-In terminal 2, check that it responds:
-
-```powershell
-curl.exe -i http://localhost:8081/api/v1/health
-curl.exe -i http://localhost:8081/api/v1/ready
-```
-
-Both should return HTTP `200`. Use `curl.exe` in PowerShell to avoid the `curl` alias. The API stays in the foreground; do not start a second copy on port 8081. Press `Ctrl+C` in terminal 1 to stop it.
-
-### macOS (Terminal)
-
-From the repository root:
-
-```bash
-test -f .env || cp .env.example .env
-docker compose up -d --wait postgres redis-master redis-replica redis-sentinel
-docker compose ps
-```
-
-In terminal 1, start the API and leave it running:
-
-```bash
-cargo run -p sayangcare-api
-```
-
-In terminal 2, check the endpoints:
-
-```bash
-curl -i http://localhost:8081/api/v1/health
-curl -i http://localhost:8081/api/v1/ready
-```
-
-Both should return HTTP `200`. Press `Ctrl+C` in terminal 1 to stop the API.
-
-The API applies embedded SQLx migrations at startup. To inspect migration status manually, install SQLx CLI and run `sqlx migrate info --source migrations` after setting `DATABASE_URL` from `.env`. See [Database and Migrations](#database-and-migrations).
-
-Stop local infrastructure when finished; named database volumes are retained:
-
-```bash
-docker compose down
-```
-
-`docker compose down -v` also deletes the PostgreSQL data volume and is destructive.
-
-## Verification
-
-Run these three checks from the repository root for a fast Rust-code verification pass.
-
-### Windows (PowerShell)
-
-Each step stops the sequence if it fails:
-
-```powershell
-cargo fmt --all -- --check
-if ($LASTEXITCODE -ne 0) { throw 'Formatting check failed' }
-cargo check --workspace --all-targets
-if ($LASTEXITCODE -ne 0) { throw 'Workspace compile check failed' }
-cargo test --workspace
-if ($LASTEXITCODE -ne 0) { throw 'Workspace tests failed' }
-```
-
-### macOS (Terminal)
-
-The `&&` operators stop the sequence at the first failure:
-
-```bash
-cargo fmt --all -- --check && \
-cargo check --workspace --all-targets && \
-cargo test --workspace
-```
-
-`cargo fmt --check` checks formatting, `cargo check --workspace --all-targets` compiles the workspace and test targets, and `cargo test --workspace` runs automated tests. These commands do not prove Docker services or real Twilio connectivity work. For live local service checks, follow Quick Start and use the smoke-test flow in [PHASE_1_TEST_GUIDE.md](docs/PHASE_1_TEST_GUIDE.md). In the verified local smoke test, the same CallSid reused successfully, a conflicting caller returned `409`, a high-risk transcript escalated the session, and the Redis hot key was removed after the archive check.
-
-## Useful Commands
-
-### Rust development
-
-```bash
-# Format all Rust code
-cargo fmt --all
-
-# Check the complete workspace, including test targets
-cargo check --workspace --all-targets
-
-# Run all workspace tests
-cargo test --workspace
-
-# Run tests for one crate
-cargo test -p sayangcare-session-store
-
-# Build the release API binary
-cargo build --release --bin sayangcare
-
-# Run the API binary directly after building
-cargo run --bin sayangcare
-
-# View dependency tree
-cargo tree
-
-# Remove generated Rust build artifacts
-cargo clean
-```
-
-SQLx query metadata is committed in `.sqlx/`, and `.cargo/config.toml` enables SQLx offline mode by default. This means normal compilation does not require a live PostgreSQL server.
-
-### Docker operations
-
-```bash
-# Build and start the complete Compose stack
 docker compose up -d --build
-
-# Start only infrastructure for local Cargo development
-docker compose up -d --wait postgres redis-master redis-replica redis-sentinel
-
-# Follow API logs
-docker compose logs -f api
-
-# Follow database logs
-docker compose logs -f postgres
-
-# Inspect running containers and resource usage
 docker compose ps
-docker stats --no-stream
-
-# Rebuild the API image without using stale layers
-docker compose build --no-cache api
-
-# Stop services but preserve named volumes
-docker compose down
+docker compose logs --tail 50 api
+curl.exe --noproxy "*" -i http://127.0.0.1:8080/api/v1/health
+curl.exe --noproxy "*" -i http://127.0.0.1:8080/api/v1/ready
+Start-Process "http://127.0.0.1:8080/dashboard"
 ```
 
-### Database inspection
+The first build can take several minutes. Both endpoints should return HTTP
+200 once PostgreSQL, Redis and the API are ready. If they do not, check logs
+and [Troubleshooting](#troubleshooting). Keep the containers running for the
+demo. Stop them later with `docker compose down`; named volumes are retained.
+Only do this if you own the Compose deployment; it stops the project's services.
+
+### Option B: infrastructure in Docker, API with Cargo
+
+Use this **instead of** the Compose API, not simultaneously on the same ports.
+From the project directory:
+
+```powershell
+docker compose up -d --wait postgres redis-master redis-replica redis-sentinel
+cargo run -p sayangcare-api --locked
+```
+
+Leave that terminal running. In another PowerShell terminal:
+
+```powershell
+curl.exe --noproxy "*" -i http://127.0.0.1:8081/api/v1/health
+curl.exe --noproxy "*" -i http://127.0.0.1:8081/api/v1/ready
+Start-Process "http://127.0.0.1:8081/dashboard"
+```
+
+The native API reads `.env` automatically; host defaults are PostgreSQL 5434,
+Redis 6379, Sentinel 26379 and API 8081. Press `Ctrl+C` to stop the API.
+These Compose services have **one Sentinel**, configured with a quorum of two:
+they are a convenient local dependency stack, not a working Sentinel HA
+failover cluster. The Kubernetes deployment supplies three Sentinels.
+
+## macOS setup
+
+Open **Terminal** in the project directory and start Docker Desktop. If needed:
 
 ```bash
-# Connect to the Docker PostgreSQL instance on the host
-set -a
-. ./.env
-set +a
-psql "$DATABASE_URL"
-
-# List tables from inside the container
-docker compose exec postgres psql -U sayangcare -d sayangcare -c '\dt'
-
-# Inspect SQLx migration history
-docker compose exec postgres psql -U sayangcare -d sayangcare \
-	-c 'select version, description, success, installed_on from _sqlx_migrations order by version;'
-
-# Verify an archived call after using End call in the dashboard
-docker compose exec -T postgres psql -U sayangcare -d sayangcare \
-	-c "SELECT id, state, handoff_status, assigned_volunteer_id, is_simulated, risk->'level' AS risk_level, jsonb_array_length(transcript->'turns') AS turns FROM sessions WHERE id = 'SIM-your-session-id';"
-
-# Check the migration CLI state
-unset DATABASE_URL SQLX_DATABASE_URL
-sqlx migrate info --source migrations
+git clone https://github.com/pieter20037/CSC3104-SayangCare.git
+cd CSC3104-SayangCare
+open -a Docker
+# Wait for the Docker engine to start.
+docker version
+docker compose version
+test -f .env || cp .env.example .env
 ```
+
+For the native API, also check `rustc --version` and `cargo --version`.
+The [Windows configuration notes](#windows-setup) also apply: keep the optional
+AI key unset for deterministic simulation, use only placeholder Twilio values,
+and keep all three local PostgreSQL password settings consistent for a fresh
+volume. Existing database volumes do not change password when `.env` changes.
+
+### Option A: API in Docker Compose
+
+```bash
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail 50 api
+curl --noproxy '*' -i http://127.0.0.1:8080/api/v1/health
+curl --noproxy '*' -i http://127.0.0.1:8080/api/v1/ready
+open http://127.0.0.1:8080/dashboard
+```
+
+Wait for both checks to return HTTP 200. Stop later with
+`docker compose down`; this preserves named volumes.
+Only stop a Compose deployment you own.
+
+### Option B: infrastructure in Docker, API with Cargo
+
+```bash
+docker compose up -d --wait postgres redis-master redis-replica redis-sentinel
+cargo run -p sayangcare-api --locked
+```
+
+Leave this terminal running. In a second Terminal window, from the checkout:
+
+```bash
+curl --noproxy '*' -i http://127.0.0.1:8081/api/v1/health
+curl --noproxy '*' -i http://127.0.0.1:8081/api/v1/ready
+open http://127.0.0.1:8081/dashboard
+```
+
+Press `Ctrl+C` to stop the native API. The Compose Sentinel is a local
+single-instance dependency, not an HA failover demonstration. The macOS
+instructions are provided for teammates; the historical performance results
+below were recorded on Windows, not benchmarked on a Mac.
+
+## Dashboard demonstration
+
+1. Select **Caller lab**, start a fresh synthetic session and record a turn.
+   The Call SID, transcript, risk and version appear in the session view.
+2. End the ordinary call and inspect its completed transcript. PostgreSQL is
+   the durable authority; Redis is a recoverable projection.
+3. Use **Simulate crisis call** for a fresh synthetic escalation. Risk 4-5
+   triggers immediate human-review handling; this is a phrase heuristic,
+   not a clinical diagnosis.
+4. Open **Volunteer desk**, select an on-shift volunteer and **Claim** the
+   intended case. Transfer it to another on-shift volunteer. The displayed
+   assignment generation advances; release/reclaim advances it again.
+5. In Raft mode, show the **Raft cluster** panel and ownership authority.
+   For a reproducible stale-token `409` and current-token `200` example,
+   see the preserved [presentation and demo guide](docs/PRESENTATION_AND_AI_HANDOFF.md).
+
+The roster and role controls are prototype selectors, not authenticated
+identities. Simulated sessions do not place a phone call. The professor-approved
+dashboard scope does not validate inbound speech, public callbacks or outbound
+ringing.
 
 ## Configuration
 
-Configuration is loaded in this order:
-
-1. Optional `config/default.toml`
-2. Environment variables with the `SAYANGCARE__` prefix
-3. `.env` is loaded by the API binary for local development
-
-For local development, keep the PostgreSQL credentials and URL together in `.env`; the API requires the database URL and Twilio credentials from environment variables. Docker Compose builds its internal URL from `POSTGRES_PASSWORD`. Create the Kubernetes Secret from `.env`; workloads map only the required credential keys from that Secret.
-
-The double underscore maps environment variables to nested TOML sections. For example:
-
-```text
-SAYANGCARE__POSTGRES__MAX_CONNECTIONS=20
-```
-
-maps to:
-
-```toml
-[postgres]
-max_connections = 20
-```
-
-Important settings:
-
-| Setting                                             | Local example                          | Purpose                                                                                          |
-| --------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `SAYANGCARE__SERVER__HOST`                          | `0.0.0.0`                              | HTTP bind address                                                                                |
-| `SAYANGCARE__SERVER__PORT`                          | `8081`                                 | HTTP port                                                                                        |
-| `SAYANGCARE__SERVER__WORKERS`                       | `4`                                    | Actix worker count                                                                               |
-| `SAYANGCARE__POSTGRES__URL`                         | `...@127.0.0.1:5434/...`               | PostgreSQL connection URL                                                                        |
-| `SAYANGCARE__POSTGRES__MAX_CONNECTIONS`             | `20`                                   | PostgreSQL pool limit                                                                            |
-| `SAYANGCARE__REDIS__SENTINEL_ENDPOINTS`             | `["127.0.0.1:26379"]`                  | Sentinel endpoint list                                                                           |
-| `SAYANGCARE__REDIS__MASTER_NAME`                    | `sayangcare-master`                    | Sentinel master name                                                                             |
-| `SAYANGCARE__REDIS__MASTER_URL`                     | `redis://127.0.0.1:6379/`              | Optional direct session-store URL; set for native local development                              |
-| `SAYANGCARE__REDIS__QUEUE_URL`                      | `redis://127.0.0.1:6379/`              | Redis endpoint used by the priority queue                                                        |
-| `SAYANGCARE__REDIS__PASSWORD`                       | unset locally                          | Redis password, if enabled                                                                       |
-| `SAYANGCARE__CIRCUIT_BREAKER__BASE_ERROR_RATE`      | `0.25`                                 | Base error threshold                                                                             |
-| `SAYANGCARE__CIRCUIT_BREAKER__BASE_LATENCY_MS`      | `2000`                                 | Base latency threshold                                                                           |
-| `SAYANGCARE__CIRCUIT_BREAKER__MIN_REQUESTS`         | `20`                                   | Minimum shared samples for error-rate and p95 evaluation; three consecutive failures trip sooner |
-| `SAYANGCARE__CIRCUIT_BREAKER__HALF_OPEN_AFTER_SECS` | `10`                                   | Open-to-half-open delay                                                                          |
-| `SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID`         | test value locally                     | Twilio account identifier                                                                        |
-| `SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN`          | test value locally                     | Twilio credential                                                                                |
-| `SAYANGCARE__TELEPHONY__TWILIO_FROM_NUMBER`         | unset                                  | Twilio-owned or verified caller ID for outbound volunteer calls                                  |
-| `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL`            | `http://localhost:8081`                | Exact public origin used in TwiML actions and signature validation                               |
-| `SAYANGCARE__AI__API_KEY`                           | unset                                  | Optional Groq API key; keep it in ignored `.env`                                                 |
-| `SAYANGCARE__AI__MODEL`                             | `openai/gpt-oss-120b`                  | Groq-hosted chat model                                                                           |
-| `SAYANGCARE__AI__BASE_URL`                          | Groq Chat Completions URL              | OpenAI-compatible chat completions endpoint                                                      |
-| `SAYANGCARE__AI__TIMEOUT_SECS`                      | `12`                                   | Inference request timeout                                                                        |
-| `RUST_LOG`                                          | `info,sayangcare=debug,actix_web=info` | Log filter                                                                                       |
-
-Never commit real Twilio, LLM, database, or Redis credentials. Use Kubernetes Secrets or an external secret manager for deployed environments.
-
-To enable Groq locally, put your Groq key in the ignored `.env` file as `SAYANGCARE__AI__API_KEY=...`, set the model and base URL shown in `.env.example`, then restart the API. Do not paste the key into source files, README, or chat. If the key is absent or a request fails, the API uses a deterministic fallback. The model generates supportive non-crisis replies; local heuristic triage remains responsible for immediate escalation.
-
-## Database and Migrations
-
-The initial migration in `migrations/0001_init.sql` creates:
-
-- `sessions`: durable session state and transcripts
-- `volunteers`: volunteer registry
-- `escalations`: auditable session-to-volunteer assignments
-- Indexes for caller, creation time, state, and open escalations
-
-Later migrations: `0002` session recovery fields, `0003` volunteer handoff fields, `0004` simulated-session flag, `0005` volunteer assignments (one active owner per session), `0006` assignment history and reclaims, `0007` allow hot-session assignments. Never edit an applied migration; add a new one.
-
-The API also runs embedded migrations during startup with `sqlx::migrate!`, so a running API expects the database to be reachable and migration-compatible.
-
-### Important local port distinction
-
-| Context                                     | PostgreSQL address                           |
-| ------------------------------------------- | -------------------------------------------- |
-| Host shell, `sqlx`, `psql`, local Cargo API | `127.0.0.1:5434`                             |
-| API container in Compose                    | `postgres:5432`                              |
-| Kubernetes API pod                          | `sayangcare-db-rw.sayangcare.svc.cluster.local:5432` (current primary) |
-
-If `sqlx migrate run` reports `role "sayangcare" does not exist`, it is usually connecting to another PostgreSQL server on `localhost:5432`. Check the effective environment:
-
-```bash
-printf 'DATABASE_URL=%s\n' "${DATABASE_URL-<unset>}"
-printf 'SQLX_DATABASE_URL=%s\n' "${SQLX_DATABASE_URL-<unset>}"
-```
-
-Then clear stale overrides and retry:
-
-```bash
-unset DATABASE_URL SQLX_DATABASE_URL
-sqlx migrate run --source migrations
-```
-
-Or select the Docker database explicitly:
-
-```bash
-set -a
-. ./.env
-set +a
-sqlx migrate run --source migrations
-```
-
-## HTTP API
-
-All JSON application routes are under `/api/v1`.
-
-### Health and readiness
-
-```text
-GET /api/v1/health
-GET /api/v1/ready
-GET /api/v1/metrics
-```
-
-Example:
-
-```bash
-curl -i http://localhost:8081/api/v1/health
-```
-
-`/health` returns service status and package version. `/ready` checks Redis and PostgreSQL concurrently with a two-second timeout per dependency and returns HTTP `503` if either check fails. `/metrics` exports the Prometheus counter `sayangcare_http_requests_total`. The counter is process-local; Prometheus should scrape each API pod separately and calculate each pod's rate.
-
-### Call session routes
-
-```text
-POST /api/v1/calls/incoming
-GET  /api/v1/calls/{session_id}
-POST /api/v1/calls/{session_id}/turn
-POST /api/v1/calls/{session_id}/hangup
-```
-
-For the browser-based Call Lab, start the API and open `http://localhost:<api-port>/dashboard`. Use the port shown in the API startup log; it depends on the effective configuration (the native-development examples in this README use `8081`, while Compose publishes `8080`).
-
-### Call Lab simulator
-
-For the existing Windows Minikube setup, run `.\scripts\start-dashboard.ps1 -OpenBrowser`
-from the repository root with Docker Desktop running. The launcher prints
-friendly progress and success/failure icons, waits for the existing services,
-and verifies API health, Redis/PostgreSQL readiness, and the dashboard before
-printing **ACCESS THE DASHBOARD HERE: http://127.0.0.1:18080/dashboard**.
-Keep the terminal open; Ctrl+C closes its own connection, not the cluster.
-Use `-SkipMinikubeStart` for an already-running cluster, `-Port 18081` if the
-default port is occupied, or `-CheckOnly` for a temporary readiness check.
-It does not install or rebuild anything; follow the
-[Windows Phase 5 guide](docs/PHASE_5_Windows.md) for first-time setup.
-The [Mac guide](docs/PHASE_5_Mac.md) retains the manual macOS startup commands.
-
-The SID refresh control generates a new `SIM-...` ID. **Start call** creates a session with that ID in Redis; **Record turn** stores the caller and assistant turns there. The ID stays the same for the whole call. **End call** archives the session to PostgreSQL and removes its Redis copy only after the archive succeeds. If the call was escalated, its final state remains `escalated` when archived. With a Groq key configured, non-crisis turns receive a generated supportive reply; high-risk turns use the deterministic safety response and local heuristic classification. Without a key, turns use deterministic fallback replies. These are test transcripts, not microphone or phone audio.
-
-Select an on-shift volunteer in **Working as** (Aisha is selected by default; Noor is also on shift; Ibrahim is off shift). A queue row's **Claim** action assigns that specific session to the selected volunteer. **Claim next** assigns the highest-priority pending session to that volunteer. The assignment appears under **Assigned cases** and in the session record. **View case details** loads the session and transcript. **Transfer** moves an assigned case to another on-shift volunteer (selected automatically); **Resolve** closes the volunteer handoff; **Acknowledge** records operator review. Simulated calls update SayangCare state only and never redirect a real phone call.
-
-The dashboard is a responsive operator/test workspace with the call form, pending queue, session transcript, roster, assignments, alerts, and request details. If several local API copies are running, open the URL for the copy built from the latest source and confirm its port in that process's startup log.
-
-The care workspace includes icon-based Caller lab, Volunteer desk, and Operations navigation, keyboard-accessible workspace switching, and snapshot cards for queue size, on-shift volunteers, operator alerts, and the selected session's transcript turns. It polls the selected session every five seconds and refreshes the active workspace's queue, roster, assigned cases, or alerts while the page is visible. Paste a Call SID created outside the dashboard into the Call SID field to follow it; the `?sid=` URL parameter can also select a session when opening or sharing the page. Other snapshots update when their data is refreshed and are not continuous system-wide telemetry. Errors are shown in an inline alert or the session refresh status. Browser voice simulation, crisis simulation, queue claims, transfers, resolution, acknowledgments, Raft status, and request inspection remain available in their respective views. Workspace selection is not authentication.
-
-The dashboard HTML is embedded in the API binary. For a Kubernetes deployment, rebuild and load the image, then roll out the API to see UI changes:
-
-```sh
-docker build -t sayangcare-api:dev .
-minikube image load sayangcare-api:dev
-kubectl -n sayangcare rollout restart deployment/sayangcare-api
-kubectl -n sayangcare rollout status deployment/sayangcare-api
-```
-
-Restart your API port-forward if its selected pod was replaced, then reload the dashboard.
-
-Create a session:
-
-```bash
-curl -X POST http://localhost:8081/api/v1/calls/incoming \
-	-H 'content-type: application/json' \
-	-d '{"call_sid":"CA-demo-001","from":"+6590000000","to":"+6560000000"}'
-```
-
-The supplied `call_sid` is the session ID. Creation is atomic in Redis, so a retried request for the same CallSid and caller returns the existing session instead of resetting it; reuse of that CallSid by a different caller returns `409 Conflict`.
-
-Record a caller turn:
-
-```bash
-curl -X POST http://localhost:8081/api/v1/calls/CA-demo-001/turn \
-	-H 'content-type: application/json' \
-	-d '{"transcript":"I have been feeling overwhelmed."}'
-```
-
-Complete a call:
-
-```bash
-curl -X POST http://localhost:8081/api/v1/calls/CA-demo-001/hangup
-```
-
-Turn batches increment the session version once and persist through Redis Lua compare-and-swap. Concurrent updates with a stale version return `409 Conflict`. Ending a call uses CAS before archiving the full session to PostgreSQL; Redis state is deleted only after the durable archive succeeds. An escalated call retains its `escalated` state when ended. On a cache miss, archived sessions are restored to Redis only if no concurrent request has already recreated them.
-
-### Volunteer queue
-
-```text
-GET  /api/v1/volunteers/queue
-POST /api/v1/volunteers/claim
-GET  /api/v1/volunteers
-GET  /api/v1/volunteers/{volunteer_id}/cases
-POST /api/v1/volunteers/{volunteer_id}/cases/{session_id}/transfer
-POST /api/v1/volunteers/{volunteer_id}/cases/{session_id}/resolve
-```
-
-Claim the highest-priority queued session for a volunteer:
-
-```bash
-curl -X POST http://localhost:8081/api/v1/volunteers/claim \
-	-H 'content-type: application/json' \
-	-d '{"volunteer_id":"volunteer-aisha"}'
-```
-
-To claim one particular pending session, include its ID:
-
-```bash
-curl -X POST http://localhost:8081/api/v1/volunteers/claim \
-	-H 'content-type: application/json' \
-	-d '{"volunteer_id":"volunteer-aisha","session_id":"SIM-demo-001"}'
-```
-
-The Redis sorted set prioritizes higher risk first and earlier enqueue times first within the same risk level. Claims use atomic Redis operations to remove and record an item. Durable PostgreSQL volunteer bindings arbitrate claim, transfer, and resolve operations across API replicas; migrations `0005` and `0006` retain assignment history while enforcing one active owner per session. Simulated sessions are assigned without calling Twilio. For a live session, the current telephony adapter attempts to redirect its existing Twilio call to the volunteer; that requires an active Twilio Call SID and a configured real recipient number.
-
-## Raft Volunteer Queue
-
-Optional OpenRaft-replicated queue (`SAYANGCARE__QUEUE__BACKEND=raft`); Redis is the default. Step-by-step run commands are in [PHASE_2.md](docs/PHASE_2.md).
-
-## Twilio Webhook Flow
-
-Twilio routes use `application/x-www-form-urlencoded` input and return TwiML XML rather than JSON:
-
-```text
-POST /twilio/voice
-POST /twilio/gather
-POST /twilio/status
-POST /twilio/outbound-connect?session_id=<call-sid>
-```
-
-Configure the Twilio voice webhook to point to:
-
-```text
-https://<public-host>/twilio/voice
-```
-
-The intended turn-based voice flow is:
-
-1. `/twilio/voice` creates a session using `CallSid` and returns a `<Gather>` prompt.
-2. Twilio listens with `<Gather input="speech">`, transcribes the utterance, then posts `CallSid` and `SpeechResult` to `/twilio/gather`.
-3. The handler runs local heuristic risk triage before any model request. High-risk turns bypass Groq, receive a fixed safety response, and are enqueued for volunteer review. Non-crisis turns use Groq, or a deterministic fallback, then return the reply in `<Say>` followed by another `<Gather>`.
-4. Groq calls pass through the circuit breaker. If inference is unavailable, SayangCare falls back to a brief deterministic reply; high-risk escalation does not depend on the LLM.
-5. `/twilio/status` archives completed or failed calls. The inbound handler registers it on the active call using Twilio's Calls REST API.
-6. When a volunteer claims a live escalation, the API creates an outbound Twilio call to that volunteer with `POST /Accounts/{AccountSid}/Calls.json`. The caller leg and volunteer leg join the same conference. `/twilio/outbound-connect` validates the Twilio signature and returns the volunteer leg's conference TwiML.
-
-This is turn-based speech recognition and text-to-speech, not a continuous audio stream. Twilio handles the phone audio and transcription; SayangCare receives form-encoded text and returns TwiML instructions.
-
-For local webhook testing with Cargo, expose the API's actual listening port through a tunnel such as ngrok. Set `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL` to the exact public HTTPS origin (without a trailing slash), set real Account SID, Auth Token, and Twilio caller ID values, restart the API, and configure the Twilio number to POST to `https://<public-host>/twilio/voice`. The API validates `X-Twilio-Signature` on all Twilio routes, including the outbound-connect route. A URL or token mismatch returns HTTP 403. Never commit Twilio credentials.
-
-## Storage and Reliability Design
-
-### Hot session store
-
-`RedisSessionStore` stores serialized session JSON under keys like:
-
-```text
-session:<session-id>
-```
-
-Entries have a one-hour TTL. Updates use a Lua compare-and-swap operation based on the session version, preventing stale concurrent writes from silently overwriting newer state.
-
-### Cold archive
-
-`PostgresArchiveStore` upserts terminal sessions (`completed`, `escalated`, or `failed`) into `sessions`. It stores the transcript and risk assessment as JSONB, preserves timestamps, the monotonic version, handoff and volunteer assignment fields, and the simulated-call flag.
-
-### Tiered storage
-
-`TieredSessionStore` reads Redis first, restores archived sessions from PostgreSQL on a cache miss, and archives terminal sessions before deleting Redis state. Redis CAS and create-if-absent scripts serialize conflicting operations across API pods; process-local locks would not provide that guarantee.
-
-### Circuit breaker
-
-The circuit breaker has three states:
-
-- `Closed`: requests are allowed
-- `Open`: requests are rejected and the caller enters degraded handling
-- `HalfOpen`: a probe request is allowed after the cooldown
-
-The API stores breaker state and a bounded sample window in Redis, so API replicas share OPEN state, cooldowns, metrics, and a single recovery probe. Three consecutive failures trip immediately; otherwise error-rate and p95 checks use the configured minimum sample count. If Redis cannot coordinate a permit, the API fails closed to inference and uses its fallback path.
-
-## Docker
-
-### Compose services
-
-| Service          |     Host port | Container port | Purpose                                    |
-| ---------------- | ------------: | -------------: | ------------------------------------------ |
-| `postgres`       |        `5434` |         `5432` | PostgreSQL database                        |
-| `redis-master`   |        `6379` |         `6379` | Redis master                               |
-| `redis-replica`  | not published |         `6379` | Redis replica                              |
-| `redis-sentinel` |       `26379` |        `26379` | Sentinel discovery and failover monitoring |
-| `api`            |        `8080` |         `8080` | Containerized SayangCare API               |
-
-Build and start all services:
-
-```bash
-docker compose up -d --build
-```
-
-The API image uses a multi-stage Rust build. It compiles with Rust `1.88`, copies the release binary and configuration into a Debian runtime image, and exposes port `8080`.
-
-### Docker networking note
-
-The Compose API uses PostgreSQL and Redis Sentinel service hostnames on the Compose network. The session store, Redis queue, and shared circuit-breaker state use the shared Sentinel-aware Redis connection provider.
-
-## Kubernetes
-
-The Kustomize manifests target namespace `sayangcare` and include a three-replica API Deployment/Service, a three-instance CloudNativePG cluster with 5 GiB PVCs and synchronous replication, three Redis nodes, three Sentinel pods, disruption budgets, an HPA, and NGINX Ingress. The local Minikube overlay uses the `sayangcare-api:dev` image; use the production overlay and a published registry image for other clusters. Install the CloudNativePG operator before applying the Kustomization.
-
-### Local Minikube setup (Windows and macOS)
-
-Requirements: Docker Desktop running, `kubectl`, and Minikube. Install Minikube using the package manager for your OS, then start Docker Desktop before creating the cluster.
-
-**macOS (Terminal):**
-
-```bash
-brew install minikube
-minikube start --driver=docker
-kubectl config current-context
-kubectl get nodes
-```
-
-**Windows (PowerShell):** install Minikube with Chocolatey (`choco install minikube`) or the official Windows installer, then run:
+The API reads `config/default.toml` and `SAYANGCARE__...` environment
+variables; the binary also loads `.env` for local development. Docker Compose
+uses `.env` for interpolation and explicitly supplies its container variables;
+the host's `127.0.0.1` database URL is **not** the container address.
+Kubernetes uses a ConfigMap and Secrets. Never share `.env` or real credentials.
+
+| Setting | Purpose |
+| --- | --- |
+| `POSTGRES_PASSWORD` | Local Compose database password; development only |
+| `DATABASE_URL`, `SAYANGCARE__POSTGRES__URL` | Host SQLx/API PostgreSQL URL; normally port 5434 |
+| `SAYANGCARE__SERVER__PORT` | Native API port; example 8081; container listens on 8080 |
+| `SAYANGCARE__REDIS__SENTINEL_ENDPOINTS` | Sentinel endpoints appropriate to the deployment |
+| `SAYANGCARE__REDIS__MASTER_URL` | Direct Redis URL for native local development |
+| `SAYANGCARE__QUEUE__RAFT_ASSIGNMENTS` | Enable Raft ownership coordination when configured |
+| `SAYANGCARE__AI__API_KEY` | Optional provider key; omit for deterministic fallback |
+| `SAYANGCARE__PERFORMANCE__*` | Caller-response budget, timeouts and AI concurrency |
+| `SAYANGCARE__TELEPHONY__*` | Twilio credentials, caller ID and public callback origin |
+
+To use Groq with the native API, set the optional key privately in `.env`
+and restart the API; provider calls may consume quota. Compose and Kubernetes
+must explicitly receive optional keys in their respective configuration before
+they can use them. Do not assume a key in the host `.env` is automatically
+passed into the Compose API container.
+
+The API applies the checked-in SQLx migrations during startup. Back up
+valuable databases before upgrades; never edit a migration already applied.
+`migrations/0010_session_checkpoints.sql` defines durable checkpointing and
+`0011_assignment_fencing.sql` adds the ownership journal and fencing schema.
+Legacy Raft assignments without generations may require explicit offline
+reconciliation; do not delete data to bypass a refusal.
+
+## Optional: three-node Raft
+
+This is a separate local Compose deployment with fixed voters on ports
+18081-18083. It builds images and starts containers; coordinate first on a
+shared machine. With the same Compose project it shares PostgreSQL and Redis
+with the single-API Compose setup, not the Kubernetes database. Avoid
+simultaneous conflicting Compose deployments.
+
+**Windows:**
 
 ```powershell
-minikube start --driver=docker
-kubectl config current-context
-kubectl get nodes
+.\scripts\start-dashboard.ps1 -Mode Raft -OpenBrowser
 ```
 
-The current local cluster is a single-node Minikube cluster. The setup enabled storage provisioning, Metrics Server, and NGINX Ingress:
+The launcher builds, starts and checks the Raft cluster. Alternatively, the
+following Compose commands work in both PowerShell and macOS Terminal:
 
-```sh
+```text
+docker compose -f docker-compose.yml -f docker-compose.raft.yml --profile raft up -d --build
+docker compose -f docker-compose.yml -f docker-compose.raft.yml --profile raft ps
+```
+
+Open `http://127.0.0.1:18081/dashboard` after startup. Check the three
+`/api/v1/queue/raft` endpoints at 18081, 18082 and 18083 for one leader and
+two followers. Wait for readiness/election; investigate logs if it fails.
+Status snapshots from followers are diagnostics, not a linearizable read API.
+To stop this stack without deleting volumes:
+
+```text
+docker compose -f docker-compose.yml -f docker-compose.raft.yml --profile raft down
+```
+
+Ownership changes require a majority. Quorum loss fails new Raft-coordinated
+claims/transfers closed; it does not automatically make every unrelated read
+or note unavailable. A timeout may mean an unknown committed outcome: inspect
+the ownership state and retry the **same request ID and payload**, rather than
+issuing a conflicting replacement. Database and Raft are not one transaction;
+the durable operation journal supports recovery. PostgreSQL-owned legacy cases
+remain PostgreSQL-owned when Raft is enabled.
+
+## Kubernetes (Minikube)
+
+This is an **optional local test cluster**, not a production installation.
+The deployment includes three API replicas at rest, three Redis nodes, three
+Sentinels and a three-instance CloudNativePG cluster. All can still run on one
+physical node; that does not prove node or zone high availability. Use a
+dedicated cluster with sufficient Docker Desktop CPU, memory and disk.
+
+### First-time cluster setup: Windows and macOS
+
+Use a terminal in the repository root. Start Docker Desktop and verify the
+selected Minikube context. These commands use no shell-specific syntax:
+
+```text
+minikube start --driver=docker
+kubectl --context minikube get nodes
 minikube addons enable storage-provisioner
 minikube addons enable metrics-server
 minikube addons enable ingress
-kubectl get storageclass
-kubectl top nodes
-```
-
-Build and import the API image into Minikube. Re-run these commands after changing API code:
-
-```sh
 docker build -t sayangcare-api:dev .
-minikube image load sayangcare-api:dev
+minikube image load sayangcare-api:dev --profile minikube
+kubectl --context minikube apply -f k8s/base/namespace.yaml
 ```
 
-Create a local-only Secret before applying the overlay. Dummy Twilio values are sufficient for dashboard and simulated-call testing; they cannot make live calls. Do not use real values in shell history or commit them:
+The following Secret commands are **for a new disposable cluster only**. Check
+that neither Secret already exists before running them; they deliberately use
+test-only values and must not overwrite an existing deployment's credentials.
+Use a proper secret-management process and strong credentials outside local
+simulation. The two database passwords must match.
 
-```sh
-kubectl apply -f k8s/base/namespace.yaml
-kubectl -n sayangcare create secret generic sayangcare-secrets --from-literal=POSTGRES_PASSWORD='local-dev-password' --from-literal=SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID='ACtest' --from-literal=SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN='test' --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n sayangcare create secret generic sayangcare-db-app --from-literal=username=sayangcare --from-literal=password='local-dev-password' --dry-run=client -o yaml | kubectl apply -f -
+```text
+kubectl --context minikube -n sayangcare get secret sayangcare-secrets sayangcare-db-app
 ```
 
-Install the CloudNativePG operator and wait for it to be ready:
+If both are absent, create them:
 
-```sh
-kubectl apply --server-side -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.1.yaml
-kubectl rollout status deployment/cnpg-controller-manager -n cnpg-system
+```text
+kubectl --context minikube -n sayangcare create secret generic sayangcare-secrets --from-literal=POSTGRES_PASSWORD=local-dev-password --from-literal=SAYANGCARE__TELEPHONY__TWILIO_ACCOUNT_SID=ACtest --from-literal=SAYANGCARE__TELEPHONY__TWILIO_AUTH_TOKEN=test
+kubectl --context minikube -n sayangcare create secret generic sayangcare-db-app --from-literal=username=sayangcare --from-literal=password=local-dev-password
 ```
 
-Deploy the Minikube stack. The API init container waits for Redis Sentinel and the PostgreSQL primary before starting:
+If either Secret exists, inspect the existing deployment and coordinate with
+its owner; do not replace credentials or expose Secret contents. Install the
+pinned CloudNativePG operator if absent, then deploy:
 
-```bash
-kubectl apply -k k8s/overlays/minikube
-kubectl -n sayangcare wait --for=condition=Ready cluster/sayangcare-db --timeout=10m
-kubectl -n sayangcare rollout status statefulset/redis
-kubectl -n sayangcare rollout status statefulset/redis-sentinel
-
-kubectl -n sayangcare rollout status deployment/sayangcare-api
+```text
+kubectl --context minikube apply --server-side -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.1.yaml
+kubectl --context minikube -n cnpg-system rollout status deployment/cnpg-controller-manager --timeout=5m
+kubectl --context minikube apply -k k8s/overlays/minikube
+kubectl --context minikube -n sayangcare wait --for=condition=Ready cluster/sayangcare-db --timeout=10m
+kubectl --context minikube -n sayangcare rollout status statefulset/redis --timeout=5m
+kubectl --context minikube -n sayangcare rollout status statefulset/redis-sentinel --timeout=5m
+kubectl --context minikube -n sayangcare rollout status deployment/sayangcare-api --timeout=5m
+kubectl --context minikube -n sayangcare get pods,svc,pvc,hpa
 ```
 
-Check pods, PVCs, service endpoints, and HPA:
+These are first-time setup instructions, not a migration from an existing
+PostgreSQL installation. Back up and verify existing data before upgrades or
+changing deployments. Applying the overlay does not copy an old database.
+Metrics Server may require a few minutes before `kubectl top nodes` works.
 
-```bash
-kubectl -n sayangcare get pods,svc,pvc,hpa
-kubectl -n sayangcare get cluster sayangcare-db
-kubectl -n sayangcare get endpoints sayangcare-api
-kubectl -n sayangcare describe hpa sayangcare-api
-kubectl -n sayangcare logs deployment/sayangcare-api
-```
+### Open an existing Kubernetes dashboard
 
-For local access, port-forward the Service:
-
-```bash
-kubectl -n sayangcare port-forward --address 127.0.0.1 svc/sayangcare-api 18080:80
-```
-
-In another terminal, check API health, dependencies, and metrics; open the Call Lab at `http://127.0.0.1:18080/dashboard`:
-
-```bash
-curl -i http://127.0.0.1:18080/api/v1/health
-curl -i http://127.0.0.1:18080/api/v1/ready
-curl http://127.0.0.1:18080/api/v1/metrics
-```
-
-In Windows PowerShell, use `curl.exe` rather than the `curl` alias:
+**Windows PowerShell:**
 
 ```powershell
-curl.exe --noproxy "*" -i http://127.0.0.1:18080/api/v1/health
-curl.exe --noproxy "*" -i http://127.0.0.1:18080/api/v1/ready
-curl.exe --noproxy "*" http://127.0.0.1:18080/api/v1/metrics
+.\scripts\start-dashboard.ps1 -Mode Kubernetes -OpenBrowser
 ```
 
-For a pod-recovery smoke test, start a simulated call in the dashboard, note its session ID, delete one API pod, wait for its replacement, and reload that session through the dashboard/API. Redis is shared across the API pods. This checks pod replacement and session retrieval, but does not prove an in-flight Twilio request survives a crash. Minikube has one Kubernetes node, so it cannot validate node-level high availability.
+Keep the terminal open. The launcher checks an already installed application;
+it does not perform the first-time setup. By default it opens port 18080.
 
-The base HPA uses CPU (65%) and memory (75%). Request-rate autoscaling adds a custom per-pod target (25 requests/second) and requires Prometheus and Prometheus Adapter; install them before applying `kubectl apply -k k8s/overlays/request-rate-hpa`. If the HPA shows `<unknown>` or reports no custom metrics API, request-rate scaling is not active. See [Phase 4 Kubernetes guide](docs/PHASE_4_KUBERNETES.md) for monitoring setup, Ingress/TLS, and external-cluster deployment.
-
-See the Phase 5 runbooks for [Windows](docs/PHASE_5_Windows.md) or [macOS](docs/PHASE_5_Mac.md) for starting the local monitoring stack, checking Prometheus/HPA metrics, running a simulated call lifecycle, and tracking the remaining load-test and chaos-engineering work.
-
-The Ingress requires an installed NGINX Ingress Controller, a real hostname, DNS, and a TLS Secret. The checked-in example hostname and certificate name are not ready for public Twilio traffic. CloudNativePG replicates PostgreSQL across three instances, uses one synchronous standby for acknowledged writes, and directs the API to its primary service. Minikube is still a single-node cluster, so all database instances share one node and cannot survive node loss. Configure backups separately; replication is not a backup.
-
-When upgrading an existing populated PostgreSQL deployment, back up and restore its data into the CloudNativePG cluster before switching the API. Kustomize deploys the cluster but does not migrate data; the Phase 4 guide records the tested migration and failover results.
-
-## Observability
-
-Logging uses `tracing` and `tracing-subscriber`. Set `RUST_LOG` to control verbosity:
+**macOS Terminal:** leave this command running in one terminal:
 
 ```bash
-RUST_LOG=debug,sayangcare=trace cargo run -p sayangcare-api
+kubectl --context minikube -n sayangcare port-forward --address 127.0.0.1 svc/sayangcare-api 18080:80
 ```
 
-The request-ID middleware adds an `x-request-id` response header and makes the value available to handlers through request extensions.
+In another terminal:
 
-Current endpoints:
+```bash
+curl --noproxy '*' -i http://127.0.0.1:18080/api/v1/health
+curl --noproxy '*' -i http://127.0.0.1:18080/api/v1/ready
+open http://127.0.0.1:18080/dashboard
+```
 
-- Health: `/api/v1/health`
-- Readiness: `/api/v1/ready`
-- Prometheus request counter: `/api/v1/metrics` (`sayangcare_http_requests_total`)
+The Service port-forward selects one pod; if that pod is replaced it may
+disconnect. Restart the forward. For failover load tests use the ingress
+controller path, not this dashboard forward. To deploy source changes, rebuild
+and load the image, restart the API Deployment, then check rollout status.
+A source checkout by itself does not change a running container.
 
-The endpoint exports a process-local cumulative request counter. Prometheus scraping, dashboarding, and HPA custom-metric adapter installation must be configured in the cluster.
+## Monitoring
+
+The API uses the Rust `prometheus` client to export per-route/method/status
+request counters and duration histograms, alongside Redis projection counts,
+archive backlog and breaker states. It does **not** use `actix-web-prom`.
+Prometheus and Grafana are optional for the basic dashboard.
+
+For a dedicated Minikube cluster, install Helm and check existing releases
+before modifying a shared monitoring namespace. Then:
+
+```text
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+helm upgrade --install prometheus prometheus-community/prometheus --namespace monitoring --create-namespace --values k8s/monitoring/prometheus-values.yaml
+helm upgrade --install prometheus-adapter prometheus-community/prometheus-adapter --namespace monitoring --values k8s/monitoring/prometheus-adapter-values.yaml
+```
+
+The Grafana chart expects an existing `grafana-admin` Secret. On a **new
+disposable local cluster only**, create it with a test password, then install:
+
+```text
+kubectl --context minikube -n monitoring create secret generic grafana-admin --from-literal=admin-user=admin --from-literal=admin-password=local-demo-only
+helm upgrade --install grafana grafana/grafana --namespace monitoring --values k8s/monitoring/grafana-values.yaml
+kubectl --context minikube apply -k k8s/overlays/request-rate-hpa
+kubectl --context minikube -n monitoring rollout status deployment/prometheus-server
+kubectl --context minikube -n monitoring rollout status deployment/prometheus-adapter
+kubectl --context minikube -n monitoring rollout status deployment/grafana
+kubectl --context minikube get apiservice v1beta1.custom.metrics.k8s.io
+```
+
+Use a real secret-management process for anything beyond a disposable local
+cluster. The request-rate overlay needs Prometheus Adapter; the base Minikube
+overlay provides CPU/memory HPA. On Windows,
+`.\scripts\start-observability.ps1 -OpenBrowser` can launch the existing
+monitoring view. Otherwise, in separate terminals:
+
+```text
+kubectl --context minikube -n monitoring port-forward --address 127.0.0.1 svc/grafana 13000:80
+kubectl --context minikube -n monitoring port-forward --address 127.0.0.1 svc/prometheus-server 19090:9090
+```
+
+Open `http://127.0.0.1:13000/d/sayangcare-phase5/sayangcare-api` for the provisioned dashboard
+and `http://127.0.0.1:19090` for Prometheus. Grafana's local anonymous access
+is viewer-only; local dashboard/Prometheus storage is not persistent.
+Redis key counts are projection counts, not authoritative session counts.
+
+Example queries:
+
+```promql
+sum(rate(sayangcare_http_requests_by_route_total[5m]))
+histogram_quantile(0.95, sum by (le) (rate(sayangcare_http_request_duration_by_route_seconds_bucket[5m])))
+max(sayangcare_redis_active_sessions)
+max(sayangcare_archive_backlog)
+max by (breaker) (sayangcare_circuit_breaker_state)
+```
+
+## Testing and evaluation
+
+### Rust workspace
+
+In PowerShell or macOS Terminal:
+
+```text
+cargo fmt --all -- --check
+cargo check --workspace --all-targets --locked
+cargo test --workspace --locked
+```
+
+Run each command only after the previous one succeeds. SQLx offline metadata is
+checked in, so normal compilation does not need a database. Tests marked
+`ignored` are not passes; database integration tests need explicitly configured
+`TEST_DATABASE_URL` and `TEST_REDIS_URL` pointing to **disposable** test
+infrastructure. Never print those values or use a real patient database.
+
+```text
+cargo test -p sayangcare-session-store --locked transactional_fencing_and_ambiguous_commit_recovery -- --ignored
+cargo test -p sayangcare-api --locked http_claim_race_transfer_notes_and_stale_owner_are_fenced -- --ignored
+```
+
+### Load, failover and fencing
+
+Only run synthetic workloads on a dedicated, approved cluster. Fault tests can
+interrupt shared services. Preserve prior reports and check native k6 exit
+codes, failed lifecycle steps, acknowledged IDs, transcript contents and
+database audits. `99` indicates failed k6 thresholds, not a pass.
+
+The checked-in k6 scenario is `tests/k6/call-lifecycle.js`. On Windows, the
+evaluation wrappers are:
+
+```powershell
+# These generate load; the last three inject failures. Review prompts first.
+.\tests\k6\evaluate-lifecycle.ps1 -Mode baseline -Vus 100 -Duration 30s
+.\tests\k6\evaluate-lifecycle.ps1 -Mode pod-failover -Vus 100 -Duration 60s
+.\tests\reliability\evaluate-dependencies.ps1 -Dependency postgres -Vus 20 -Duration 120s
+.\tests\reliability\evaluate-dependencies.ps1 -Dependency redis -FaultMode master-pause -PauseMilliseconds 60000 -Vus 20 -Duration 120s
+```
+
+HPA evaluation requires a separately owned ingress-controller port-forward
+and the complete cooldown:
+
+```powershell
+# Terminal 1; keep open
+kubectl --context minikube -n ingress-nginx port-forward --address 127.0.0.1 svc/ingress-nginx-controller 18193:80
+# Terminal 2
+.\tests\k6\evaluate-hpa.ps1 -BaseUrl "http://127.0.0.1:18193" -Vus 100 -Duration 120s -DownscaleTimeoutSeconds 900
+```
+
+The comparison `.\scripts\test-raft-fencing.ps1` requires the Raft and
+PostgreSQL-only endpoints described in the script. It creates fresh synthetic
+cases; container fault injection is separately opt-in via `-InjectFaults`
+and requires approval. Review restoration and NOT RUN/N/A outcomes.
+See the [presentation and demo guide](docs/PRESENTATION_AND_AI_HANDOFF.md)
+for exact evidence commands, workload boundaries and step-by-step examples.
+Use a fresh `-OutputDirectory` for each run to keep historical evidence
+separate; the scripts create timestamped files and record their own results.
+
+The Windows wrappers use Windows-specific paths and executables; they are not
+validated as macOS automation. On macOS, k6 can run the checked-in JavaScript
+directly against an ingress forward, but a raw k6 run alone is **not** the
+full Windows SQL/acknowledged-ID audit or failover acceptance test.
+
+## API reference
+
+| Route | Purpose |
+| --- | --- |
+| `GET /dashboard` | Synthetic Caller lab, Volunteer desk and Operations |
+| `GET /api/v1/health` | Process liveness |
+| `GET /api/v1/ready` | Redis and PostgreSQL readiness |
+| `GET /api/v1/metrics` | Prometheus metrics for this API process |
+| `POST /api/v1/calls/incoming` | Create/retry a session with stable Call SID |
+| `GET /api/v1/calls/{sid}` | Inspect a session |
+| `POST /api/v1/calls/{sid}/turn` | Record a caller turn |
+| `POST /api/v1/calls/{sid}/hangup` | Complete/archive a call |
+| `GET /api/v1/volunteers/queue` | Waiting cases ordered by risk/FIFO |
+| `POST /api/v1/volunteers/claim` | Claim a case |
+| `POST /api/v1/volunteers/{volunteer}/cases/{sid}/transfer` | Transfer ownership |
+| `POST /api/v1/volunteers/{volunteer}/cases/{sid}/release` | Release to queue |
+| `POST /api/v1/volunteers/{volunteer}/cases/{sid}/resolve` | Resolve a handoff |
+| `POST /api/v1/volunteers/{volunteer}/cases/{sid}/notes` | Add a fenced note |
+| `GET /api/v1/calls/{sid}/ownership[/audit]` | Current ownership and history |
+| `GET /api/v1/queue/raft` | Raft diagnostics when enabled |
+| `POST /twilio/voice`, `/twilio/gather`, `/twilio/status`, `/twilio/outbound-connect` | Signed Twilio webhooks; voice handlers return TwiML |
+
+The embedded `crates/api/assets/holding-v1.wav` is a locally generated,
+six-second chime served at `/audio/holding-v1.wav`. If replacing it, version
+both its filename and URL to avoid stale cached audio.
+
+Transfer/release/resolve require `assignment_generation` and `request_id`;
+notes also require `body`. Transfer may include `to_volunteer_id`. Use a new
+request ID for a new operation and retain it for retries. Stale generations
+return 409; pending/unavailable coordination can return 503. See the demo
+guide for complete request examples. Never interpret a timeout as proof
+that an operation did not commit.
+
+The Twilio integration verifies `X-Twilio-Signature`. A real deployment needs
+valid credentials, a correctly configured public HTTPS callback URL, a
+voice-capable number, carrier/regulatory compliance and explicit live tests.
+The team tried a US trial number; that is not a claim that every trial provides
+only US numbers. A funded Singapore pilot remains conditional on availability
+and applicable requirements.
 
 ## Troubleshooting
 
-### `role "sayangcare" does not exist`
+| Symptom | Check |
+| --- | --- |
+| Docker engine unavailable | Start Docker Desktop and rerun `docker version`. |
+| Port already in use | Choose a free port; do not terminate another person's service. |
+| Native API cannot connect to PostgreSQL | Verify `.env`, port 5434, matching password and `docker compose ps`; existing volumes retain their old credentials. |
+| API returns 503 on `/ready` | Check `docker compose logs` or Kubernetes pod logs; Redis and PostgreSQL must both be reachable. |
+| Unexpected live inference | Remove the optional AI key from local `.env` and inherited environment, then restart; use synthetic sessions only. |
+| Image or dashboard looks old | Rebuild/load the image and roll out the API; code changes do not update a running container. |
+| Kubernetes cluster resource unknown | Install the CloudNativePG operator before applying the overlay. |
+| HPA custom metric unavailable | Verify Prometheus Adapter and allow time for scraping; CPU/memory HPA works without the request-rate overlay. |
+| Raft has no leader | Check all three nodes, peer configuration and ports; never silently switch a Raft-owned case to PostgreSQL. |
+| Signature rejected | Verify exact public callback URL and Twilio token privately. Live calling is not required for the dashboard. |
+| Cargo ignored tests | Configure disposable test dependencies and explicitly run them; do not count ignored tests as passes. |
 
-Your command may be connecting to host PostgreSQL on port `5432` or `5433` instead of the Docker database on `5434`.
+Useful read-only checks:
 
-```bash
-unset DATABASE_URL SQLX_DATABASE_URL
-docker compose up -d --wait postgres
-sqlx migrate run --source migrations
-```
-
-Check the endpoint directly:
-
-```bash
-set -a
-. ./.env
-set +a
-psql "$DATABASE_URL" \
-	-c 'select current_user, current_database();'
-```
-
-### Docker Compose warns that `version` is obsolete
-
-Recent Docker Compose versions ignore the top-level `version: "3.9"` field. It is a warning, not a runtime failure. The Compose file can be modernized by removing that field if desired.
-
-### API cannot connect to Redis Sentinel
-
-Check the services and Sentinel logs:
-
-```bash
+```text
 docker compose ps
-docker compose logs redis-master redis-replica redis-sentinel
-redis-cli -p 26379 SENTINEL get-master-addr-by-name sayangcare-master
+docker compose logs --tail 100 api
+kubectl --context minikube -n sayangcare get pods,svc,pvc,hpa
+kubectl --context minikube -n sayangcare logs deployment/sayangcare-api
 ```
 
-For native local Cargo execution, set `SAYANGCARE__REDIS__MASTER_URL` to the host-published Redis URL; use Sentinel discovery for Docker and Kubernetes deployments.
+Avoid `docker compose down -v`, `minikube delete`, deleting PVCs or resetting
+databases unless the data owner explicitly approves permanent data loss.
 
-### SQLx compile-time query errors
+## Repository and submission evidence
 
-The repository uses committed offline query metadata. Run:
+| Path | Contents |
+| --- | --- |
+| `crates/` | API, core domain, session-store, queue, breaker, telephony and Redis crates |
+| `config/`, `.env.example` | Non-secret defaults and local configuration template |
+| `migrations/`, `.sqlx/` | PostgreSQL migrations and SQLx offline metadata |
+| `docker-compose.yml`, `docker-compose.raft.yml`, `Dockerfile` | Local deployments |
+| `k8s/` | Base, Minikube/HPA overlays and monitoring values |
+| `tests/`, `scripts/` | Workspace, lifecycle, reliability and demonstration tooling |
+| `artifacts/` | Timestamped historical evaluation reports and audits |
+| [Report source](docs/GROUP25.md) | Preserved IEEE article source |
+| [Final report PDF](documents/GROUP25_FINAL_REVISED.pdf) | Submitted-report candidate; review before submission |
+| [Final report Word](documents/GROUP25_FINAL_REVISED.docx) | Editable report; review before submission |
+| [Presentation and AI handoff](docs/PRESENTATION_AND_AI_HANDOFF.md) | Seven-person presentation, demo, statistics and evidence provenance |
 
-```bash
-cargo check --workspace --all-targets
-```
+Selected **historical** Windows experiments are indexed in
+[`artifacts/phase6-current/final-evaluation.json`](artifacts/phase6-current/final-evaluation.json).
+On the earlier four-CPU image, the 100-VU, 120-second HPA run recorded 9,248
+lifecycles, zero HTTP failures and p95/p99 281.64/507.44 ms, with 3 -> 10 -> 3
+API replicas. A separate later two-CPU PostgreSQL replacement run
+([report](artifacts/postgres-recovery/DEP-postgres-20261103T100531Z-report.json))
+recorded 2,216 lifecycles, zero HTTP failures and 7.16-second recovery.
+Different image/cluster conditions prevent an isolated causal comparison.
+Earlier failed runs remain evidence; later full-image HPA/API-failover
+regression is still needed. Process-fault Raft evidence and the later
+411-assertion harness are separate experiments, not one all-inclusive test.
 
-If metadata must be regenerated after changing SQL queries, start PostgreSQL, set `DATABASE_URL` to the Docker database on port `5434`, and run:
+## Limitations
 
-```bash
-set -a
-. ./.env
-set +a
-cargo sqlx prepare --workspace
-```
-
-Review the generated `.sqlx/` files before committing them.
-
-### Port already in use
-
-Inspect listeners:
-
-```bash
-lsof -nP -iTCP:5432 -sTCP:LISTEN
-lsof -nP -iTCP:5433 -sTCP:LISTEN
-lsof -nP -iTCP:5434 -sTCP:LISTEN
-lsof -nP -iTCP:8080 -sTCP:LISTEN
-```
-
-The intended local arrangement keeps host PostgreSQL on `5432` or `5433` and publishes Docker PostgreSQL on `5434`.
-
-## CB-03 Cached Audio Fallback
-
-Twilio remains the phone gateway. When the `llm-reply` breaker rejects a
-request (Open, or a Half-Open probe is already running), `/twilio/gather` returns
-a fixed spoken explanation followed by `<Play>` for a bundled six-second chime.
-It then gathers speech again, so the next turn can reassess risk and attempt
-recovery. The session and transcript are persisted as usual, with state
-`degraded`. A successful permitted reply returns the session to `active`.
-New calls to `/twilio/voice` also receive this fallback immediately when the
-breaker is Open and inference is configured. The greeting checks state without
-reserving a Half-Open recovery probe. Retried voice webhooks preserve the stored
-session and do not repeat the degraded-state transcript mutation.
-High-risk and already escalated calls retain their safety response and volunteer
-queue workflow rather than entering audio fallback. Missing AI credentials and
-individual failed inference requests retain the existing text fallback; after a
-failure opens the breaker, subsequent rejected turns use cached audio.
-
-The Call Lab turn endpoint adds `fallback_audio_url` (a URL during audio fallback,
-otherwise `null`) and reports `state: "degraded"`. The dashboard does not
-automatically play the audio. The embedded file is available at
-`GET /audio/holding-v1.wav`, with `audio/wav` and immutable cache headers; see
-[the audio asset notes](crates/api/assets/README.md).
-
-For live calls, `SAYANGCARE__TELEPHONY__PUBLIC_BASE_URL` must be your public HTTPS
-origin and both `/twilio/*` and `/audio/*` must be reachable by Twilio. No new
-credentials, audio service, database migration, or runtime asset copy is needed.
-Listen locally at `http://localhost:8081/audio/holding-v1.wav` after starting the
-API. Automated checks: `cargo test --workspace` and
-`cargo check --workspace --all-targets`. Live phone playback still needs Twilio
-validation. CB-04 also evaluates sentiment-adjusted thresholds after successful
-requests, so slow replies can now open the breaker.
-
-## CB-04 Sentiment-Aware Thresholds
-
-Both the Call Lab and live Twilio turns use the same sentiment workflow. The
-API uses separate shared breakers for sentiment scoring and reply generation.
-It requests a sentiment signal when that breaker allows it, saves valid output
-in `latest_sentiment`, and then generates the supportive reply. High-risk and
-already escalated calls continue to bypass inference entirely. A rejected reply
-permit invokes CB-03 without making a reply request. If only sentiment scoring
-is unavailable, the API clears the old signal, uses deterministic risk severity
-for adaptation, and still attempts reply generation.
-
-The current local risk score (1..5) maps to severity using `(score - 1) / 4`:
-1 maps to 0, 2 to 0.25, 3 to 0.5, 4 to 0.75, and 5 to 1. The breaker uses
-the higher of that severity and the model signal's `distress_severity()`.
-LLM sentiment affects degradation thresholds, not the deterministic safety
-classifier or volunteer queue priority.
-
-With the existing policy sensitivity of 0.4, each base threshold is multiplied
-by `1 - 0.4 * severity`. For example, severity 0.5 changes a 25% error threshold
-to 20% and a 2000 ms latency threshold to 1600 ms. Existing policy floors remain
-1% for error rate and 50 ms for latency. Each operation evaluates its own shared
-Redis sample window. Three consecutive failures open that operation's breaker
-without waiting for `MIN_REQUESTS`; mixed outcomes use the configured minimum
-sample count and bounded window. Redis atomically reserves one recovery probe
-across API replicas. A slow probe reopens its breaker; a healthy probe closes it.
-
-If scoring fails or produces non-finite values, the sentiment breaker records
-that operation as failed, clears the stale signal, and uses deterministic risk
-severity. A successful reply remains a reply success. Reply failures retain the
-deterministic fallback. Without an AI key, local replies continue unchanged. No
-database migration or new credentials are required.
-
-This adds one model request per permitted non-crisis turn for sentiment scoring,
-in addition to reply generation. Each operation has its own configured AI
-timeout, so combined model wait can approach twice that timeout. The shared
-breaker adds Redis coordination; if coordination is unavailable, inference is
-rejected and the existing fallback is used.
-
-Sentiment is an operational heuristic used only to adjust degradation thresholds.
-It is not a clinical assessment and does not decide crisis escalation, which
-continues to use deterministic local triage. Neither heuristic is validated for
-real crisis care; production use requires independent clinical and safety review.
-
-Verify with `cargo test --workspace` and `cargo check --workspace --all-targets`.
-Focused regression checks are `cargo test -p sayangcare-api sentiment::tests`
-and `cargo test -p sayangcare-circuit-breaker`. With the API and Groq configured,
-send a non-crisis Call Lab turn, then fetch `/api/v1/calls/{sid}` to inspect
-`latest_sentiment`. Live Groq scoring and Twilio behavior still need integration
-validation.
-
-## PERF-01/02 Caller-Turn Latency and Guardrails
-
-Stage timings, response budgets, bounded AI concurrency, and pool-capacity checks
-extend the existing API-04 exporter. See [configuration, reproducible validation,
-and OBS/API-04 integration notes](docs/PERF_01_02.md). This implementation does
-not change Kubernetes replicas, HPA limits, or database pool sizes. Initial
-limits require real-provider and Kubernetes load validation before final tuning.
-
-## Known Limitations
-
-- The Raft queue backend is opt-in (`SAYANGCARE__QUEUE__BACKEND=raft`); Redis remains the default. Raft cluster membership is static, there is no Kubernetes StatefulSet/headless-service manifest for it yet (Phase 4), and Raft state is only persisted when `RAFT_DATA_DIR` is set.
-- CB-01 sliding-window metrics and CB-02 recovery transitions/request permits are integrated. CB-03 audio fallback and CB-04 sentiment-adjusted thresholds have local regression coverage; live provider validation remains necessary.
-- Groq Chat Completions is the configured inference provider for supportive non-crisis replies. The Groq API key must be configured outside source control. Risk classification remains heuristic and local; high-risk turns bypass the model.
-- Twilio request-signature verification, outbound REST dispatch, and the outbound-connect TwiML route are implemented, but still require real Twilio credentials, a public HTTPS URL, a configured caller ID, and live end-to-end validation.
-- Volunteer roster, assigned-case mapping, and operator alerts are currently process-local application state, not durable relational bindings shared across API replicas.
-- The dashboard simulator tests transcript-based application behavior only; it does not test live microphone audio, Twilio speech recognition, or real phone handoff.
-- `/api/v1/ready` verifies Redis and PostgreSQL connectivity, but does not check the configured queue backend or external inference/telephony providers.
-- `/api/v1/metrics` exports only a process-local HTTP request counter; it does not expose latency/error histograms or active call counts.
-- The Compose Redis setup is a small local demonstration, not a hardened production Redis Sentinel deployment.
-- Kubernetes manifests are configured for the local `sayangcare-api:dev` image and still need a registry image, secure secrets, real hostname, DNS, and TLS for another cluster or live Twilio traffic.
-- The HPA's CPU/memory metrics require Metrics Server; its request-rate metric requires Prometheus scraping and Prometheus Adapter. HPA operation must be verified in the target cluster.
-- The migration is embedded in the API binary and also available through the SQLx CLI; use one controlled migration process in a deployment pipeline to avoid races.
-
-## Development Guidelines
-
-1. Keep domain logic and interfaces in `crates/core`.
-2. Implement infrastructure behind the ports in the relevant sibling crate.
-3. Keep HTTP parsing and response formatting in `crates/api` handlers.
-4. Add or update migrations for schema changes; do not edit an applied migration in a shared database.
-5. Regenerate `.sqlx/` metadata when changing `sqlx::query!` statements.
-6. Run formatting, workspace checks, and focused tests before opening a pull request:
-
-```bash
-cargo fmt --all -- --check
-cargo check --workspace --all-targets
-cargo test --workspace
-```
-
-## License
-
-This project is marked as MIT in the workspace Cargo manifest. Confirm the course or team distribution requirements before publishing or redistributing it.
+- No verified end-to-end live telephony, production DNS/TLS or emergency use.
+- Local one-node Minikube does not validate machine/zone failure or backup
+  restoration; PostgreSQL outages can still cause explicit failures.
+- No complete periodic Redis-projection reconciliation or automatic safe
+  checkpoint/journal/tombstone retention policy.
+- No transactional outbox or exactly-once guarantee for external phone effects.
+- Heuristic risk scoring, prototype identity and transcript privacy controls
+  require clinical, security and governance work before any real-world pilot.
+- Benchmark results are bounded synthetic observations, not production
+  service-level guarantees or proof of the latest combined image under all load.
