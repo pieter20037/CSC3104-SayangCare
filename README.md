@@ -66,8 +66,14 @@ approval; use [Commands to run: Windows](#commands-to-run-windows) instead.
    ```
 
 Allocate sufficient Docker Desktop resources for both deployments: **at least
-4 CPUs and 8 GB memory recommended**, plus free disk space for images and
-volumes. The first builds and downloads can take several minutes.
+4 CPUs and 8 GiB memory recommended**, plus free disk space for images and
+volumes. The Minikube cluster below is limited to 4 GiB so that Compose and
+Docker have memory headroom. The first builds and downloads can take several
+minutes. Check Docker's available resources with:
+
+```powershell
+docker info --format 'CPUs={{.NCPU}} MemoryBytes={{.MemTotal}}'
+```
 
 ### 2. Get the project and configure Compose
 
@@ -101,7 +107,7 @@ Sentinel and PostgreSQL are then created by the Kubernetes manifests; you do
 **not** need separate Redis or PostgreSQL installations on Windows.
 
 ```powershell
-minikube start --profile minikube --driver=docker --cpus=4 --memory=8192
+minikube start --profile minikube --driver=docker --cpus=4 --memory=4096
 if ($LASTEXITCODE -ne 0) { throw 'Minikube startup failed.' }
 minikube addons enable metrics-server --profile minikube
 minikube addons enable ingress --profile minikube
@@ -237,7 +243,13 @@ in new Terminal windows.
 
 Use Rust 1.88 or newer and a `kubectl` client within one minor version of the
 Minikube server. Allocate at least 4 CPUs and 8 GB memory to Docker Desktop
-if available, with enough free disk for images and volumes.
+if available, with enough free disk for images and volumes. The cluster below
+uses 4 GiB so Compose and Docker retain headroom. Check Docker's available
+resources with:
+
+```bash
+docker info --format 'CPUs={{.NCPU}} MemoryBytes={{.MemTotal}}'
+```
 
 ### 2. Get the project and configure Compose
 
@@ -261,7 +273,7 @@ The manifests install Redis, Sentinel and PostgreSQL in Kubernetes; no
 separate host installations are needed. Start Docker Desktop and run:
 
 ```bash
-minikube start --profile minikube --driver=docker --cpus=4 --memory=8192
+minikube start --profile minikube --driver=docker --cpus=4 --memory=4096
 minikube addons enable metrics-server --profile minikube
 minikube addons enable ingress --profile minikube
 kubectl --context minikube get nodes
@@ -715,6 +727,18 @@ recorded Groq evidence and conclusion. Say:
   three-instance CloudNativePG database run on one local Kubernetes node.
   The API uses PostgreSQL-only ownership by default; its replicas are not
   Raft voters. Local single-node operation does not prove machine/zone HA.
+- **Local resources:** on 19 November 2026, the existing Windows environment
+  started both stacks with Docker reporting 16 CPUs and 7.4 GiB total memory;
+  its Minikube container was capped at 4 CPUs and approximately 3.8 GiB.
+  At idle, all application and monitoring pods were ready. This is a startup
+  check, not a load test or a guarantee for other machines. Inspect the
+  actual cap and live usage without changing it:
+
+  ```text
+  docker inspect minikube --format "MemoryLimitBytes={{.HostConfig.Memory}} NanoCPUs={{.HostConfig.NanoCpus}}"
+  docker stats --no-stream
+  kubectl --context minikube top nodes
+  ```
 - **Storage:** PostgreSQL is the commit authority for versioned checkpoints,
   archived transcripts and ownership fencing. Redis is a hot projection and
   risk/FIFO queue. A stale assignment generation is rejected with HTTP 409.
