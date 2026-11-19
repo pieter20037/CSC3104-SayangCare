@@ -67,6 +67,8 @@ pub struct QueueConfig {
     pub raft_node_id: u64,
     /// Cluster members as `1=http://host-a:8081,2=http://host-b:8081`. Empty = single node.
     pub raft_peers: String,
+    /// Optional browser-facing base URLs as `1=http://localhost:18081,2=http://localhost:18082`.
+    pub raft_dashboard_urls: String,
     /// Directory for this node's persisted Raft state; in-memory when unset.
     pub raft_data_dir: Option<String>,
     /// Shared secret required on `/internal/raft/*` peer requests.
@@ -80,6 +82,7 @@ impl Default for QueueConfig {
             raft_assignments: false,
             raft_node_id: 1,
             raft_peers: String::new(),
+            raft_dashboard_urls: String::new(),
             raft_data_dir: None,
             raft_token: None,
         }

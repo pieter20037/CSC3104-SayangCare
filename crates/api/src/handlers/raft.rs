@@ -136,6 +136,11 @@ pub async fn cluster(state: State) -> HttpResponse {
         let client = client.clone();
         let local = local.clone();
         let (id, url) = (*id, url.clone());
+        let dashboard_url = state
+            .raft_dashboard_urls
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| url.clone());
         async move {
             let status = if id == this_node {
                 Some(local)
@@ -148,6 +153,7 @@ pub async fn cluster(state: State) -> HttpResponse {
             serde_json::json!({
                 "node_id": id,
                 "url": url,
+                "dashboard_url": dashboard_url,
                 "reachable": status.is_some(),
                 "status": status,
             })

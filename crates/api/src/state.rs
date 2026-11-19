@@ -54,6 +54,7 @@ pub struct AppState {
     pub breakers: Arc<BreakerRegistry>,
     pub queue: Arc<dyn PriorityQueue>,
     pub raft: Option<Arc<RaftQueueNode>>,
+    pub raft_dashboard_urls: std::collections::BTreeMap<u64, String>,
     pub volunteer_bindings: Arc<VolunteerBindingStore>,
     pub ownership: Arc<sayangcare_session_store::OwnershipStore>,
     pub telephony: Arc<dyn TelephonyProvider>,
@@ -68,6 +69,20 @@ impl AppState {
             .performance
             .validate()
             .map_err(|e| sayangcare_core::CoreError::Storage(e.to_string()))?;
+        let raft_dashboard_urls = RaftQueueSettings::parse_peers(&config.queue.raft_dashboard_urls)
+            .map_err(sayangcare_core::CoreError::Storage)?;
+        for (id, url) in &raft_dashboard_urls {
+            let parsed = reqwest::Url::parse(url).map_err(|error| {
+                sayangcare_core::CoreError::Storage(format!(
+                    "invalid raft_dashboard_urls entry for node {id}: {error}"
+                ))
+            })?;
+            if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+                return Err(sayangcare_core::CoreError::Storage(format!(
+                    "raft_dashboard_urls entry for node {id} must be an HTTP(S) URL"
+                )));
+            }
+        }
         // --- Hot store (Redis Sentinel) ---
         let redis = RedisConnectionProvider::from_config(
             config.redis.master_url.as_deref(),
@@ -243,6 +258,7 @@ impl AppState {
             breakers,
             queue,
             raft,
+            raft_dashboard_urls,
             volunteer_bindings,
             ownership,
             telephony,
@@ -514,7 +530,9 @@ impl AppState {
             .list_stale_before(Utc::now() - HANDOFF_TIMEOUT)
             .await?;
 
-        for (volunteer_id, session_id) in stale_ids {
+        for binding in stale_ids {
+            let session_id = binding.session_id;
+            let volunteer_id = binding.volunteer_id;
             let sid = SessionId(session_id.clone());
             match self.sessions.get(&sid).await {
                 Ok(Some(session)) => {

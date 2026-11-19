@@ -1365,12 +1365,13 @@
           ? `term ${s.current_term} · leader ${s.current_leader ?? "none"} · log ${s.last_log_index ?? "—"} · applied ${s.last_applied ?? "—"}`
           : "Not responding";
         row.append(top, meta);
-        if (n.url) {
+        const dashboardUrl = n.dashboard_url || n.url;
+        if (dashboardUrl) {
           const link = document.createElement("a");
-          link.href = `${n.url}/dashboard`;
+          link.href = `${dashboardUrl}/dashboard`;
           link.target = "_blank";
           link.rel = "noopener";
-          link.textContent = `${n.url}/dashboard`;
+          link.textContent = `${dashboardUrl}/dashboard`;
           link.className = "microcopy";
           row.append(link);
         }
